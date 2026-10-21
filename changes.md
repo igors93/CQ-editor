@@ -8,6 +8,8 @@ options, menus, shortcuts and panels work as before.
   Run > Stop (Ctrl+Shift+F5) aborts it and a crashed worker restarts itself
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: precise OCCT face, edge and vertex selection with subshape highlighting
+  and stable topology identifiers retained by the Python worker
 * New: navigation cube redrawn natively, with hover feedback and the 45° roll
   arrows; view icons follow the theme
 * New: debugger "Step out" (Ctrl+Shift+F11) and a cleaner stepping model

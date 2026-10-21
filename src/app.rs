@@ -267,9 +267,15 @@ impl AppState {
         );
         for event in events {
             match event {
-                ViewerEvent::Picked { key, extend } => {
-                    self.actions.push(Action::Select { key, extend })
-                }
+                ViewerEvent::Picked {
+                    key,
+                    topology,
+                    extend,
+                } => self.actions.push(Action::Select {
+                    key,
+                    topology,
+                    extend,
+                }),
                 ViewerEvent::FocusRequested => self.actions.push(Action::FitSelection),
                 ViewerEvent::Screenshot(Ok(path)) => {
                     self.set_status(
@@ -360,7 +366,11 @@ impl AppState {
             }
 
             Action::GoToLine(line) => self.editor.go_to_line(&self.document.text, line),
-            Action::Select { key, extend } => self.select(key, extend),
+            Action::Select {
+                key,
+                topology,
+                extend,
+            } => self.select(key, topology, extend),
             Action::SetVisible { key, visible } => self.scene.set_visible(&key, visible),
             Action::RemoveSelected => {
                 let keys = self.scene.selected_top_level();
@@ -1015,12 +1025,34 @@ impl AppState {
 
     // -- objects and inspection -------------------------------------------------
 
-    fn select(&mut self, key: Option<NodeKey>, extend: bool) {
+    fn select(
+        &mut self,
+        key: Option<NodeKey>,
+        topology: Option<crate::scene::TopologySelection>,
+        extend: bool,
+    ) {
         match key {
             Some(key) if extend => self.scene.toggle_selected(&key),
             Some(key) => self.scene.select_only(&key),
-            None if !extend => self.scene.selection.clear(),
+            None if !extend => self.scene.clear_selection(),
             None => {}
+        }
+        if let Some(selection) =
+            topology.filter(|selection| self.scene.is_selected(&selection.node))
+            && self.scene.select_topology(selection.clone())
+        {
+            let name = self
+                .scene
+                .find(&selection.node)
+                .map_or(selection.node.as_str(), |node| node.name.as_str());
+            self.set_status(
+                StatusKind::Info,
+                format!(
+                    "Selected {} {} of {name}",
+                    selection.entity.kind(),
+                    selection.entity.identifier()
+                ),
+            );
         }
         self.refresh_inspector();
     }

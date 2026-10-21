@@ -30,8 +30,9 @@ from OCP.RWGltf import RWGltf_CafWriter
 from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
 from OCP.TColStd import TColStd_IndexedDataMapOfStringString
 from OCP.TDocStd import TDocStd_Document
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_VERTEX
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
 from OCP.TopExp import TopExp, TopExp_Explorer
+from OCP.TopLoc import TopLoc_Location
 from OCP.TopTools import TopTools_IndexedMapOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.XCAFDoc import XCAFDoc_DocumentTool
@@ -72,6 +73,11 @@ class Mesh:
     indices: np.ndarray  # (m,) uint32, three per triangle
     edges: np.ndarray  # (k, 6) float32, one line segment per row
     points: np.ndarray  # (p, 3) float32
+    face_positions: np.ndarray  # (n, 3) float32, grouped by OCCT face
+    face_indices: np.ndarray  # (m,) uint32, three per triangle
+    triangle_faces: np.ndarray  # (m / 3,) uint32, 1-based OCCT face ids
+    segment_edges: np.ndarray  # (k,) uint32, 1-based OCCT edge ids
+    topology_vertices: np.ndarray  # (v, 3) float32, in 1-based id order
 
     def is_empty(self) -> bool:
         return not (len(self.indices) or len(self.edges) or len(self.points))
@@ -93,11 +99,52 @@ class Mesh:
             "indices": _encode(self.indices, "<u4"),
             "edges": _encode(self.edges, "<f4"),
             "points": _encode(self.points, "<f4"),
+            "topology": {
+                "face_positions": _encode(self.face_positions, "<f4"),
+                "face_indices": _encode(self.face_indices, "<u4"),
+                "triangle_faces": _encode(self.triangle_faces, "<u4"),
+                "segment_edges": _encode(self.segment_edges, "<u4"),
+                "vertices": _encode(self.topology_vertices, "<f4"),
+            },
             "bbox": [lo, hi],
         }
 
 
-def tessellate(shape: TopoDS_Shape, tolerance: Tolerance) -> Mesh | None:
+@dataclass(frozen=True)
+class TopologyIndex:
+    """Stable, 1-based OCCT subshape order used by picking and the registry."""
+
+    faces: tuple[TopoDS_Shape, ...]
+    edges: tuple[TopoDS_Shape, ...]
+    vertices: tuple[TopoDS_Shape, ...]
+
+    @classmethod
+    def build(cls, shape: TopoDS_Shape) -> TopologyIndex:
+        def mapped(kind) -> tuple[TopoDS_Shape, ...]:
+            index = TopTools_IndexedMapOfShape()
+            TopExp.MapShapes_s(shape, kind, index)
+            return tuple(index.FindKey(i) for i in range(1, index.Extent() + 1))
+
+        return cls(mapped(TopAbs_FACE), mapped(TopAbs_EDGE), mapped(TopAbs_VERTEX))
+
+    def get(self, kind: str, identifier: int) -> TopoDS_Shape:
+        collection = {
+            "face": self.faces,
+            "edge": self.edges,
+            "vertex": self.vertices,
+        }.get(kind)
+        if collection is None:
+            raise ValueError(f"Unknown topology kind {kind!r}")
+        if identifier < 1 or identifier > len(collection):
+            raise IndexError(f"Unknown {kind} id {identifier}")
+        return collection[identifier - 1]
+
+
+def tessellate(
+    shape: TopoDS_Shape,
+    tolerance: Tolerance,
+    topology: TopologyIndex | None = None,
+) -> Mesh | None:
     """Mesh ``shape``; returns ``None`` when it has no drawable geometry."""
 
     box = Bnd_Box()
@@ -108,13 +155,23 @@ def tessellate(shape: TopoDS_Shape, tolerance: Tolerance) -> Mesh | None:
     diagonal = box.CornerMin().Distance(box.CornerMax())
     deflection = max(tolerance.linear * diagonal, MIN_DEFLECTION)
 
+    topology = topology or TopologyIndex.build(shape)
     positions, normals, indices = _mesh_faces(shape, deflection, tolerance.angular)
+    face_positions, face_indices, triangle_faces = _topology_faces(topology.faces)
+    edges, segment_edges = _discretize_edges(
+        topology.edges, deflection, tolerance.angular
+    )
     mesh = Mesh(
         positions=positions,
         normals=normals,
         indices=indices,
-        edges=_discretize_edges(shape, deflection, tolerance.angular),
+        edges=edges,
         points=_free_vertices(shape),
+        face_positions=face_positions,
+        face_indices=face_indices,
+        triangle_faces=triangle_faces,
+        segment_edges=segment_edges,
+        topology_vertices=_topology_vertices(topology.vertices),
     )
     return None if mesh.is_empty() else mesh
 
@@ -282,15 +339,65 @@ def _node_matrix(node: dict) -> np.ndarray:
     return matrix
 
 
+def _topology_faces(
+    faces: tuple[TopoDS_Shape, ...],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return pick triangles tagged with their 1-based OCCT face id."""
+
+    positions: list[np.ndarray] = []
+    indices: list[np.ndarray] = []
+    identifiers: list[np.ndarray] = []
+    offset = 0
+    for identifier, raw_face in enumerate(faces, start=1):
+        face = TopoDS.Face_s(raw_face)
+        location = TopLoc_Location()
+        triangulation = BRep_Tool.Triangulation_s(face, location)
+        if triangulation is None:
+            continue
+
+        transform = location.Transformation()
+        nodes = np.array(
+            [
+                (point.X(), point.Y(), point.Z())
+                for point in (
+                    triangulation.Node(i).Transformed(transform)
+                    for i in range(1, triangulation.NbNodes() + 1)
+                )
+            ],
+            dtype=np.float32,
+        ).reshape(-1, 3)
+        triangles = np.array(
+            [
+                [triangle.Value(i) - 1 + offset for i in (1, 2, 3)]
+                for triangle in triangulation.Triangles()
+            ],
+            dtype=np.uint32,
+        ).reshape(-1, 3)
+        if face.Orientation() == TopAbs_REVERSED and len(triangles):
+            triangles[:, [1, 2]] = triangles[:, [2, 1]]
+
+        positions.append(nodes)
+        indices.append(triangles.reshape(-1))
+        identifiers.append(np.full(len(triangles), identifier, dtype=np.uint32))
+        offset += len(nodes)
+
+    if not positions:
+        return _empty(3), np.zeros(0, dtype=np.uint32), np.zeros(0, dtype=np.uint32)
+    return (
+        np.concatenate(positions),
+        np.concatenate(indices),
+        np.concatenate(identifiers),
+    )
+
+
 def _discretize_edges(
-    shape: TopoDS_Shape, deflection: float, angular: float
-) -> np.ndarray:
-    edge_map = TopTools_IndexedMapOfShape()
-    TopExp.MapShapes_s(shape, TopAbs_EDGE, edge_map)
+    edges: tuple[TopoDS_Shape, ...], deflection: float, angular: float
+) -> tuple[np.ndarray, np.ndarray]:
 
     segments: list[np.ndarray] = []
-    for i in range(1, edge_map.Extent() + 1):
-        edge = TopoDS.Edge_s(edge_map.FindKey(i))
+    identifiers: list[np.ndarray] = []
+    for identifier, raw_edge in enumerate(edges, start=1):
+        edge = TopoDS.Edge_s(raw_edge)
         if BRep_Tool.Degenerated_s(edge):
             continue
         try:
@@ -309,9 +416,23 @@ def _discretize_edges(
             ],
             dtype=np.float32,
         )
-        segments.append(np.hstack((polyline[:-1], polyline[1:])))
+        edge_segments = np.hstack((polyline[:-1], polyline[1:]))
+        segments.append(edge_segments)
+        identifiers.append(
+            np.full(len(edge_segments), identifier, dtype=np.uint32)
+        )
 
-    return np.concatenate(segments) if segments else _empty(6)
+    if not segments:
+        return _empty(6), np.zeros(0, dtype=np.uint32)
+    return np.concatenate(segments), np.concatenate(identifiers)
+
+
+def _topology_vertices(vertices: tuple[TopoDS_Shape, ...]) -> np.ndarray:
+    points = []
+    for raw_vertex in vertices:
+        point = BRep_Tool.Pnt_s(TopoDS.Vertex_s(raw_vertex))
+        points.append((point.X(), point.Y(), point.Z()))
+    return np.array(points, dtype=np.float32).reshape(-1, 3)
 
 
 def _free_vertices(shape: TopoDS_Shape) -> np.ndarray:

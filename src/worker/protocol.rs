@@ -9,7 +9,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 pub type RequestId = u64;
 
@@ -347,7 +347,23 @@ pub struct Mesh {
     pub edges: Vec<[f32; 3]>,
     #[serde(deserialize_with = "vec3_f32")]
     pub points: Vec<[f32; 3]>,
+    pub topology: MeshTopology,
     pub bbox: [[f32; 3]; 2],
+}
+
+/// OCCT subshape associations for precise face, edge and vertex picking.
+#[derive(Deserialize, Debug, Default)]
+pub struct MeshTopology {
+    #[serde(deserialize_with = "vec3_f32")]
+    pub face_positions: Vec<[f32; 3]>,
+    #[serde(deserialize_with = "u32_array")]
+    pub face_indices: Vec<u32>,
+    #[serde(deserialize_with = "u32_array")]
+    pub triangle_faces: Vec<u32>,
+    #[serde(deserialize_with = "u32_array")]
+    pub segment_edges: Vec<u32>,
+    #[serde(deserialize_with = "vec3_f32")]
+    pub vertices: Vec<[f32; 3]>,
 }
 
 fn base64_bytes<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {

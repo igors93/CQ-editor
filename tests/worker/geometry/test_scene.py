@@ -116,7 +116,9 @@ def test_builder_creates_one_node_per_object():
     assert node["kind"] == "Workplane"
     assert node["inspectable"] is True
     assert len(node["parts"]) == 1
-    assert registry.get(node["key"]).shape is not None
+    entry = registry.get(node["key"])
+    assert entry.shape is not None
+    assert len(entry.topologies) == 1
 
 
 def make_assembly():
@@ -147,11 +149,14 @@ def test_builder_explodes_assemblies():
 
 
 def test_builder_can_merge_assemblies():
-    _, nodes = build({"assy": make_assembly()}, merge=True)
+    registry, nodes = build({"assy": make_assembly()}, merge=True)
 
     (root,) = nodes
     assert root["children"] == []
     assert len(root["parts"]) == 2
+    entry = registry.get(root["key"])
+    assert len(entry.topologies) == len(root["parts"])
+    assert entry.subshape(1, "face", 1).ShapeType() == "Face"
 
 
 def test_registry_release_drops_subtrees():

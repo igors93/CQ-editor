@@ -142,6 +142,7 @@ fn node_row(
         if response.clicked() {
             actions.push(Action::Select {
                 key: Some(node.key.clone()),
+                topology: None,
                 extend: ui.input(|i| i.modifiers.command),
             });
         }
@@ -152,6 +153,7 @@ fn node_row(
             if !selected {
                 actions.push(Action::Select {
                     key: Some(node.key.clone()),
+                    topology: None,
                     extend: false,
                 });
             }
@@ -226,11 +228,25 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
     let Some(key) = state.scene.selection.last().cloned() else {
         return;
     };
+    let topology = state
+        .scene
+        .topology_selection
+        .as_ref()
+        .filter(|selection| selection.node == key)
+        .map(|selection| (selection.entity, selection.part));
     let Some(node) = state.scene.find_mut(&key) else {
         return;
     };
 
     ui.strong(&node.name);
+    if let Some((entity, part)) = topology {
+        ui.label(format!(
+            "{} {} · part {}",
+            entity.kind(),
+            entity.identifier(),
+            part + 1
+        ));
+    }
     egui::Grid::new("object_properties_grid")
         .num_columns(2)
         .spacing([12.0, 6.0])

@@ -106,7 +106,7 @@ variable is shown. `print` output goes to the Log panel.
 | Orbit | Left drag (turntable or trackball, see Preferences) |
 | Pan | Middle drag or Ctrl + left drag |
 | Zoom | Mouse wheel (at the pointer), right drag or Shift + left drag |
-| Select | Click; Ctrl + click adds to the selection |
+| Select | Click a face, edge or vertex; Ctrl + click adds to the selection |
 | Zoom to object | Double-click |
 
 ### Keyboard

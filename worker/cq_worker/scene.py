@@ -17,7 +17,7 @@ from typing import Any
 import cadquery as cq
 from OCP.TopoDS import TopoDS_Shape
 
-from .tessellation import Tolerance, tessellate
+from .tessellation import Tolerance, TopologyIndex, tessellate
 
 log = logging.getLogger(__name__)
 
@@ -161,6 +161,16 @@ class RegistryEntry:
     #: Geometry to export for this node, already placed in world space.
     shape: cq.Shape | None
     children: list[str] = field(default_factory=list)
+    #: Topological indices for each displayed part, in the same order as the
+    #: scene node's parts. They keep picking ids tied to live OCCT subshapes.
+    topologies: list[TopologyIndex] = field(default_factory=list)
+
+    def subshape(self, part: int, kind: str, identifier: int) -> cq.Shape:
+        try:
+            topology = self.topologies[part]
+        except IndexError:
+            raise IndexError(f"Unknown part {part}") from None
+        return cq.Shape.cast(topology.get(kind, identifier))
 
 
 class Registry:
@@ -239,10 +249,11 @@ class SceneBuilder:
             return self._assembly_node(name, obj, options, cq.Location(), None)
 
         shape = to_compound(obj)
-        part = self._part(shape, None, None)
+        topology = TopologyIndex.build(shape.wrapped)
+        part = self._part(shape, topology, None, None)
         if part is None:
             return None
-        key = self.registry.add(RegistryEntry(obj, shape))
+        key = self.registry.add(RegistryEntry(obj, shape, topologies=[topology]))
         return self._message(key, name, obj, options, [part], [])
 
     def _assembly_node(
@@ -256,13 +267,15 @@ class SceneBuilder:
         location = parent_location * assembly.loc
         color = assembly.color if assembly.color is not None else inherited_color
 
-        shape, parts = None, []
+        shape, parts, topologies = None, [], []
         if assembly.obj is not None:
             # A node can have both a shape and children.
             shape = to_compound(assembly.obj).moved(location)
-            part = self._part(shape, *self._part_color(color))
+            topology = TopologyIndex.build(shape.wrapped)
+            part = self._part(shape, topology, *self._part_color(color))
             if part is not None:
                 parts.append(part)
+                topologies.append(topology)
 
         children = [
             child_node
@@ -277,7 +290,12 @@ class SceneBuilder:
         if not parts and not children:
             return None
 
-        entry = RegistryEntry(assembly, shape, [c["key"] for c in children])
+        entry = RegistryEntry(
+            assembly,
+            shape,
+            children=[c["key"] for c in children],
+            topologies=topologies,
+        )
         key = self.registry.add(entry)
         message = self._message(key, name, assembly, options, parts, children)
         if assembly.obj is not None:
@@ -288,7 +306,7 @@ class SceneBuilder:
     def _merged_assembly_node(
         self, name: str, assembly: cq.Assembly, options: DisplayOptions
     ) -> dict | None:
-        parts, shapes = [], []
+        parts, shapes, topologies = [], [], []
 
         def collect(node: cq.Assembly, parent: cq.Location, inherited) -> None:
             location = parent * node.loc
@@ -296,9 +314,11 @@ class SceneBuilder:
             if node.obj is not None:
                 shape = to_compound(node.obj).moved(location)
                 shapes.append(shape)
-                part = self._part(shape, *self._part_color(color))
+                topology = TopologyIndex.build(shape.wrapped)
+                part = self._part(shape, topology, *self._part_color(color))
                 if part is not None:
                     parts.append(part)
+                    topologies.append(topology)
             for child in node.children:
                 collect(child, location, color)
 
@@ -306,7 +326,11 @@ class SceneBuilder:
         if not parts:
             return None
         key = self.registry.add(
-            RegistryEntry(assembly, cq.Compound.makeCompound(shapes))
+            RegistryEntry(
+                assembly,
+                cq.Compound.makeCompound(shapes),
+                topologies=topologies,
+            )
         )
         return self._message(key, name, assembly, options, parts, [])
 
@@ -318,9 +342,13 @@ class SceneBuilder:
         return rgb, alpha
 
     def _part(
-        self, shape: cq.Shape, color: Color | None, alpha: float | None
+        self,
+        shape: cq.Shape,
+        topology: TopologyIndex,
+        color: Color | None,
+        alpha: float | None,
     ) -> dict | None:
-        mesh = tessellate(shape.wrapped, self.tolerance)
+        mesh = tessellate(shape.wrapped, self.tolerance, topology)
         if mesh is None:
             return None
         return {

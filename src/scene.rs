@@ -18,6 +18,39 @@ pub type NodeKey = String;
 /// sRGB color with components in 0..1.
 pub type Rgb = [f32; 3];
 
+/// A stable, 1-based OCCT subshape identifier supplied by the worker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TopologyEntity {
+    Face(u32),
+    Edge(u32),
+    Vertex(u32),
+}
+
+impl TopologyEntity {
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Face(_) => "Face",
+            Self::Edge(_) => "Edge",
+            Self::Vertex(_) => "Vertex",
+        }
+    }
+
+    pub fn identifier(self) -> u32 {
+        match self {
+            Self::Face(id) | Self::Edge(id) | Self::Vertex(id) => id,
+        }
+    }
+}
+
+/// The exact CAD entity selected in one displayed part of a scene node.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopologySelection {
+    pub node: NodeKey,
+    pub part: usize,
+    pub entity: TopologyEntity,
+    pub position: Vec3,
+}
+
 /// Axis-aligned bounding box.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aabb {
@@ -79,7 +112,21 @@ pub struct Mesh {
     /// Line segments, two points each.
     pub edges: Vec<[f32; 3]>,
     pub points: Vec<[f32; 3]>,
+    pub topology: MeshTopology,
     pub bounds: Aabb,
+}
+
+/// Pick geometry and its association with the worker's OCCT topology index.
+#[derive(Debug, Default)]
+pub struct MeshTopology {
+    pub face_positions: Vec<[f32; 3]>,
+    pub face_indices: Vec<u32>,
+    /// One 1-based face id per triangle in `face_indices`.
+    pub triangle_faces: Vec<u32>,
+    /// One 1-based edge id per segment in [`Mesh::edges`].
+    pub segment_edges: Vec<u32>,
+    /// All OCCT vertices in 1-based id order, including vertices of solids.
+    pub vertices: Vec<[f32; 3]>,
 }
 
 impl Mesh {
@@ -105,6 +152,7 @@ impl Mesh {
             indices,
             edges,
             points,
+            topology: MeshTopology::default(),
             bounds,
         }
     }
@@ -117,6 +165,67 @@ impl Mesh {
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
+
+    /// Builds a small render mesh that highlights exactly one CAD entity.
+    pub fn topology_mesh(&self, entity: TopologyEntity) -> Option<Mesh> {
+        match entity {
+            TopologyEntity::Face(identifier) => {
+                let mut positions = Vec::new();
+                let mut normals = Vec::new();
+                let mut indices = Vec::new();
+                for (triangle, &face) in self
+                    .topology
+                    .face_indices
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .zip(&self.topology.triangle_faces)
+                {
+                    if face != identifier {
+                        continue;
+                    }
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .map(|index| self.topology.face_positions.get(index as usize).copied())
+                    else {
+                        continue;
+                    };
+                    let normal = (Vec3::from_array(b) - Vec3::from_array(a))
+                        .cross(Vec3::from_array(c) - Vec3::from_array(a))
+                        .normalize_or(Vec3::Z)
+                        .to_array();
+                    let start = positions.len() as u32;
+                    positions.extend([a, b, c]);
+                    normals.extend([normal; 3]);
+                    indices.extend([start, start + 1, start + 2]);
+                }
+                (!indices.is_empty())
+                    .then(|| Mesh::new(positions, normals, indices, Vec::new(), Vec::new()))
+            }
+            TopologyEntity::Edge(identifier) => {
+                let mut segments = Vec::new();
+                for (segment, &edge) in self
+                    .edges
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(&self.topology.segment_edges)
+                {
+                    if edge == identifier {
+                        segments.extend(*segment);
+                    }
+                }
+                (!segments.is_empty()).then(|| Mesh::lines(segments))
+            }
+            TopologyEntity::Vertex(identifier) => self
+                .topology
+                .vertices
+                .get(identifier.checked_sub(1)? as usize)
+                .copied()
+                .map(|point| {
+                    Mesh::new(Vec::new(), Vec::new(), Vec::new(), Vec::new(), vec![point])
+                }),
+        }
+    }
 }
 
 impl From<protocol::Mesh> for Mesh {
@@ -124,12 +233,20 @@ impl From<protocol::Mesh> for Mesh {
         let mut normals = mesh.normals;
         normals.resize(mesh.positions.len(), [0.0, 0.0, 1.0]);
         let [min, max] = mesh.bbox;
+        let topology = MeshTopology {
+            face_positions: mesh.topology.face_positions,
+            face_indices: mesh.topology.face_indices,
+            triangle_faces: mesh.topology.triangle_faces,
+            segment_edges: mesh.topology.segment_edges,
+            vertices: mesh.topology.vertices,
+        };
         Mesh {
             // The worker already measured the geometry.
             bounds: Aabb {
                 min: Vec3::from_array(min),
                 max: Vec3::from_array(max),
             },
+            topology,
             ..Mesh::new(
                 mesh.positions,
                 normals,
@@ -301,6 +418,8 @@ pub struct Scene {
     pub axes: [AxisHelper; 3],
     /// Selected node keys; the last one is the "current" object.
     pub selection: Vec<NodeKey>,
+    pub topology_selection: Option<TopologySelection>,
+    topology_highlight: Option<Arc<Mesh>>,
     pub overlay: Overlay,
 }
 
@@ -321,6 +440,8 @@ impl Default for Scene {
                 axis("Z", Vec3::Z, [0.0, 0.0, 1.0]),
             ],
             selection: Vec::new(),
+            topology_selection: None,
+            topology_highlight: None,
             overlay: Overlay::default(),
         }
     }
@@ -357,7 +478,7 @@ impl Scene {
 
     /// Removes all objects; returns the removed top-level keys.
     pub fn clear(&mut self) -> Vec<NodeKey> {
-        self.selection.clear();
+        self.clear_selection();
         self.nodes.drain(..).map(|n| n.key).collect()
     }
 
@@ -472,15 +593,45 @@ impl Scene {
     }
 
     pub fn select_only(&mut self, key: &str) {
+        self.clear_topology_selection();
         self.selection = vec![key.to_owned()];
     }
 
     pub fn toggle_selected(&mut self, key: &str) {
+        self.clear_topology_selection();
         if let Some(index) = self.selection.iter().position(|k| k == key) {
             self.selection.remove(index);
         } else {
             self.selection.push(key.to_owned());
         }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection.clear();
+        self.clear_topology_selection();
+    }
+
+    pub fn select_topology(&mut self, selection: TopologySelection) -> bool {
+        let highlight = self
+            .find(&selection.node)
+            .and_then(|node| node.parts.get(selection.part))
+            .and_then(|part| part.mesh.topology_mesh(selection.entity));
+        let Some(highlight) = highlight else {
+            self.clear_topology_selection();
+            return false;
+        };
+        self.topology_selection = Some(selection);
+        self.topology_highlight = Some(Arc::new(highlight));
+        true
+    }
+
+    pub fn clear_topology_selection(&mut self) {
+        self.topology_selection = None;
+        self.topology_highlight = None;
+    }
+
+    pub fn topology_highlight(&self) -> Option<&Arc<Mesh>> {
+        self.topology_highlight.as_ref()
     }
 
     pub fn current(&self) -> Option<&SceneNode> {
@@ -528,6 +679,13 @@ impl Scene {
             .into_iter()
             .filter(|k| self.find(k).is_some())
             .collect();
+        if self
+            .topology_selection
+            .as_ref()
+            .is_some_and(|selection| !self.is_selected(&selection.node))
+        {
+            self.clear_topology_selection();
+        }
     }
 }
 

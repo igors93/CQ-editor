@@ -13,6 +13,11 @@ def test_box_mesh():
     assert mesh.indices.max() < len(mesh.positions)
     assert len(mesh.edges) == 12  # straight edges need one segment each
     assert len(mesh.points) == 0
+    assert sorted(set(mesh.triangle_faces)) == [1, 2, 3, 4, 5, 6]
+    assert sorted(set(mesh.segment_edges)) == list(range(1, 13))
+    assert len(mesh.topology_vertices) == 8
+    assert len(mesh.triangle_faces) == len(mesh.face_indices) // 3
+    assert len(mesh.segment_edges) == len(mesh.edges)
     lo, hi = mesh.bounds()
     assert lo == pytest.approx([-1, -2, -3])
     assert hi == pytest.approx([1, 2, 3])
@@ -36,14 +41,20 @@ def test_transformed_shapes_are_meshed_in_world_space():
     lo, hi = mesh.bounds()
     assert lo == pytest.approx([95, -15, -10], abs=1e-4)
     assert hi == pytest.approx([105, 15, 10], abs=1e-4)
+    assert mesh.face_positions.min(axis=0) == pytest.approx(lo, abs=1e-4)
+    assert mesh.face_positions.max(axis=0) == pytest.approx(hi, abs=1e-4)
+    assert mesh.topology_vertices.min(axis=0) == pytest.approx(lo, abs=1e-4)
+    assert mesh.topology_vertices.max(axis=0) == pytest.approx(hi, abs=1e-4)
 
 
 def test_wires_and_vertices():
     wire = tessellate(cq.Workplane().circle(5).val().wrapped, Tolerance())
     assert len(wire.indices) == 0 and len(wire.edges) > 8
+    assert set(wire.segment_edges) == {1}
 
     vertex = tessellate(cq.Vertex.makeVertex(1, 2, 3).wrapped, Tolerance())
     assert vertex.points.tolist() == [[1, 2, 3]]
+    assert vertex.topology_vertices.tolist() == [[1, 2, 3]]
 
 
 def test_empty_shapes_have_no_mesh():
@@ -57,6 +68,11 @@ def test_message_round_trip():
     assert decode(message["positions"], "<f4", 3).shape == mesh.positions.shape
     assert decode(message["indices"], "<u4", 3).shape == (12, 3)
     assert decode(message["edges"], "<f4", 6).shape == (12, 6)
+    topology = message["topology"]
+    assert decode(topology["face_indices"], "<u4", 3).shape == (12, 3)
+    assert decode(topology["triangle_faces"], "<u4", 1).shape == (12, 1)
+    assert decode(topology["segment_edges"], "<u4", 1).shape == (12, 1)
+    assert decode(topology["vertices"], "<f4", 3).shape == (8, 3)
     assert message["bbox"] == [[-0.5] * 3, [0.5] * 3]
 
 

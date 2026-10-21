@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::panels::Tab;
-use crate::scene::NodeKey;
+use crate::scene::{NodeKey, TopologySelection};
 use crate::viewer::DisplayMode;
 use crate::viewer::camera::StandardView;
 use crate::worker::protocol::{DebugAction, ExportFormat};
@@ -62,6 +62,7 @@ pub enum Action {
     GoToLine(usize),
     Select {
         key: Option<NodeKey>,
+        topology: Option<TopologySelection>,
         extend: bool,
     },
     SetVisible {

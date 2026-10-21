@@ -183,3 +183,39 @@ fn hidden_nodes_are_excluded_from_visible_bounds() {
     scene.select_only("a");
     assert!(!scene.selection_bounds().is_empty());
 }
+
+#[test]
+fn topology_selection_builds_and_clears_an_exact_highlight() {
+    let mut mesh = Mesh::new(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        vec![[0.0, 0.0, 1.0]; 3],
+        vec![0, 1, 2],
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        Vec::new(),
+    );
+    mesh.topology.face_positions = mesh.positions.clone();
+    mesh.topology.face_indices = mesh.indices.clone();
+    mesh.topology.triangle_faces = vec![4];
+    mesh.topology.segment_edges = vec![7];
+    mesh.topology.vertices = vec![[0.0, 0.0, 0.0]];
+
+    let mut part_node = node("n", "part", vec![]);
+    part_node.parts[0].mesh = Arc::new(mesh);
+    let mut scene = Scene::default();
+    scene.append(vec![part_node], None);
+    scene.select_only("n");
+
+    let selection = TopologySelection {
+        node: "n".into(),
+        part: 0,
+        entity: TopologyEntity::Face(4),
+        position: Vec3::new(0.25, 0.25, 0.0),
+    };
+    assert!(scene.select_topology(selection.clone()));
+    assert_eq!(scene.topology_selection, Some(selection));
+    assert_eq!(scene.topology_highlight().unwrap().triangle_count(), 1);
+
+    scene.select_only("n");
+    assert!(scene.topology_selection.is_none());
+    assert!(scene.topology_highlight().is_none());
+}

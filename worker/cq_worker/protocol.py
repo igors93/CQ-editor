@@ -23,7 +23,7 @@ from typing import Any, BinaryIO
 Message = dict[str, Any]
 
 #: Bumped whenever the message format changes incompatibly.
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 class Channel:

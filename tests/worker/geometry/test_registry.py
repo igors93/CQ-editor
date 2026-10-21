@@ -4,6 +4,7 @@ import cadquery as cq
 import pytest
 
 from cq_worker.scene import Registry, RegistryEntry
+from cq_worker.tessellation import TopologyIndex
 
 
 def test_subtree_shapes_deduplicates_overlapping_selection():
@@ -45,3 +46,15 @@ def test_subtree_shapes_skips_nodes_without_geometry():
     child = registry.add(RegistryEntry(shape, shape))
     parent = registry.add(RegistryEntry("group", None, [child]))
     assert registry.subtree_shapes([parent]) == [shape]
+
+
+def test_topology_ids_resolve_to_the_live_occt_subshapes():
+    shape = cq.Workplane().box(1, 2, 3).val()
+    topology = TopologyIndex.build(shape.wrapped)
+    entry = RegistryEntry(shape, shape, topologies=[topology])
+
+    assert entry.subshape(0, "face", 1).ShapeType() == "Face"
+    assert entry.subshape(0, "edge", 12).ShapeType() == "Edge"
+    assert entry.subshape(0, "vertex", 8).ShapeType() == "Vertex"
+    with pytest.raises(IndexError, match="Unknown face id"):
+        entry.subshape(0, "face", 7)

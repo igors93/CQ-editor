@@ -14,9 +14,12 @@ fn decodes_meshes() {
     let json = format!(
         r#"{{"type":"inspection_geometry","id":3,"plane":null,"meshes":[{{
             "positions":"{p}","normals":"{p}","indices":"{i}","edges":"","points":"",
+            "topology":{{"face_positions":"{p}","face_indices":"{i}",
+                "triangle_faces":"{f}","segment_edges":"","vertices":""}},
             "bbox":[[0,1,2],[3,4,5]]}}]}}"#,
         p = b64(&positions),
         i = b64(&indices),
+        f = b64(&1u32.to_le_bytes()),
     );
     let Message::InspectionGeometry { id, meshes, plane } = serde_json::from_str(&json).unwrap()
     else {
@@ -27,6 +30,7 @@ fn decodes_meshes() {
     assert_eq!(meshes[0].positions, vec![[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]);
     assert_eq!(meshes[0].indices, vec![0, 1, 1]);
     assert!(meshes[0].edges.is_empty());
+    assert_eq!(meshes[0].topology.triangle_faces, vec![1]);
 }
 
 #[test]
@@ -112,7 +116,12 @@ fn parses_worker_readiness_and_optional_fatal_detail() {
 fn rejects_corrupt_base64_mesh_data() {
     let base = serde_json::json!({
         "positions": "!!!", "normals": "", "indices": "",
-        "edges": "", "points": "", "bbox": [[0,0,0],[1,1,1]]
+        "edges": "", "points": "",
+        "topology": {
+            "face_positions": "", "face_indices": "", "triangle_faces": "",
+            "segment_edges": "", "vertices": ""
+        },
+        "bbox": [[0,0,0],[1,1,1]]
     });
     assert!(serde_json::from_value::<Mesh>(base.clone()).is_err());
 
@@ -124,6 +133,19 @@ fn rejects_corrupt_base64_mesh_data() {
     short_index["positions"] = "".into();
     short_index["indices"] = b64(&[0; 3]).into();
     assert!(serde_json::from_value::<Mesh>(short_index).is_err());
+
+    let mut short_topology = serde_json::json!({
+        "positions": "", "normals": "", "indices": "", "edges": "", "points": "",
+        "topology": {
+            "face_positions": b64(&[0; 8]), "face_indices": "", "triangle_faces": "",
+            "segment_edges": "", "vertices": ""
+        },
+        "bbox": [[0,0,0],[1,1,1]]
+    });
+    assert!(serde_json::from_value::<Mesh>(short_topology.clone()).is_err());
+    short_topology["topology"]["face_positions"] = "".into();
+    short_topology["topology"]["triangle_faces"] = b64(&[0; 3]).into();
+    assert!(serde_json::from_value::<Mesh>(short_topology).is_err());
 }
 
 #[test]

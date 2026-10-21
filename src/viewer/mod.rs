@@ -17,7 +17,7 @@ use std::sync::Arc;
 use egui::{Color32, Pos2, Rect, Sense, Vec2};
 use glam::{Vec2 as GVec2, Vec3};
 
-use crate::scene::{Grid, Mesh, NodeKey, Scene};
+use crate::scene::{Grid, Mesh, NodeKey, Scene, TopologySelection};
 use crate::settings::{self, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 pub use overlays::CubeColors;
@@ -57,6 +57,7 @@ pub enum ViewerEvent {
     /// replacing the selection.
     Picked {
         key: Option<NodeKey>,
+        topology: Option<TopologySelection>,
         extend: bool,
     },
     /// The user double-clicked an object.
@@ -396,8 +397,10 @@ impl Viewer {
                 }
             } else {
                 let extend = ui.input(|i| i.modifiers.command);
+                let picked = self.pick(input.scene, rect, pos);
                 events.push(ViewerEvent::Picked {
-                    key: self.pick(input.scene, rect, pos),
+                    key: picked.as_ref().map(|(key, _)| key.clone()),
+                    topology: picked.and_then(|(_, topology)| topology),
                     extend,
                 });
             }
@@ -410,7 +413,9 @@ impl Viewer {
         let hover_pos = pointer.filter(|p| self.drag.is_none() && !over_cube(*p));
         if hover_pos != self.last_pointer {
             self.last_pointer = hover_pos;
-            let hovered = hover_pos.and_then(|p| self.pick(input.scene, rect, p));
+            let hovered = hover_pos
+                .and_then(|p| self.pick(input.scene, rect, p))
+                .map(|(key, _)| key);
             if hovered != self.hovered {
                 self.hovered = hovered;
                 ui.ctx().request_repaint();
@@ -442,12 +447,20 @@ impl Viewer {
         }
     }
 
-    fn pick(&self, scene: &Scene, rect: Rect, pos: Pos2) -> Option<NodeKey> {
+    fn pick(
+        &self,
+        scene: &Scene,
+        rect: Rect,
+        pos: Pos2,
+    ) -> Option<(NodeKey, Option<TopologySelection>)> {
         let candidates = scene.visible_nodes().into_iter().flat_map(|node| {
-            node.parts.iter().map(move |part| picking::Candidate {
-                id: node.key.clone(),
-                mesh: &part.mesh,
-            })
+            node.parts
+                .iter()
+                .enumerate()
+                .map(move |(part_index, part)| picking::Candidate {
+                    id: (node.key.clone(), part_index),
+                    mesh: &part.mesh,
+                })
         });
         picking::pick(
             &self.camera,
@@ -456,6 +469,16 @@ impl Viewer {
             GVec2::new(rect.width(), rect.height()),
             candidates,
         )
+        .map(|hit| {
+            let (node, part) = hit.id;
+            let topology = hit.entity.map(|entity| TopologySelection {
+                node: node.clone(),
+                part,
+                entity,
+                position: hit.position,
+            });
+            (node, topology)
+        })
     }
 
     fn draw_items(&mut self, input: &ViewInput<'_>) -> Vec<DrawItem> {
@@ -473,8 +496,13 @@ impl Viewer {
             }
         }
 
+        let topology_node = scene
+            .topology_selection
+            .as_ref()
+            .map(|selection| selection.node.as_str());
         for node in scene.visible_nodes() {
-            let selected = highlighted.contains(&node.key);
+            let selected =
+                highlighted.contains(&node.key) && topology_node != Some(node.key.as_str());
             let hovered = self.hovered.as_deref() == Some(node.key.as_str());
             for part in &node.parts {
                 let (rgb, alpha) = node.part_color(part, default_color);
@@ -514,6 +542,24 @@ impl Viewer {
                     layer: Layer::Scene,
                 });
             }
+        }
+
+        if let Some(mesh) = scene.topology_highlight() {
+            let color = linear_color(colors.selection, 1.0);
+            items.push(DrawItem {
+                mesh: mesh.clone(),
+                style: Style {
+                    face_color: linear_color(colors.selection, 0.55),
+                    edge_color: color,
+                    highlight: [0.0; 4],
+                    edge_width: settings.edge_width + 2.0,
+                    point_size: POINT_SIZE + 5.0,
+                    faces: true,
+                    edges: true,
+                    points: true,
+                },
+                layer: Layer::Overlay,
+            });
         }
 
         let half_length = scene.axis_half_length();
