@@ -331,7 +331,7 @@ Small, concrete improvements to what already exists:
 | Status | Improvement |
 | :---: | --- |
 | | **Undo/Redo in the Edit menu.** The text field keeps its own undo history, but there are no menu entries and no documented shortcuts. Check that indent, comment and completion edits are undone as one step |
-| | **Completion as you type.** Open the popup automatically after `.` (configurable), not only on Ctrl+Space |
+| | **Completion while typing names.** The popup already opens after `.` and on Ctrl+Space; also offer it after a few letters of a name (configurable) |
 | | **Go to line** (Ctrl+G), **Replace** (Ctrl+H) and **whole word** search |
 | | **Hover documentation:** CadQuery docstrings and signatures in a tooltip (jedi already provides them) |
 | | **Remember breakpoints** per file across sessions |
@@ -423,7 +423,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | Milestone | Goal | Contents |
 | --- | --- | --- |
 | **0.8: stable rewrite** | Ready to replace the PyQt release | BUG-01…BUG-13, BUG-18, ENG-01, basic installers, docs linked from Help |
-| **0.9: code ↔ model** | The GUI helps write code | FEAT-A3, A4, B1, B2, B3, B5; completion as you type, Go to line, Replace, hover docs; PERF-01…04 |
+| **0.9: code ↔ model** | The GUI helps write code | FEAT-A3, A4, B1, B2, B3, B5; completion while typing names, Go to line, Replace, hover docs; PERF-01…04 |
 | **1.0: projects** | Comfortable for large designs | FEAT-D1, D2, D3, C1, C2, E1, E3, E4, F1 |
 | **Later** | Exploratory | FEAT-A2, A6, B4, C3–C7, D4–D6, E2, E5, F2, F3, ENG-02…05 |
 

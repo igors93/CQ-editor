@@ -19,7 +19,9 @@ your work is never lost.
 
 ## Completion and call signatures
 
-Press **Ctrl+Space** (or **Alt+/**) to complete the name under the cursor:
+Completion opens by itself after you type `.` (for example `cq.` or
+`result.`). Press **Ctrl+Space** (or **Alt+/**) to complete the name under
+the cursor at any other time:
 
 * a popup lists matching names (up to 200) and filters as you keep typing;
 * **↑/↓** choose, **Enter** or **Tab** accept, **Esc** closes;
