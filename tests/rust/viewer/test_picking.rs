@@ -59,16 +59,38 @@ fn picks_the_nearest_face() {
     let camera = top_camera();
     let viewport = Vec2::new(800.0, 800.0);
     assert_eq!(
-        pick(&camera, 1.0, Vec2::ZERO, viewport, candidates()).map(|hit| (hit.id, hit.entity)),
+        pick(
+            &camera,
+            1.0,
+            Vec2::ZERO,
+            viewport,
+            SelectionMode::Auto,
+            candidates(),
+        )
+        .map(|hit| (hit.id, hit.entity)),
         Some(("high", Some(TopologyEntity::Face(1))))
     );
     assert_eq!(
-        pick(&camera, 1.0, Vec2::new(0.3, 0.3), viewport, candidates())
-            .map(|hit| (hit.id, hit.entity)),
+        pick(
+            &camera,
+            1.0,
+            Vec2::new(0.3, 0.3),
+            viewport,
+            SelectionMode::Auto,
+            candidates(),
+        )
+        .map(|hit| (hit.id, hit.entity)),
         Some(("low", Some(TopologyEntity::Face(1))))
     );
     assert_eq!(
-        pick(&camera, 1.0, Vec2::new(0.9, 0.9), viewport, candidates()),
+        pick(
+            &camera,
+            1.0,
+            Vec2::new(0.9, 0.9),
+            viewport,
+            SelectionMode::Auto,
+            candidates(),
+        ),
         None
     );
 }
@@ -91,10 +113,28 @@ fn picks_wires_within_tolerance() {
         }]
     };
     assert_eq!(
-        pick(&camera, 1.0, near, viewport, candidates(&wire)).map(|hit| (hit.id, hit.entity)),
+        pick(
+            &camera,
+            1.0,
+            near,
+            viewport,
+            SelectionMode::Auto,
+            candidates(&wire),
+        )
+        .map(|hit| (hit.id, hit.entity)),
         Some((1, Some(TopologyEntity::Edge(7))))
     );
-    assert_eq!(pick(&camera, 1.0, far, viewport, candidates(&wire)), None);
+    assert_eq!(
+        pick(
+            &camera,
+            1.0,
+            far,
+            viewport,
+            SelectionMode::Auto,
+            candidates(&wire),
+        ),
+        None
+    );
 }
 
 #[test]
@@ -108,6 +148,7 @@ fn prioritizes_vertices_then_edges_then_faces() {
             1.0,
             pointer,
             viewport,
+            SelectionMode::Auto,
             [Candidate {
                 id: (),
                 mesh: &mesh,
@@ -139,6 +180,7 @@ fn a_front_face_occludes_a_back_edge() {
         1.0,
         Vec2::ZERO,
         Vec2::splat(800.0),
+        SelectionMode::Auto,
         [
             Candidate {
                 id: "face",
@@ -165,6 +207,7 @@ fn picks_a_transformed_mesh_in_world_space() {
         1.0,
         Vec2::ZERO,
         Vec2::splat(800.0),
+        SelectionMode::Auto,
         [Candidate {
             id: "moved",
             mesh: &mesh,
@@ -174,6 +217,47 @@ fn picks_a_transformed_mesh_in_world_space() {
     .unwrap();
     assert_eq!(hit.id, "moved");
     assert!((hit.position.z - 4.0).abs() < 1e-5);
+}
+
+#[test]
+fn explicit_selection_modes_only_return_the_requested_topology() {
+    let mesh = square(0.0, 5.0);
+    let camera = top_camera();
+    let viewport = Vec2::splat(1000.0);
+    let pick_entity = |pointer, mode| {
+        pick(
+            &camera,
+            1.0,
+            pointer,
+            viewport,
+            mode,
+            [Candidate {
+                id: (),
+                mesh: &mesh,
+                transform: Mat4::IDENTITY,
+            }],
+        )
+        .map(|hit| hit.entity)
+    };
+
+    let corner = Vec2::new(0.5, 0.5);
+    assert_eq!(
+        pick_entity(corner, SelectionMode::Vertex),
+        Some(Some(TopologyEntity::Vertex(3)))
+    );
+    assert!(matches!(
+        pick_entity(corner, SelectionMode::Edge),
+        Some(Some(TopologyEntity::Edge(_)))
+    ));
+    assert_eq!(
+        pick_entity(Vec2::ZERO, SelectionMode::Face),
+        Some(Some(TopologyEntity::Face(1)))
+    );
+    assert_eq!(
+        pick_entity(corner, SelectionMode::Object),
+        Some(None),
+        "object mode must not leak a subshape id"
+    );
 }
 
 #[test]

@@ -34,7 +34,7 @@ interactive console and exporters.
 | Page | Topics |
 | --- | --- |
 | [Architecture](development/architecture.md) | Rust interface, Python worker, frame loop, renderer, geometry cache |
-| [Worker protocol](development/protocol.md) | The JSON-lines protocol (version 3) between the two processes |
+| [Worker protocol](development/protocol.md) | The JSON-lines protocol (version 4) between the two processes |
 | [Building](development/building.md) | Toolchains, platform notes, release builds |
 | [Testing](development/testing.md) | Test layout, running the suites, continuous integration |
 | [Original compatibility](development/compatibility.md) | Verified legacy behavior, exact shortcuts and mouse controls, deliberate differences and open gaps |

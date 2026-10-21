@@ -30,6 +30,43 @@ def test_release_removes_objects_from_inspection_registry(conversation):
     assert [error["id"] for error in talk.of_type("error")] == [4, 5]
 
 
+def test_measurement_uses_live_occt_vertices_and_rejects_stale_ids(conversation):
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 1,
+            "script": (
+                "first = cq.Vertex.makeVertex(0, 0, 0)\n"
+                "second = cq.Vertex.makeVertex(3, 4, 0)\n"
+            ),
+        },
+        {
+            "cmd": "measure",
+            "id": 2,
+            "selections": [
+                {"key": "n1", "part": 0, "kind": "vertex", "identifier": 1},
+                {"key": "n2", "part": 0, "kind": "vertex", "identifier": 1},
+            ],
+        },
+        {"cmd": "release", "keys": ["n1", "n2"]},
+        {
+            "cmd": "measure",
+            "id": 3,
+            "selections": [{"key": "n1", "part": 0, "kind": "vertex", "identifier": 1}],
+        },
+    )
+
+    talk.serve()
+
+    (reply,) = talk.of_type("measurement")
+    assert reply["id"] == 2
+    assert reply["pair"]["distance"] == 5.0
+    assert reply["identity"] == {"scope": "scene_entry", "persistent": False}
+    (error,) = talk.of_type("error")
+    assert error["id"] == 3
+    assert "previous Python session" in error["message"]
+
+
 def test_console_reset_discards_previous_script_variables(conversation):
     talk = conversation(
         {"cmd": "run", "id": 1, "script": "value = 7"},

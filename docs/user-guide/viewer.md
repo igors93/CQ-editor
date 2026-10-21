@@ -80,21 +80,41 @@ panel. The selected object is tinted and the property sheet shows its
 details. Export, upload, *Zoom to Selection* and *Remove selected* act on the
 selected objects.
 
-**Topological entities.** The click also identifies the exact **face, edge or
-vertex** under the pointer:
+**Topological entities.** The selection control at the right of the toolbar
+chooses **Auto**, **Object**, **Face**, **Edge** or **Vertex**. Auto preserves
+the usual nearest vertex-before-edge-before-face behavior. The explicit modes
+make dense models easier to pick without accidentally selecting another kind.
+When a topological mode is active, a click identifies the exact entity:
 
 * the entity is highlighted on its own;
 * the status bar reports it, for example *Selected Face 6 of bracket*;
 * the property sheet in the Objects panel shows the id and part, for example
-  *Face 6 · part 1*.
+  *Face 6 · part 1*;
+* the Measurements panel reports exact geometric properties from OCCT.
 
 ![A selected face](../images/topology-selection.png)
 
 Faces are hit-tested exactly. Edges and vertices only need the pointer within
 6 pixels, and a face in front of them hides them. Ids are 1-based and follow
-OpenCascade's topology order for the shape, so they are stable while the
-geometry does not change. Use them to check that your CadQuery selectors pick
-what you expect.
+OpenCascade's topology order for the current shape. They are valid only for
+that displayed scene entry: rebuilding or remodeling can assign the same id
+to a different subshape. They are therefore selection handles, not persistent
+topological names.
+
+### Exact measurements
+
+Select one face, edge or vertex to see its geometry type, center and the
+properties that apply: vertex position, edge length, face area, radius and
+diameter. Ctrl+click a second entity to add exact minimum distance and closest
+points. Two straight edges or two planar faces also report their smaller
+angle; a straight edge and planar face report the edge-to-plane angle.
+
+The viewer's triangles and `f32` coordinates are used only to find what was
+clicked. The Measurements panel asks the Python worker to calculate every
+displayed value from the corresponding world-space OCCT geometry in double
+precision. Curved-edge length and distances are consequently independent of
+the display tessellation. Selecting a third entity keeps the two most recent;
+Ctrl+clicking a selected entity removes it.
 
 Hovering an object highlights it before you click.
 

@@ -30,6 +30,7 @@ between sessions.
 | **Editor** | The script, with highlighting, breakpoints and completion | [Code editor](editor.md) |
 | **3D View** | The rendered model, navigation cube, axes indicator | [3D view](viewer.md) |
 | **Objects** | Tree of shown objects and helpers (X/Y/Z axes), with visibility toggles and a property sheet (type, visibility, color, opacity, size, triangle count) | [below](#objects-panel) |
+| **Measurements** | Exact OCCT properties for one selected face, edge or vertex, and distance/angle for two | [3D view](viewer.md#exact-measurements) |
 | **Variables** | Name, type and value of the script's variables after a run, or of the locals while debugging | [Console, variables and logs](console.md#variables) |
 | **CQ Inspector** | The construction stack of the selected workplane | [Debugging and inspection](debugging.md#cq-inspector) |
 | **Console** | Interactive Python sharing the last run's variables | [Console, variables and logs](console.md) |
@@ -69,6 +70,7 @@ From left to right:
 | Inspect | Inspect CQ object |
 | View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right |
 | Display | Wireframe, Shaded, Screenshot |
+| Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
 session is paused) are disabled. Hover a button to see its shortcut.

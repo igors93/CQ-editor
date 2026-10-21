@@ -3,6 +3,7 @@
 mod console;
 mod inspector;
 mod log;
+mod measurements;
 mod objects;
 mod traceback;
 mod variables;
@@ -10,6 +11,7 @@ mod variables;
 pub use console::{ConsoleState, EntryKind};
 pub use inspector::InspectorState;
 pub use log::LogView;
+pub use measurements::MeasurementState;
 
 use egui_dock::{DockState, NodeIndex, TabViewer};
 use egui_phosphor::regular as icon;
@@ -22,6 +24,7 @@ pub enum Tab {
     Editor,
     Viewer,
     Objects,
+    Measurements,
     Variables,
     Inspector,
     Console,
@@ -30,10 +33,11 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 8] = [
+    pub const ALL: [Tab; 9] = [
         Tab::Editor,
         Tab::Viewer,
         Tab::Objects,
+        Tab::Measurements,
         Tab::Variables,
         Tab::Inspector,
         Tab::Console,
@@ -46,6 +50,7 @@ impl Tab {
             Tab::Editor => "Editor",
             Tab::Viewer => "3D View",
             Tab::Objects => "Objects",
+            Tab::Measurements => "Measurements",
             Tab::Variables => "Variables",
             Tab::Inspector => "CQ Inspector",
             Tab::Console => "Console",
@@ -59,6 +64,7 @@ impl Tab {
             Tab::Editor => icon::CODE,
             Tab::Viewer => icon::CUBE,
             Tab::Objects => icon::TREE_STRUCTURE,
+            Tab::Measurements => icon::RULER,
             Tab::Variables => icon::BRACKETS_CURLY,
             Tab::Inspector => icon::STACK,
             Tab::Console => icon::TERMINAL_WINDOW,
@@ -78,7 +84,11 @@ pub fn default_layout() -> DockState<Tab> {
     tree.split_right(bottom, 0.45, vec![Tab::Traceback, Tab::Log]);
     let [viewer, _editor] = tree.split_left(top, 0.36, vec![Tab::Editor]);
     let [_viewer, objects] = tree.split_right(viewer, 0.72, vec![Tab::Objects]);
-    tree.split_below(objects, 0.6, vec![Tab::Variables, Tab::Inspector]);
+    tree.split_below(
+        objects,
+        0.6,
+        vec![Tab::Variables, Tab::Inspector, Tab::Measurements],
+    );
     dock
 }
 
@@ -115,6 +125,7 @@ impl TabViewer for TabContext<'_> {
             Tab::Editor => self.state.editor_ui(ui),
             Tab::Viewer => self.state.viewer_ui(ui, self.frame),
             Tab::Objects => objects::ui(ui, self.state),
+            Tab::Measurements => measurements::ui(ui, self.state),
             Tab::Variables => variables::ui(ui, self.state),
             Tab::Inspector => inspector::ui(ui, self.state),
             Tab::Console => console::ui(ui, self.state),

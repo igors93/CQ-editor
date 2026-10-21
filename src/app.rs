@@ -23,7 +23,9 @@ use crate::editor::{CodeEditor, CompletionRequest, EditorOptions};
 use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
 use crate::logging::{self, Level};
-use crate::panels::{self, ConsoleState, EntryKind, InspectorState, LogView, Tab, TabContext};
+use crate::panels::{
+    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, Tab, TabContext,
+};
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoverySnapshot, RecoveryStore};
 use crate::scene::{Grid, Mesh, NodeKey, Overlay, Rgb, Scene, SceneNode};
 use crate::settings::{self, Projection, Settings};
@@ -31,7 +33,7 @@ use crate::theme::{self, Palette};
 use crate::viewer::{ViewInput, Viewer, ViewerEvent};
 use crate::worker::protocol::{
     CompletionTarget, DebugAction, ExportFormat, Message, OutputStream, Request, RequestId,
-    RunFinished, SceneNode as NodeMessage, Variable,
+    RunFinished, SceneNode as NodeMessage, TopologyKind, TopologyReference, Variable,
 };
 use crate::worker::{self, Event, LaunchConfig, Worker, launch};
 
@@ -79,6 +81,7 @@ enum Pending {
     Upload,
     Updates,
     Imports,
+    Measure,
 }
 
 pub struct AppState {
@@ -91,6 +94,7 @@ pub struct AppState {
     pub variables: Vec<Variable>,
     pub traceback: Option<crate::worker::protocol::ScriptError>,
     pub inspector: InspectorState,
+    pub measurements: MeasurementState,
     pub console: ConsoleState,
     pub log_view: LogView,
     pub status: Option<Status>,
@@ -348,6 +352,7 @@ impl AppState {
             Action::FitSelection => self.viewer.fit_selection(&self.scene, animate, now),
             Action::View(view) => self.viewer.set_standard_view(view, animate, now),
             Action::Display(mode) => self.viewer.display_mode = mode,
+            Action::SelectionMode(mode) => self.viewer.selection_mode = mode,
             Action::ToggleProjection => {
                 self.settings.viewer.projection = match self.settings.viewer.projection {
                     Projection::Orthographic => Projection::Perspective,
@@ -384,11 +389,13 @@ impl AppState {
                 let keys = self.scene.selected_top_level();
                 let removed = self.scene.remove_top_level(&keys);
                 self.release(removed);
+                self.request_measurement();
                 self.refresh_inspector();
             }
             Action::ClearObjects => {
                 let removed = self.scene.clear();
                 self.release(removed);
+                self.measurements.clear();
                 self.scene.overlay = Overlay::default();
                 self.refresh_inspector();
             }
@@ -786,6 +793,8 @@ impl AppState {
         self.reset_execution_state();
         // The new process knows nothing about the old one's inspections.
         self.inspector.clear();
+        self.scene.clear_topology_selection();
+        self.measurements.clear();
         self.scene.overlay = Overlay::default();
     }
 
@@ -916,6 +925,7 @@ impl AppState {
                 };
                 let removed = self.scene.replace(nodes, None);
                 self.release(removed);
+                self.measurements.clear();
                 self.refresh_inspector();
                 self.set_status(StatusKind::Info, format!("Paused at line {line}"));
             }
@@ -960,6 +970,16 @@ impl AppState {
                             size: p.size,
                         }),
                     };
+                }
+            }
+            Message::Measurement(result) => {
+                let id = result.id;
+                let tracked = matches!(self.pending.remove(&id), Some(Pending::Measure));
+                if tracked && self.measurements.request_id == Some(id) {
+                    self.measurements.loading = false;
+                    self.measurements.error = None;
+                    self.measurements.request_id = None;
+                    self.measurements.result = Some(result);
                 }
             }
             Message::SceneAdd { objects } => {
@@ -1019,6 +1039,7 @@ impl AppState {
     }
 
     fn request_failed(&mut self, id: Option<RequestId>, message: String) {
+        let request_id = id;
         let kind = id.and_then(|id| self.pending.remove(&id));
         match kind {
             Some(Pending::Console) => {
@@ -1043,6 +1064,12 @@ impl AppState {
                 self.phase = Phase::Idle;
                 self.set_status(StatusKind::Error, message);
             }
+            Some(Pending::Measure) if self.measurements.request_id == request_id => {
+                self.measurements.loading = false;
+                self.measurements.error = Some(message);
+                self.measurements.request_id = None;
+            }
+            Some(Pending::Measure) => {}
             Some(Pending::Completion | Pending::ConsoleCompletion | Pending::Imports) | None => {
                 log::warn!("{message}");
                 self.set_status(StatusKind::Warning, message);
@@ -1105,6 +1132,7 @@ impl AppState {
             // locals of each paused frame.
             let removed = self.scene.clear();
             self.release(removed);
+            self.measurements.clear();
             self.set_status(
                 StatusKind::Info,
                 "Debugging — running to the first breakpoint",
@@ -1149,6 +1177,7 @@ impl AppState {
             if self.settings.objects.clear_before_run || result.debug {
                 let removed = self.scene.replace(nodes, preserved.as_ref());
                 self.release(removed);
+                self.measurements.clear();
             } else {
                 self.scene.append(nodes, preserved.as_ref());
             }
@@ -1343,30 +1372,80 @@ impl AppState {
         topology: Option<crate::scene::TopologySelection>,
         extend: bool,
     ) {
-        match key {
-            Some(key) if extend => self.scene.toggle_selected(&key),
-            Some(key) => self.scene.select_only(&key),
-            None if !extend => self.scene.clear_selection(),
-            None => {}
+        match (key, topology) {
+            (Some(key), Some(selection)) => {
+                if extend {
+                    self.scene.ensure_selected(&key);
+                } else {
+                    self.scene.select_only(&key);
+                }
+                let entity = selection.entity;
+                let node = selection.node.clone();
+                if self.scene.select_topology(selection, extend) {
+                    let count = self.scene.topology_selections.len();
+                    if count == 0 {
+                        self.set_status(StatusKind::Info, "Measurement selection cleared");
+                    } else {
+                        let name = self
+                            .scene
+                            .find(&node)
+                            .map_or(node.as_str(), |node| node.name.as_str());
+                        self.set_status(
+                            StatusKind::Info,
+                            format!(
+                                "Selected {} {} of {name} · {count}/2 measurement entities",
+                                entity.kind(),
+                                entity.identifier()
+                            ),
+                        );
+                    }
+                }
+            }
+            (Some(key), None) if extend => self.scene.toggle_selected(&key),
+            (Some(key), None) => self.scene.select_only(&key),
+            (None, _) if !extend => self.scene.clear_selection(),
+            (None, _) => {}
         }
-        if let Some(selection) =
-            topology.filter(|selection| self.scene.is_selected(&selection.node))
-            && self.scene.select_topology(selection.clone())
-        {
-            let name = self
-                .scene
-                .find(&selection.node)
-                .map_or(selection.node.as_str(), |node| node.name.as_str());
-            self.set_status(
-                StatusKind::Info,
-                format!(
-                    "Selected {} {} of {name}",
-                    selection.entity.kind(),
-                    selection.entity.identifier()
-                ),
-            );
-        }
+        self.request_measurement();
         self.refresh_inspector();
+    }
+
+    fn request_measurement(&mut self) {
+        if self.scene.topology_selections.is_empty() {
+            self.measurements.clear();
+            return;
+        }
+        if !self.worker.is_ready() {
+            self.measurements.clear();
+            return;
+        }
+
+        let selections = self
+            .scene
+            .topology_selections
+            .iter()
+            .map(|selection| TopologyReference {
+                key: selection.node.clone(),
+                part: selection.part,
+                kind: match selection.entity {
+                    crate::scene::TopologyEntity::Face(_) => TopologyKind::Face,
+                    crate::scene::TopologyEntity::Edge(_) => TopologyKind::Edge,
+                    crate::scene::TopologyEntity::Vertex(_) => TopologyKind::Vertex,
+                },
+                identifier: selection.entity.identifier(),
+            })
+            .collect();
+        let id = self.worker.next_id();
+        if self.worker.send(&Request::Measure { id, selections }) {
+            self.pending.insert(id, Pending::Measure);
+            self.measurements.loading = true;
+            self.measurements.error = None;
+            self.measurements.request_id = Some(id);
+        } else {
+            self.measurements.loading = false;
+            self.measurements.error = Some("Cannot reach Python".to_owned());
+            self.measurements.request_id = None;
+        }
     }
 
     /// Inspects the current object when it is a workplane.
@@ -1623,6 +1702,7 @@ impl CqEditorApp {
             variables: Vec::new(),
             traceback: None,
             inspector: InspectorState::default(),
+            measurements: MeasurementState::default(),
             console: ConsoleState::default(),
             log_view: LogView::default(),
             status: None,

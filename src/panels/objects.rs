@@ -257,8 +257,7 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
     };
     let topology = state
         .scene
-        .topology_selection
-        .as_ref()
+        .current_topology()
         .filter(|selection| selection.node == key)
         .map(|selection| (selection.entity, selection.part));
     let Some(node) = state.scene.find_mut(&key) else {

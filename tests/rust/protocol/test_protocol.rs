@@ -50,6 +50,42 @@ fn serializes_requests_with_command_tags() {
 }
 
 #[test]
+fn measurement_request_and_exact_response_share_topology_references() {
+    let request = Request::Measure {
+        id: 12,
+        selections: vec![TopologyReference {
+            key: "s1-n2".into(),
+            part: 0,
+            kind: TopologyKind::Vertex,
+            identifier: 3,
+        }],
+    };
+    let json = serde_json::to_value(request).unwrap();
+    assert_eq!(json["cmd"], "measure");
+    assert_eq!(json["selections"][0]["kind"], "vertex");
+    assert_eq!(json["selections"][0]["identifier"], 3);
+
+    let message: Message = serde_json::from_value(serde_json::json!({
+        "type": "measurement",
+        "id": 12,
+        "identity": {"scope": "scene_entry", "persistent": false},
+        "entities": [{
+            "key": "s1-n2", "part": 0, "kind": "vertex", "identifier": 3,
+            "geometry_type": "vertex", "center": [3.0, 4.0, 0.0],
+            "position": [3.0, 4.0, 0.0], "length": null, "area": null,
+            "radius": null, "diameter": null
+        }],
+        "pair": null
+    }))
+    .unwrap();
+    let Message::Measurement(measurement) = message else {
+        panic!("expected measurement");
+    };
+    assert_eq!(measurement.entities[0].position, Some([3.0, 4.0, 0.0]));
+    assert!(!measurement.identity.persistent);
+}
+
+#[test]
 fn parses_errors_and_output() {
     let message: Message =
         serde_json::from_str(r#"{"type":"output","id":null,"stream":"stderr","text":"x"}"#)

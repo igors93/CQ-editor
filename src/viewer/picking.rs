@@ -6,7 +6,7 @@
 
 use glam::{Mat4, Vec2, Vec3};
 
-use super::camera::Camera;
+use super::{SelectionMode, camera::Camera};
 use crate::scene::{Mesh, TopologyEntity};
 
 /// How close to an edge or point the pointer must be, in pixels.
@@ -45,6 +45,7 @@ pub fn pick<'a, T: Clone>(
     aspect: f32,
     pointer_ndc: Vec2,
     viewport_px: Vec2,
+    mode: SelectionMode,
     candidates: impl IntoIterator<Item = Candidate<'a, T>>,
 ) -> Option<Hit<T>> {
     let (origin, dir) = camera.ray(pointer_ndc, aspect);
@@ -52,6 +53,7 @@ pub fn pick<'a, T: Clone>(
     let pointer_px = to_px(pointer_ndc);
 
     let mut hits = Vec::new();
+    let mut front_surface: Option<f32> = None;
 
     for candidate in candidates {
         let mesh = candidate.mesh;
@@ -68,20 +70,24 @@ pub fn pick<'a, T: Clone>(
                 let local_position = local_origin + local_dir * distance;
                 let position = candidate.transform.transform_point3(local_position);
                 if let Some(depth) = projected_depth(camera, aspect, position) {
-                    hits.push(RankedHit {
-                        hit: Hit {
-                            id: candidate.id.clone(),
-                            entity: topology_faces
-                                .then(|| mesh.topology.triangle_faces.get(triangle).copied())
-                                .flatten()
-                                .map(TopologyEntity::Face),
-                            position,
-                        },
-                        depth,
-                        screen_distance: 0.0,
-                        priority: 2,
-                        surface: true,
-                    });
+                    front_surface = Some(front_surface.map_or(depth, |front| front.min(depth)));
+                    let entity = topology_faces
+                        .then(|| mesh.topology.triangle_faces.get(triangle).copied())
+                        .flatten()
+                        .map(TopologyEntity::Face);
+                    if mode.allows_faces() && mode.accepts(entity) {
+                        hits.push(RankedHit {
+                            hit: Hit {
+                                id: candidate.id.clone(),
+                                entity: mode.entity(entity),
+                                position,
+                            },
+                            depth,
+                            screen_distance: 0.0,
+                            priority: 2,
+                            surface: true,
+                        });
+                    }
                 }
             }
         }
@@ -92,7 +98,14 @@ pub fn pick<'a, T: Clone>(
                 .project(world, aspect)
                 .map(|ndc| (to_px(ndc.truncate()), world, ndc.z))
         };
-        for (segment_index, segment) in mesh.edges.as_chunks::<2>().0.iter().enumerate() {
+        for (segment_index, segment) in mesh
+            .edges
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .filter(|_| mode.allows_edges())
+        {
             let (Some((a, wa, _)), Some((b, wb, _))) = (screen(&segment[0]), screen(&segment[1]))
             else {
                 continue;
@@ -101,22 +114,25 @@ pub fn pick<'a, T: Clone>(
             if distance <= PICK_TOLERANCE_PX {
                 let position = wa.lerp(wb, t);
                 if let Some(depth) = projected_depth(camera, aspect, position) {
-                    hits.push(RankedHit {
-                        hit: Hit {
-                            id: candidate.id.clone(),
-                            entity: mesh
-                                .topology
-                                .segment_edges
-                                .get(segment_index)
-                                .copied()
-                                .map(TopologyEntity::Edge),
-                            position,
-                        },
-                        depth,
-                        screen_distance: distance,
-                        priority: 1,
-                        surface: false,
-                    });
+                    let entity = mesh
+                        .topology
+                        .segment_edges
+                        .get(segment_index)
+                        .copied()
+                        .map(TopologyEntity::Edge);
+                    if mode.accepts(entity) {
+                        hits.push(RankedHit {
+                            hit: Hit {
+                                id: candidate.id.clone(),
+                                entity: mode.entity(entity),
+                                position,
+                            },
+                            depth,
+                            screen_distance: distance,
+                            priority: 1,
+                            surface: false,
+                        });
+                    }
                 }
             }
         }
@@ -126,32 +142,33 @@ pub fn pick<'a, T: Clone>(
         } else {
             &mesh.points
         };
-        for (index, point) in vertices.iter().enumerate() {
+        for (index, point) in vertices
+            .iter()
+            .enumerate()
+            .filter(|_| mode.allows_vertices())
+        {
             if let Some((screen_pos, position, depth)) = screen(point)
                 && let distance = screen_pos.distance(pointer_px)
                 && distance <= PICK_TOLERANCE_PX
             {
-                hits.push(RankedHit {
-                    hit: Hit {
-                        id: candidate.id.clone(),
-                        entity: topology_vertices
-                            .then_some(TopologyEntity::Vertex(index as u32 + 1)),
-                        position,
-                    },
-                    depth,
-                    screen_distance: distance,
-                    priority: 0,
-                    surface: false,
-                });
+                let entity = topology_vertices.then_some(TopologyEntity::Vertex(index as u32 + 1));
+                if mode.accepts(entity) {
+                    hits.push(RankedHit {
+                        hit: Hit {
+                            id: candidate.id.clone(),
+                            entity: mode.entity(entity),
+                            position,
+                        },
+                        depth,
+                        screen_distance: distance,
+                        priority: 0,
+                        surface: false,
+                    });
+                }
             }
         }
     }
 
-    let front_surface = hits
-        .iter()
-        .filter(|hit| hit.surface)
-        .map(|hit| hit.depth)
-        .min_by(f32::total_cmp);
     hits.into_iter()
         .filter(|hit| {
             hit.surface || front_surface.is_none_or(|depth| hit.depth <= depth + OCCLUSION_EPSILON)

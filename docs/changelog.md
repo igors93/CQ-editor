@@ -12,7 +12,10 @@ tracked in the compatibility matrix instead of being assumed.
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
 * New: precise OCCT face, edge and vertex selection with subshape highlighting
-  and stable topology identifiers retained by the Python worker
+  and live-scene topology identifiers retained by the Python worker
+* New: Auto/Object/Face/Edge/Vertex selection modes and an exact Measurements
+  panel for OCCT distance, closest points, angle, length, area, surface/curve
+  type, radius and diameter; topology ids are explicitly scoped to one render
 * New: navigation cube redrawn natively, with hover feedback and the 45° roll
   arrows; view icons follow the theme
 * New: debugger "Step out" (Ctrl+Shift+F11) and a cleaner stepping model

@@ -328,7 +328,7 @@ caller frame explicitly.
 | | PERF-01 | Pick topology walks every triangulation node and triangle **in Python** (`_topology_faces`), which is the slow path the glTF writer was introduced to avoid. The pick triangles also duplicate the display triangles in memory and over the pipe | `worker/cq_worker/tessellation.py:449` | Build a per-triangle face id array for the display mesh (glTF primitives map to faces) and pick on the display triangles; vectorize the rest with numpy |
 | | PERF-02 | Each tessellation writes and reads a temporary `.glb` file on disk | `tessellation.py:306` | Reuse one temporary directory, or use an in-memory stream if OCCT allows it; measure first |
 | | PERF-03 | Hovering re-runs edge and vertex picking for every segment of every object on each pointer move. Faces use a BVH, edges do not | `src/viewer/picking.rs` | Spatial index (screen grid or BVH) for segments; skip hover picking while a drag is in progress or the pointer is still |
-| | PERF-04 | Topology selection exists only in the GUI. The worker keeps the live subshapes (`RegistryEntry.subshape`) but no request uses them | `worker/cq_worker/scene.py`, `protocol.rs` | Expose selected subshapes to the worker (see FEAT-B1/B2). This turns existing work into features |
+| ✅ | PERF-04 | Resolved: the `measure` request resolves selected ids through `RegistryEntry.subshape` and calculates against live OCCT geometry | `worker/cq_worker/measurement.py`, `protocol.rs` | Covered by exact numeric worker and protocol tests |
 
 ---
 
@@ -371,7 +371,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | FEAT-B2 🔵 | **Picked entities in the console**: `selected()` returns the selected `cq.Face` / `cq.Edge` objects for measurement and experiments | Uses `Registry.subshape` |
 | | FEAT-B3 ⚪ | **Parameter panel**: top-level numeric assignments (`width = 40`) appear as spin boxes and sliders. Changing one rewrites that line and re-renders | The script stays the source of truth; the panel only edits literals |
 | | FEAT-B4 ⚪ | **Jump to source**: from an object or a CQ Inspector step to the line that created it | Record line numbers while the script runs |
-| | FEAT-B5 ⚪ | **Measure tool**: distance, angle, area, length, radius and bounding box from picked entities, with *copy as code* | Reads the model; never edits it |
+| | FEAT-B5 ⚪ | **Measure tool**: exact distance, closest points, angle, area, length, radius/diameter and geometry type are implemented from picked entities; bounding box and *copy as code* remain | Reads the live OCCT model; never edits it |
 
 ### C. 3D view
 

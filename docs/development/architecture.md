@@ -45,7 +45,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `spatial.rs` | Bounding-volume hierarchy for triangle picking |
 | `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent) |
-| `panels/` | Objects, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
+| `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
 | `dialogs/` | Preferences, Upload, About, unsaved changes, external change, recovery, local history, messages |
 | `ui/` | Menu bar, toolbar, status bar |
 | `worker/` | Child process management (`mod.rs`), interpreter discovery (`launch.rs`), protocol types (`protocol.rs`) |
@@ -138,7 +138,7 @@ useful at a breakpoint.
 
 The GUI never holds CadQuery objects. It holds **keys** (`s1-n1`, `s1-n2`,
 …). The worker's `Registry` maps each key to the live object, its
-world-space shape and its topology index. Export, inspection and upload
+world-space shape and its topology index. Export, inspection, measurement and upload
 refer to objects by key. When the GUI drops objects it sends `release`, so
 the worker can free them.
 

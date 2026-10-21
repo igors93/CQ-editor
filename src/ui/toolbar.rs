@@ -7,8 +7,8 @@ use glam::Vec3;
 
 use crate::app::AppState;
 use crate::commands::{self, Action};
-use crate::viewer::DisplayMode;
 use crate::viewer::camera::StandardView;
+use crate::viewer::{DisplayMode, SelectionMode};
 use crate::worker::protocol::DebugAction;
 
 const BUTTON_SIZE: Vec2 = Vec2::new(28.0, 26.0);
@@ -203,6 +203,29 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             true,
             false,
         );
+        separator(ui);
+
+        ui.label("Select:");
+        egui::ComboBox::from_id_salt("topology_selection_mode")
+            .width(72.0)
+            .selected_text(state.viewer.selection_mode.label())
+            .show_ui(ui, |ui| {
+                for mode in SelectionMode::ALL {
+                    if ui
+                        .selectable_label(state.viewer.selection_mode == mode, mode.label())
+                        .on_hover_text(match mode {
+                            SelectionMode::Auto => "Nearest vertex, edge or face",
+                            SelectionMode::Object => "Whole displayed object",
+                            SelectionMode::Face => "Faces only",
+                            SelectionMode::Edge => "Edges only",
+                            SelectionMode::Vertex => "Vertices only",
+                        })
+                        .clicked()
+                    {
+                        actions.push(Action::SelectionMode(mode));
+                    }
+                }
+            });
     });
 
     state.queue(actions);

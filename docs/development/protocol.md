@@ -1,4 +1,4 @@
-# Worker protocol (version 3)
+# Worker protocol (version 4)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":3,"python":"3.10.11","cadquery":"2.7.0","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":4,"python":"3.10.11","cadquery":"2.7.0","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -70,6 +70,7 @@ The worker handles one request at a time, in arrival order.
 | `complete` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path`, `target` (`editor` or `console`) | `completions` |
 | `inspect` | `id`, `key` | `inspection` |
 | `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
+| `measure` | `id`, one or two `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
 | `console` | `id`, `source`, `scene`, `known_geometry` | `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
@@ -97,6 +98,7 @@ The worker handles one request at a time, in arrival order.
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
 | `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
 | `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
+| `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties and optional two-entity relationship calculated by OCCT |
 | `scene_add` | `id`, `objects` | Objects shown from the console |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
@@ -152,6 +154,25 @@ in the same response. The GUI resolves it from the meshes it holds.
 Binary arrays are decoded on the GUI's reader thread, so large models never
 stall the interface.
 
+### Topology identity and measurements
+
+The topology arrays associate display primitives with the 1-based OCCT face,
+edge and vertex order of one live registry entry. A `measure` request resolves
+those references with `RegistryEntry.subshape`; it never measures the display
+mesh. Registry shapes are already placed in world coordinates, including
+assembly locations.
+
+`measurement.identity` is always
+`{"scope":"scene_entry","persistent":false}`. This is an explicit contract:
+an id remains usable only while its scene key is alive. OCCT subshape order is
+not a persistent naming scheme across rebuilds or remodeling.
+
+Each entity returns `geometry_type`, `center` and applicable `position`,
+`length`, `area`, `radius` and `diameter` values as JSON doubles. A two-entity
+response adds exact minimum `distance`, the two closest points and, when the
+relationship is well-defined, `angle_degrees`/`angle_kind`. Angles currently
+cover straight edge/edge, planar face/face and straight edge/planar face.
+
 ## Debugging sessions
 
 ```
@@ -160,7 +181,7 @@ GUI                                   worker
  │ ───────────────────────────────────► │ runs under sys.settrace
  │            debug_paused {line: 9}    │ pauses, waits for a command
  │ ◄─────────────────────────────────── │
- │  complete / inspect / export …       │ served while paused
+ │  complete / inspect / measure / export │ served while paused
  │ ───────────────────────────────────► │
  │  debug {action: "step"}              │
  │ ───────────────────────────────────► │ resumes
@@ -172,7 +193,7 @@ GUI                                   worker
  │ ◄─────────────────────────────────── │
 ```
 
-While paused, only `complete`, `inspect`, `inspect_geometry`, `export`,
+While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `export`,
 `imports`, `release` and `check_updates` are served. Anything else is
 answered with an `error` (*Not available while debugging; continue or stop
 first*).

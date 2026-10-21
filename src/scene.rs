@@ -19,7 +19,10 @@ pub type NodeKey = String;
 /// sRGB color with components in 0..1.
 pub type Rgb = [f32; 3];
 
-/// A stable, 1-based OCCT subshape identifier supplied by the worker.
+/// A 1-based OCCT subshape identifier supplied by the worker.
+///
+/// It is valid only for the current live scene entry. Rebuilding/remodeling
+/// the object may assign the number to a different subshape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TopologyEntity {
     Face(u32),
@@ -506,8 +509,9 @@ pub struct Scene {
     pub axes: [AxisHelper; 3],
     /// Selected node keys; the last one is the "current" object.
     pub selection: Vec<NodeKey>,
-    pub topology_selection: Option<TopologySelection>,
-    topology_highlight: Option<Part>,
+    /// At most two exact entities, matching the interactive measurement tool.
+    pub topology_selections: Vec<TopologySelection>,
+    topology_highlights: Vec<Part>,
     pub overlay: Overlay,
     mesh_cache: HashMap<String, Weak<Mesh>>,
 }
@@ -529,8 +533,8 @@ impl Default for Scene {
                 axis("Z", Vec3::Z, [0.0, 0.0, 1.0]),
             ],
             selection: Vec::new(),
-            topology_selection: None,
-            topology_highlight: None,
+            topology_selections: Vec::new(),
+            topology_highlights: Vec::new(),
             overlay: Overlay::default(),
             mesh_cache: HashMap::new(),
         }
@@ -719,12 +723,19 @@ impl Scene {
         }
     }
 
+    pub fn ensure_selected(&mut self, key: &str) {
+        if let Some(index) = self.selection.iter().position(|candidate| candidate == key) {
+            self.selection.remove(index);
+        }
+        self.selection.push(key.to_owned());
+    }
+
     pub fn clear_selection(&mut self) {
         self.selection.clear();
         self.clear_topology_selection();
     }
 
-    pub fn select_topology(&mut self, selection: TopologySelection) -> bool {
+    pub fn select_topology(&mut self, selection: TopologySelection, extend: bool) -> bool {
         let highlight = self
             .find(&selection.node)
             .and_then(|node| node.parts.get(selection.part))
@@ -737,21 +748,44 @@ impl Scene {
                 })
             });
         let Some(highlight) = highlight else {
-            self.clear_topology_selection();
+            if !extend {
+                self.clear_topology_selection();
+            }
             return false;
         };
-        self.topology_selection = Some(selection);
-        self.topology_highlight = Some(highlight);
+
+        let same_entity = |candidate: &TopologySelection| {
+            candidate.node == selection.node
+                && candidate.part == selection.part
+                && candidate.entity == selection.entity
+        };
+        if extend && let Some(index) = self.topology_selections.iter().position(same_entity) {
+            self.topology_selections.remove(index);
+            self.topology_highlights.remove(index);
+            return true;
+        }
+        if !extend {
+            self.clear_topology_selection();
+        } else if self.topology_selections.len() == 2 {
+            self.topology_selections.remove(0);
+            self.topology_highlights.remove(0);
+        }
+        self.topology_selections.push(selection);
+        self.topology_highlights.push(highlight);
         true
     }
 
     pub fn clear_topology_selection(&mut self) {
-        self.topology_selection = None;
-        self.topology_highlight = None;
+        self.topology_selections.clear();
+        self.topology_highlights.clear();
     }
 
-    pub fn topology_highlight(&self) -> Option<&Part> {
-        self.topology_highlight.as_ref()
+    pub fn current_topology(&self) -> Option<&TopologySelection> {
+        self.topology_selections.last()
+    }
+
+    pub fn topology_highlights(&self) -> &[Part] {
+        &self.topology_highlights
     }
 
     pub fn current(&self) -> Option<&SceneNode> {
@@ -799,13 +833,17 @@ impl Scene {
             .into_iter()
             .filter(|k| self.find(k).is_some())
             .collect();
-        if self
-            .topology_selection
-            .as_ref()
-            .is_some_and(|selection| !self.is_selected(&selection.node))
-        {
-            self.clear_topology_selection();
-        }
+        let selected: HashSet<_> = self.selection.iter().cloned().collect();
+        let mut index = 0;
+        self.topology_selections.retain(|selection| {
+            let keep = selected.contains(&selection.node);
+            if !keep {
+                self.topology_highlights.remove(index);
+            } else {
+                index += 1;
+            }
+            keep
+        });
     }
 }
 

@@ -212,13 +212,25 @@ fn topology_selection_builds_and_clears_an_exact_highlight() {
         entity: TopologyEntity::Face(4),
         position: Vec3::new(0.25, 0.25, 0.0),
     };
-    assert!(scene.select_topology(selection.clone()));
-    assert_eq!(scene.topology_selection, Some(selection));
-    assert_eq!(scene.topology_highlight().unwrap().mesh.triangle_count(), 1);
+    assert!(scene.select_topology(selection.clone(), false));
+    assert_eq!(scene.topology_selections, vec![selection.clone()]);
+    assert_eq!(scene.topology_highlights()[0].mesh.triangle_count(), 1);
+
+    let edge = TopologySelection {
+        entity: TopologyEntity::Edge(7),
+        ..selection
+    };
+    assert!(scene.select_topology(edge.clone(), true));
+    assert_eq!(scene.topology_selections.len(), 2);
+    assert_eq!(scene.current_topology(), Some(&edge));
+
+    // Ctrl-selecting the same topology toggles only that entity.
+    assert!(scene.select_topology(edge, true));
+    assert_eq!(scene.topology_selections.len(), 1);
 
     scene.select_only("n");
-    assert!(scene.topology_selection.is_none());
-    assert!(scene.topology_highlight().is_none());
+    assert!(scene.topology_selections.is_empty());
+    assert!(scene.topology_highlights().is_empty());
 }
 
 fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::SceneNode {

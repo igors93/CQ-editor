@@ -9,7 +9,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 pub type RequestId = u64;
 
@@ -57,6 +57,12 @@ pub enum Request {
         frame: usize,
         item: Option<usize>,
         scene: SceneSettings,
+    },
+    /// Measures one entity, or the exact relationship between two entities,
+    /// against the live OCCT shapes retained by the worker.
+    Measure {
+        id: RequestId,
+        selections: Vec<TopologyReference>,
     },
     Console {
         id: RequestId,
@@ -195,6 +201,7 @@ pub enum Message {
         meshes: Vec<Mesh>,
         plane: Option<Plane>,
     },
+    Measurement(Measurement),
     SceneAdd {
         objects: Vec<SceneNode>,
     },
@@ -315,6 +322,60 @@ pub struct Plane {
     pub x_dir: [f32; 3],
     pub z_dir: [f32; 3],
     pub size: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TopologyKind {
+    Face,
+    Edge,
+    Vertex,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TopologyReference {
+    pub key: String,
+    pub part: usize,
+    pub kind: TopologyKind,
+    pub identifier: u32,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct Measurement {
+    pub id: RequestId,
+    pub identity: TopologyIdentity,
+    pub entities: Vec<EntityMeasurement>,
+    pub pair: Option<PairMeasurement>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TopologyIdentity {
+    pub scope: String,
+    pub persistent: bool,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct EntityMeasurement {
+    pub key: String,
+    pub part: usize,
+    pub kind: TopologyKind,
+    pub identifier: u32,
+    pub geometry_type: String,
+    pub center: [f64; 3],
+    pub position: Option<[f64; 3]>,
+    pub length: Option<f64>,
+    pub area: Option<f64>,
+    pub radius: Option<f64>,
+    pub diameter: Option<f64>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct PairMeasurement {
+    pub distance: f64,
+    pub first_point: [f64; 3],
+    pub second_point: [f64; 3],
+    pub angle_degrees: Option<f64>,
+    pub angle_kind: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

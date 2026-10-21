@@ -76,8 +76,8 @@ starts as soon as the current one ends.
 | Orbit | Left drag |
 | Pan | Middle drag, or Ctrl + left drag |
 | Zoom | Wheel or pinch (toward the pointer), right drag, or Shift + left drag |
-| Select a face, edge or vertex | Click |
-| Add to / remove from the selection | Ctrl + click |
+| Select according to the toolbar mode (Auto, Object, Face, Edge or Vertex) | Click |
+| Add/remove a second measured entity, or add/remove an object in Object mode | Ctrl + click |
 | Clear the selection | Click on empty space |
 | Zoom to an object | Double-click |
 | Look from a side, edge or corner | Click the navigation cube |

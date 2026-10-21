@@ -8,8 +8,8 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::panels::Tab;
 use crate::scene::{NodeKey, TopologySelection};
-use crate::viewer::DisplayMode;
 use crate::viewer::camera::StandardView;
+use crate::viewer::{DisplayMode, SelectionMode};
 use crate::worker::protocol::{DebugAction, ExportFormat};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +46,7 @@ pub enum Action {
     FitSelection,
     View(StandardView),
     Display(DisplayMode),
+    SelectionMode(SelectionMode),
     ToggleProjection,
     TogglePanel(Tab),
     ResetLayout,

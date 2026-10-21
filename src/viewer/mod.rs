@@ -49,6 +49,66 @@ pub enum DisplayMode {
     Wireframe,
 }
 
+/// Restricts which entity type a click may select. `Auto` preserves the
+/// vertex-before-edge-before-face behavior used by earlier releases.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SelectionMode {
+    #[default]
+    Auto,
+    Object,
+    Face,
+    Edge,
+    Vertex,
+}
+
+impl SelectionMode {
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Object,
+        Self::Face,
+        Self::Edge,
+        Self::Vertex,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Object => "Object",
+            Self::Face => "Face",
+            Self::Edge => "Edge",
+            Self::Vertex => "Vertex",
+        }
+    }
+
+    fn allows_faces(self) -> bool {
+        matches!(self, Self::Auto | Self::Object | Self::Face)
+    }
+
+    fn allows_edges(self) -> bool {
+        matches!(self, Self::Auto | Self::Object | Self::Edge)
+    }
+
+    fn allows_vertices(self) -> bool {
+        matches!(self, Self::Auto | Self::Object | Self::Vertex)
+    }
+
+    fn accepts(self, entity: Option<crate::scene::TopologyEntity>) -> bool {
+        match self {
+            Self::Auto | Self::Object => true,
+            Self::Face => matches!(entity, Some(crate::scene::TopologyEntity::Face(_))),
+            Self::Edge => matches!(entity, Some(crate::scene::TopologyEntity::Edge(_))),
+            Self::Vertex => matches!(entity, Some(crate::scene::TopologyEntity::Vertex(_))),
+        }
+    }
+
+    fn entity(
+        self,
+        entity: Option<crate::scene::TopologyEntity>,
+    ) -> Option<crate::scene::TopologyEntity> {
+        (self != Self::Object).then_some(entity).flatten()
+    }
+}
+
 /// Colors the view takes from the UI theme.
 #[derive(Clone)]
 pub struct ViewerColors {
@@ -120,6 +180,7 @@ impl Drag {
 pub struct Viewer {
     pub camera: Camera,
     pub display_mode: DisplayMode,
+    pub selection_mode: SelectionMode,
     animation: Option<Animation>,
     renderer: Option<SceneRenderer>,
     nav_cube: NavigationCube,
@@ -143,6 +204,7 @@ impl Default for Viewer {
         Self {
             camera: Camera::default(),
             display_mode: DisplayMode::Shaded,
+            selection_mode: SelectionMode::Auto,
             animation: None,
             renderer: None,
             nav_cube: NavigationCube::default(),
@@ -618,6 +680,7 @@ impl Viewer {
             self.aspect,
             ndc(rect, pos),
             GVec2::new(rect.width(), rect.height()),
+            self.selection_mode,
             candidates,
         )
         .map(|hit| {
@@ -647,13 +710,14 @@ impl Viewer {
             }
         }
 
-        let topology_node = scene
-            .topology_selection
-            .as_ref()
-            .map(|selection| selection.node.as_str());
+        let topology_nodes: std::collections::HashSet<_> = scene
+            .topology_selections
+            .iter()
+            .map(|selection| selection.node.as_str())
+            .collect();
         for node in scene.visible_nodes() {
             let selected =
-                highlighted.contains(&node.key) && topology_node != Some(node.key.as_str());
+                highlighted.contains(&node.key) && !topology_nodes.contains(node.key.as_str());
             let hovered = self.hovered.as_deref() == Some(node.key.as_str());
             for part in &node.parts {
                 let (rgb, alpha) = node.part_color(part, default_color);
@@ -696,7 +760,7 @@ impl Viewer {
             }
         }
 
-        if let Some(part) = scene.topology_highlight() {
+        for part in scene.topology_highlights() {
             let color = linear_color(colors.selection, 1.0);
             items.push(DrawItem {
                 mesh: part.mesh.clone(),

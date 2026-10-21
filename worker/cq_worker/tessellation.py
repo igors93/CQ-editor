@@ -219,7 +219,12 @@ class GeometryCache:
 
 @dataclass(frozen=True)
 class TopologyIndex:
-    """Stable, 1-based OCCT subshape order used by picking and the registry."""
+    """1-based OCCT subshape order used by picking and the live registry.
+
+    The identifiers remain valid only while this exact registry entry is
+    alive.  OCCT does not guarantee that the same number names the same
+    semantic feature after the model is rebuilt or remodeled.
+    """
 
     faces: tuple[TopoDS_Shape, ...]
     edges: tuple[TopoDS_Shape, ...]
