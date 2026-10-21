@@ -102,6 +102,13 @@ fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         "Save As…",
         Action::SaveAs,
     );
+    item(
+        ui,
+        actions,
+        icon::CLOCK_COUNTER_CLOCKWISE,
+        "Local History…",
+        Action::LocalHistory,
+    );
     ui.separator();
     check_item(
         ui,

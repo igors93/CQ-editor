@@ -93,6 +93,23 @@ fn opens_and_saves_classic_mac_line_endings() {
 }
 
 #[test]
+fn preserves_a_utf8_bom_without_exposing_it_in_the_editor() {
+    let path = temporary_file("bom.py");
+    std::fs::write(&path, b"\xef\xbb\xbfx = 1\r\n").unwrap();
+    let mut doc = Document::open(&path).unwrap();
+    assert_eq!(doc.text, "x = 1\n");
+    assert!(doc.has_utf8_bom());
+
+    doc.text.push_str("y = 2\n");
+    assert!(doc.save().unwrap());
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        b"\xef\xbb\xbfx = 1\r\ny = 2\r\n"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn reload_refuses_to_discard_unsaved_changes() {
     let path = temporary_file("reload.py");
     std::fs::write(&path, "x = 1\n").unwrap();
@@ -219,12 +236,74 @@ fn applying_a_disk_snapshot_rejects_another_document() {
 }
 
 #[test]
-fn invalid_utf8_is_replaced_without_preventing_open() {
+fn invalid_utf8_is_rejected_without_changing_the_file() {
     let path = temporary_file("invalid.py");
-    std::fs::write(&path, [b'a', 0xff, b'\n']).unwrap();
-    let doc = Document::open(&path).unwrap();
-    assert_eq!(doc.text, "a\u{fffd}\n");
-    assert!(!doc.is_modified());
+    // Latin-1 "café" is intentionally not valid UTF-8.
+    let original = [b'c', b'a', b'f', 0xe9, b'\n'];
+    std::fs::write(&path, original).unwrap();
+    let error = Document::open(&path).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("not valid UTF-8"));
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn interrupted_atomic_write_keeps_the_original_file_intact() {
+    let directory = temporary_file("atomic-write-dir");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("script.py");
+    std::fs::write(&path, "original\n").unwrap();
+
+    let error = atomic_write_with(&path, true, |file| {
+        file.write_all(b"partial replacement")?;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "simulated interruption",
+        ))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn atomic_save_preserves_unix_permissions() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = temporary_file("permissions.py");
+    std::fs::write(&path, "original\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let mut doc = Document::open(&path).unwrap();
+    doc.text = "replacement\n".into();
+    doc.save().unwrap();
+
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn atomic_save_preserves_windows_creation_time() {
+    let path = temporary_file("windows-metadata.py");
+    std::fs::write(&path, "original\n").unwrap();
+    let created = std::fs::metadata(&path).unwrap().created().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let mut doc = Document::open(&path).unwrap();
+    doc.text = "replacement\n".into();
+    doc.save().unwrap();
+
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().created().unwrap(),
+        created
+    );
     std::fs::remove_file(path).unwrap();
 }
 

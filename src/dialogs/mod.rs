@@ -12,6 +12,7 @@ use egui_phosphor::regular as icon;
 use crate::app::AppState;
 use crate::commands::Action;
 use crate::document::DiskVersion;
+use crate::recovery::RecoverySnapshot;
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +47,22 @@ pub struct ExternalChange {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecoverySessionChoice {
+    Restore,
+    Discard,
+}
+
+pub struct HistoryDialog {
+    pub versions: Vec<RecoverySnapshot>,
+    pub selected: usize,
+}
+
+enum HistoryChoice {
+    Restore(RecoverySnapshot),
+    Close,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MessageKind {
     Info,
     Error,
@@ -65,6 +82,8 @@ pub struct Dialogs {
     pub upload: Option<upload::UploadDialog>,
     pub unsaved: Option<Intent>,
     pub external_change: Option<ExternalChange>,
+    pub recovery_session: Option<RecoverySnapshot>,
+    pub history: Option<HistoryDialog>,
     pub message: Option<Message>,
 }
 
@@ -110,6 +129,22 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         about(ctx, state);
     }
 
+    let recovery_was_open = state.dialogs.recovery_session.is_some();
+    let recovery_choice = state
+        .dialogs
+        .recovery_session
+        .as_ref()
+        .and_then(|snapshot| recovery_session(ctx, snapshot));
+    if let Some(choice) = recovery_choice
+        && let Some(snapshot) = state.dialogs.recovery_session.take()
+    {
+        state.resolve_recovery_session(snapshot, choice == RecoverySessionChoice::Restore);
+    }
+    if recovery_was_open {
+        state.queue(actions);
+        return;
+    }
+
     if let Some(intent) = state.dialogs.unsaved.clone()
         && let Some(choice) = unsaved_changes(ctx, &state.document.display_name())
     {
@@ -127,6 +162,20 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         && let Some(change) = state.dialogs.external_change.take()
     {
         state.resolve_external_change(change, choice);
+    }
+
+    let history_choice = state
+        .dialogs
+        .history
+        .as_mut()
+        .and_then(|history| local_history(ctx, history));
+    match history_choice {
+        Some(HistoryChoice::Restore(snapshot)) => {
+            state.dialogs.history = None;
+            state.restore_history(snapshot);
+        }
+        Some(HistoryChoice::Close) => state.dialogs.history = None,
+        None => {}
     }
 
     if let Some(message) = &state.dialogs.message
@@ -314,6 +363,139 @@ fn external_change(
         choice = Some(ExternalChangeChoice::KeepLocal);
     }
     choice
+}
+
+fn recovery_session(
+    ctx: &egui::Context,
+    snapshot: &RecoverySnapshot,
+) -> Option<RecoverySessionChoice> {
+    let mut choice = None;
+    egui::Modal::new(egui::Id::new("recovery_session"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(560.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(icon::LIFEBUOY)
+                        .size(28.0)
+                        .color(ui.visuals().warn_fg_color),
+                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Unsaved work can be recovered")
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.label(format!(
+                        "CQ-editor found an interrupted session for {}.",
+                        snapshot.display_name()
+                    ));
+                    ui.weak(format!("Recovery checkpoint: {}", snapshot_time(snapshot)));
+                });
+            });
+            ui.add_space(10.0);
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                egui::ScrollArea::both()
+                    .id_salt("recovery_preview")
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(&snapshot.text).monospace())
+                                .selectable(true),
+                        );
+                    });
+            });
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("Restore session").strong())
+                            .fill(ui.visuals().selection.bg_fill),
+                    )
+                    .clicked()
+                {
+                    choice = Some(RecoverySessionChoice::Restore);
+                }
+                if ui.button("Discard recovery").clicked() {
+                    choice = Some(RecoverySessionChoice::Discard);
+                }
+            });
+        });
+    choice
+}
+
+fn local_history(ctx: &egui::Context, history: &mut HistoryDialog) -> Option<HistoryChoice> {
+    let mut choice = None;
+    let response = egui::Modal::new(egui::Id::new("local_history"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(760.0);
+            ui.label(RichText::new("Local history").strong().size(16.0));
+            ui.weak("Recovery checkpoints are retained locally; the newest 20 versions are kept per document.");
+            ui.add_space(10.0);
+            ui.columns(2, |columns| {
+                columns[0].set_width(220.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("history_versions")
+                    .max_height(360.0)
+                    .show(&mut columns[0], |ui| {
+                        for (index, snapshot) in history.versions.iter().enumerate() {
+                            if ui
+                                .selectable_label(
+                                    history.selected == index,
+                                    snapshot_time(snapshot),
+                                )
+                                .clicked()
+                            {
+                                history.selected = index;
+                            }
+                        }
+                    });
+                if let Some(snapshot) = history.versions.get(history.selected) {
+                    columns[1].label(RichText::new(snapshot.display_name()).strong());
+                    egui::Frame::group(columns[1].style()).show(&mut columns[1], |ui| {
+                        egui::ScrollArea::both()
+                            .id_salt("history_preview")
+                            .max_height(330.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(RichText::new(&snapshot.text).monospace())
+                                        .selectable(true),
+                                );
+                            });
+                    });
+                }
+            });
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        !history.versions.is_empty(),
+                        egui::Button::new(RichText::new("Restore this version").strong())
+                            .fill(ui.visuals().selection.bg_fill),
+                    )
+                    .clicked()
+                    && let Some(snapshot) = history.versions.get(history.selected)
+                {
+                    choice = Some(HistoryChoice::Restore(snapshot.clone()));
+                }
+                if ui.button("Close").clicked() {
+                    choice = Some(HistoryChoice::Close);
+                }
+            });
+        });
+    if response.should_close() && choice.is_none() {
+        choice = Some(HistoryChoice::Close);
+    }
+    choice
+}
+
+fn snapshot_time(snapshot: &RecoverySnapshot) -> String {
+    let time = std::time::UNIX_EPOCH
+        .checked_add(std::time::Duration::from_millis(snapshot.timestamp_ms))
+        .unwrap_or(std::time::UNIX_EPOCH);
+    let local: chrono::DateTime<chrono::Local> = time.into();
+    local.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 /// Returns `true` once dismissed.

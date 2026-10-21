@@ -25,6 +25,7 @@ Additional screenshots are available in [the wiki](https://github.com/CadQuery/C
 * Export to STEP (assemblies keep names and colors), STL and BREP
 * Python console sharing the variables of the last run
 * Light and dark themes, dockable panels that remember their layout
+* Atomic file saves, automatic crash recovery and a bounded local history
 * A long running or crashing script never freezes or takes down the editor:
   press Stop (Ctrl+Shift+F5) to abort it
 

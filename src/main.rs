@@ -15,6 +15,7 @@ mod embedded;
 mod file_watcher;
 mod logging;
 mod panels;
+mod recovery;
 mod scene;
 mod settings;
 mod spatial;

@@ -9,19 +9,22 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::ViewportCommand;
 use egui_dock::{DockArea, DockState};
 
 use crate::commands::{self, Action};
-use crate::dialogs::{self, Dialogs, ExternalChange, ExternalChangeChoice, Intent, UnsavedChoice};
+use crate::dialogs::{
+    self, Dialogs, ExternalChange, ExternalChangeChoice, HistoryDialog, Intent, UnsavedChoice,
+};
 use crate::document::{DEFAULT_SCRIPT, Document, ExternalUpdate};
 use crate::editor::{CodeEditor, CompletionRequest, EditorOptions};
 use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
 use crate::logging::{self, Level};
 use crate::panels::{self, ConsoleState, EntryKind, InspectorState, LogView, Tab, TabContext};
+use crate::recovery::{CHECKPOINT_INTERVAL, RecoverySnapshot, RecoveryStore};
 use crate::scene::{Grid, Mesh, NodeKey, Overlay, Rgb, Scene, SceneNode};
 use crate::settings::{self, Projection, Settings};
 use crate::theme::{self, Palette};
@@ -105,6 +108,9 @@ pub struct AppState {
     examples: Vec<Example>,
     palette: Palette,
     cache_dir: PathBuf,
+    recovery: RecoveryStore,
+    next_recovery: Instant,
+    recovery_error_reported: bool,
     python_override: Option<String>,
     worker_was_ready: bool,
     allow_close: bool,
@@ -194,6 +200,7 @@ impl AppState {
         self.process_worker_events();
         self.sync_watcher();
         self.poll_watcher(ctx);
+        self.poll_recovery(ctx);
         commands::collect_shortcuts(ctx, &mut self.actions);
     }
 
@@ -304,6 +311,7 @@ impl AppState {
             Action::SaveAs => {
                 self.save_as();
             }
+            Action::LocalHistory => self.show_local_history(),
             Action::ToggleAutoreload => {
                 self.settings.editor.autoreload = !self.settings.editor.autoreload
             }
@@ -422,6 +430,42 @@ impl AppState {
         }
     }
 
+    pub fn resolve_recovery_session(&mut self, snapshot: RecoverySnapshot, restore: bool) {
+        if let Err(error) = self.recovery.clear_session() {
+            self.dialogs.error(
+                "Cannot update recovery state",
+                format!("Your recovery was kept on disk.\n\n{error}"),
+            );
+            self.dialogs.recovery_session = Some(snapshot);
+            return;
+        }
+        if restore {
+            let name = snapshot.display_name();
+            self.set_document(snapshot.into_document());
+            self.checkpoint_recovery();
+            self.set_status(
+                StatusKind::Success,
+                format!("Recovered unsaved work for {name}"),
+            );
+        } else {
+            self.set_status(
+                StatusKind::Info,
+                "Discarded the interrupted recovery session",
+            );
+        }
+    }
+
+    pub fn restore_history(&mut self, snapshot: RecoverySnapshot) {
+        self.checkpoint_recovery();
+        let name = snapshot.display_name();
+        self.set_document(snapshot.into_document());
+        self.checkpoint_recovery();
+        self.set_status(
+            StatusKind::Success,
+            format!("Restored a local history version of {name}"),
+        );
+    }
+
     pub fn resolve_external_change(
         &mut self,
         change: ExternalChange,
@@ -467,6 +511,7 @@ impl AppState {
                 }
             }
             Intent::Quit => {
+                self.clear_recovery_session();
                 self.allow_close = true;
                 self.ctx.send_viewport_cmd(ViewportCommand::Close);
             }
@@ -488,14 +533,18 @@ impl AppState {
     }
 
     fn set_document(&mut self, document: Document) {
+        self.clear_recovery_session();
         self.document = document;
         self.dialogs.external_change = None;
+        self.dialogs.history = None;
+        self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
         self.editor.reset();
         self.traceback = None;
     }
 
     /// Returns whether the document ended up saved.
     fn save(&mut self) -> bool {
+        self.checkpoint_recovery();
         match self.document.save() {
             Ok(true) => {
                 self.after_save();
@@ -518,6 +567,7 @@ impl AppState {
     }
 
     fn save_as(&mut self) -> bool {
+        self.checkpoint_recovery();
         let mut dialog = rfd::FileDialog::new()
             .add_filter("Python script", &["py"])
             .set_file_name(self.document.path().and_then(Path::file_name).map_or_else(
@@ -532,6 +582,9 @@ impl AppState {
         };
         if path.extension().is_none() {
             path.set_extension("py");
+        }
+        if let Err(error) = self.recovery.archive_path(&path) {
+            log::warn!("Cannot archive the previous Save As target: {error}");
         }
         match self.document.save_as(&path) {
             Ok(()) => {
@@ -577,6 +630,7 @@ impl AppState {
     }
 
     fn reload_external_change(&mut self, change: ExternalChange) {
+        self.checkpoint_recovery();
         let backup = if self.document.is_modified() {
             match self
                 .document
@@ -618,6 +672,7 @@ impl AppState {
                     },
                 );
                 self.set_status(StatusKind::Info, message);
+                self.clear_recovery_session();
                 self.rerun_after_external_change(change.rerun_after_resolution);
             }
             Err(error) => self
@@ -633,11 +688,79 @@ impl AppState {
     }
 
     fn after_save(&mut self) {
+        if let Err(error) = self.recovery.archive(&self.document) {
+            log::warn!("Cannot add the saved document to local history: {error}");
+        }
+        self.clear_recovery_session();
         if let Some(path) = self.document.path().map(Path::to_path_buf) {
             self.settings.add_recent_file(&path);
             self.settings.last_file = Some(path.clone());
             self.set_status(StatusKind::Success, format!("Saved {}", path.display()));
         }
+    }
+
+    fn show_local_history(&mut self) {
+        self.checkpoint_recovery();
+        match self.recovery.history(self.document.path()) {
+            Ok(versions) if versions.is_empty() => self.dialogs.info(
+                "Local history",
+                "No recovery versions are available for this document yet.",
+            ),
+            Ok(versions) => {
+                self.dialogs.history = Some(HistoryDialog {
+                    versions,
+                    selected: 0,
+                });
+            }
+            Err(error) => self
+                .dialogs
+                .error("Cannot read local history", error.to_string()),
+        }
+    }
+
+    fn checkpoint_recovery(&mut self) {
+        // The startup document is a separate clean buffer while the recovered
+        // session awaits a decision. It must never clear that pending session.
+        if self.dialogs.recovery_session.is_some() {
+            return;
+        }
+        match self.recovery.checkpoint(&self.document) {
+            Ok(_) => self.recovery_error_reported = false,
+            Err(error) => {
+                log::warn!("Cannot create recovery checkpoint: {error}");
+                if !self.recovery_error_reported {
+                    self.set_status(
+                        StatusKind::Warning,
+                        "Automatic recovery is unavailable; see the Log panel",
+                    );
+                    self.recovery_error_reported = true;
+                }
+            }
+        }
+    }
+
+    fn clear_recovery_session(&mut self) {
+        if let Err(error) = self.recovery.clear_session() {
+            log::warn!("Cannot clear recovery session: {error}");
+        }
+    }
+
+    fn poll_recovery(&mut self, ctx: &egui::Context) {
+        if self.dialogs.recovery_session.is_some() {
+            return;
+        }
+        if !self.document.is_modified() {
+            self.clear_recovery_session();
+            self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
+            return;
+        }
+
+        let now = Instant::now();
+        if now >= self.next_recovery {
+            self.checkpoint_recovery();
+            self.next_recovery = now + CHECKPOINT_INTERVAL;
+        }
+        ctx.request_repaint_after(self.next_recovery.saturating_duration_since(now));
     }
 
     // -- worker -------------------------------------------------------------------
@@ -1188,6 +1311,7 @@ impl AppState {
                         StatusKind::Info,
                         format!("Reloaded {}", self.document.display_name()),
                     );
+                    self.clear_recovery_session();
                     self.start_run(false);
                 }
                 Err(error) => log::warn!("Cannot reload the script: {error}"),
@@ -1447,18 +1571,40 @@ impl CqEditorApp {
             .unwrap_or_else(panels::default_layout);
 
         let cache_dir = eframe::storage_dir("cq-editor").unwrap_or_else(std::env::temp_dir);
-        let document = options
+        let recovery = RecoveryStore::new(cache_dir.join("recovery"));
+        let mut startup_errors = Vec::new();
+        let recovery_session = match recovery.load_session() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::warn!("Cannot load the recovery session: {error}");
+                startup_errors.push(format!("Cannot load the recovery session:\n{error}"));
+                None
+            }
+        };
+        let startup_path = options
             .file
             .clone()
-            .or_else(|| settings.last_file.clone().filter(|p| p.is_file()))
+            .or_else(|| settings.last_file.clone().filter(|p| p.is_file()));
+        let document = startup_path
             .and_then(|path| match Document::open(&path) {
                 Ok(document) => Some(document),
-                Err(err) => {
-                    log::warn!("Cannot open {}: {err}", path.display());
+                Err(error) => {
+                    log::warn!("Cannot open {}: {error}", path.display());
+                    startup_errors.push(format!(
+                        "Cannot open the startup file {}:\n{error}",
+                        path.display()
+                    ));
                     None
                 }
             })
             .unwrap_or_else(|| Document::untitled(DEFAULT_SCRIPT));
+        let mut dialogs = Dialogs {
+            recovery_session,
+            ..Dialogs::default()
+        };
+        if !startup_errors.is_empty() {
+            dialogs.error("Startup problem", startup_errors.join("\n\n"));
+        }
 
         let mut state = AppState {
             worker: Worker::new(ctx.clone()),
@@ -1474,7 +1620,7 @@ impl CqEditorApp {
             console: ConsoleState::default(),
             log_view: LogView::default(),
             status: None,
-            dialogs: Dialogs::default(),
+            dialogs,
             phase: Phase::Idle,
             rerun: false,
             run_when_ready: None,
@@ -1485,6 +1631,9 @@ impl CqEditorApp {
             examples: embedded::examples(),
             palette: Palette::DARK,
             cache_dir,
+            recovery,
+            next_recovery: Instant::now() + CHECKPOINT_INTERVAL,
+            recovery_error_reported: false,
             python_override: options.python,
             worker_was_ready: false,
             allow_close: false,
@@ -1579,6 +1728,7 @@ impl eframe::App for CqEditorApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.state.checkpoint_recovery();
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
         eframe::set_value(storage, LAYOUT_KEY, &self.dock);
     }

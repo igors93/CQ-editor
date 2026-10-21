@@ -21,6 +21,7 @@ pub enum Action {
     OpenExample(usize),
     Save,
     SaveAs,
+    LocalHistory,
     ToggleAutoreload,
     Quit,
     // Edit

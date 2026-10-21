@@ -26,6 +26,10 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 log = { version = "0.4", features = ["std"] }
 open = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tempfile = "3.27"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [profile.dev]
 # Line tables keep panic backtraces useful at a fraction of full debug info's size.
