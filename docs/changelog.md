@@ -56,6 +56,13 @@ tracked in the compatibility matrix instead of being assumed.
   tree; it now scrolls and leaves the tree its room
 * Fixed: breakpoints and the error line stayed on their line numbers when
   lines were added or removed above them; they now follow their statements
+* Fixed: while debugging, a paused view that no longer showed an object made
+  the next pauses and the final result fail with "Cannot update the 3D
+  scene" once the object reappeared; meshes now stay available for the
+  whole session
+* New: recently used meshes and their GPU buffers are kept (up to 128 MB),
+  so rendering after Clear, debugging and repeated runs transfer and upload
+  only geometry that changed
 * Fixed: the Previous match tooltip now shows its actual Alt+F3 shortcut
   instead of conflicting with the Shift+F3 Top view shortcut
 * Fixed: Ctrl+left-drag explicitly selects Pan even when a platform event does

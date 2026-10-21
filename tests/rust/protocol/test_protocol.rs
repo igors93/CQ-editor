@@ -204,6 +204,19 @@ fn export_formats_have_distinct_extensions_and_wire_values() {
 }
 
 #[test]
+fn scene_additions_name_their_request() {
+    let added = |text| match serde_json::from_str::<Message>(text) {
+        Ok(Message::SceneAdd { id, objects }) => (id, objects.len()),
+        other => panic!("not a scene addition: {other:?}"),
+    };
+    assert_eq!(
+        added(r#"{"type":"scene_add","id":5,"objects":[]}"#),
+        (Some(5), 0)
+    );
+    assert_eq!(added(r#"{"type":"scene_add","objects":[]}"#), (None, 0));
+}
+
+#[test]
 fn unknown_worker_message_is_rejected() {
     assert!(serde_json::from_str::<Message>(r#"{"type":"unknown"}"#).is_err());
 }

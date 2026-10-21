@@ -12,7 +12,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use glam::{Mat4, Vec3};
 
 use crate::spatial::{BoundsBvh, TriangleBvh};
-use crate::worker::protocol;
+use crate::worker::protocol::{self, RequestId};
 
 pub type NodeKey = String;
 
@@ -135,8 +135,6 @@ impl Aabb {
 #[derive(Debug, Default)]
 pub struct Mesh {
     pub id: u64,
-    /// Content id supplied by the worker; empty for GUI-generated helpers.
-    pub geometry_id: String,
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
@@ -181,7 +179,6 @@ impl Mesh {
         );
         Self {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            geometry_id: String::new(),
             positions,
             normals,
             indices,
@@ -202,6 +199,22 @@ impl Mesh {
 
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
+    }
+
+    /// Bytes held by the vertex, index and topology arrays.
+    pub fn byte_size(&self) -> usize {
+        let topology = &self.topology;
+        let points = self.positions.len()
+            + self.normals.len()
+            + self.edges.len()
+            + self.points.len()
+            + topology.face_positions.len()
+            + topology.vertices.len();
+        let integers = self.indices.len()
+            + topology.face_indices.len()
+            + topology.triangle_faces.len()
+            + topology.segment_edges.len();
+        points * size_of::<[f32; 3]>() + integers * size_of::<u32>()
     }
 
     fn pick_triangles(&self) -> (&[[f32; 3]], &[u32]) {
@@ -348,7 +361,6 @@ impl From<protocol::Mesh> for Mesh {
         Mesh {
             // The worker already measured the geometry.
             bounds,
-            geometry_id: mesh.id,
             topology,
             ..Mesh::new(
                 mesh.positions,
@@ -396,25 +408,13 @@ pub struct SceneNode {
 impl SceneNode {
     fn from_message(
         message: protocol::SceneNode,
-        cache: &mut HashMap<String, Weak<Mesh>>,
+        library: &mut MeshLibrary,
+        request: Option<RequestId>,
     ) -> Result<Self, String> {
         let mut parts = Vec::with_capacity(message.parts.len());
         for part in message.parts {
-            let geometry_id = part.mesh.id.clone();
-            let mesh = if part.mesh.bbox.is_none() {
-                cache
-                    .get(&geometry_id)
-                    .and_then(Weak::upgrade)
-                    .ok_or_else(|| format!("worker referenced unavailable mesh {geometry_id}"))?
-            } else {
-                let mesh = Arc::new(Mesh::from(part.mesh));
-                if !geometry_id.is_empty() {
-                    cache.insert(geometry_id, Arc::downgrade(&mesh));
-                }
-                mesh
-            };
             parts.push(Part {
-                mesh,
+                mesh: library.resolve(part.mesh, request)?,
                 transform: Mat4::from_cols_array(&part.transform),
                 color: part.color,
                 alpha: part.alpha,
@@ -422,7 +422,7 @@ impl SceneNode {
         }
         let mut children = Vec::with_capacity(message.children.len());
         for child in message.children {
-            children.push(Self::from_message(child, cache)?);
+            children.push(Self::from_message(child, library, request)?);
         }
         Ok(Self {
             key: message.key,
@@ -534,6 +534,146 @@ pub struct Overlay {
 /// Default half length of the axis helpers when nothing is shown.
 const DEFAULT_AXIS_HALF_LENGTH: f32 = 100.0;
 
+/// Bytes of recently used worker meshes kept alive after the scene drops
+/// them. The renderer keeps their GPU buffers for as long.
+pub const RETAINED_MESH_BYTES: usize = 128 * 1024 * 1024;
+
+/// Worker meshes by content-addressed geometry id.
+///
+/// The worker answers a request with references to meshes the request said
+/// the GUI holds (`known_geometry`) and to meshes it sent earlier in the same
+/// request, such as a previous pause of a debugging session. Both are pinned
+/// until the request ends, whatever the scene drops meanwhile. Recently used
+/// meshes are also retained within a byte budget, so the next run, a
+/// debugging session or a render after Clear reuses them, and their GPU
+/// buffers, instead of transferring and uploading them again.
+pub struct MeshLibrary {
+    meshes: HashMap<String, Weak<Mesh>>,
+    /// Strong references by geometry id with their last use.
+    recent: HashMap<String, (Arc<Mesh>, u64)>,
+    recent_bytes: usize,
+    budget: usize,
+    clock: u64,
+    /// Meshes a running request may still reference, by [`Mesh::id`].
+    pins: HashMap<RequestId, HashMap<u64, Arc<Mesh>>>,
+}
+
+impl Default for MeshLibrary {
+    fn default() -> Self {
+        Self::with_budget(RETAINED_MESH_BYTES)
+    }
+}
+
+impl MeshLibrary {
+    pub fn with_budget(budget: usize) -> Self {
+        Self {
+            meshes: HashMap::new(),
+            recent: HashMap::new(),
+            recent_bytes: 0,
+            budget,
+            clock: 0,
+            pins: HashMap::new(),
+        }
+    }
+
+    /// Geometry ids the worker may send as references, sorted.
+    pub fn known(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .meshes
+            .iter()
+            .filter(|(_, mesh)| mesh.strong_count() > 0)
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Keeps the meshes of `ids` alive until `request` is released.
+    pub fn pin(&mut self, request: RequestId, ids: &[String]) {
+        let pinned = self.pins.entry(request).or_default();
+        for mesh in ids
+            .iter()
+            .filter_map(|id| self.meshes.get(id).and_then(Weak::upgrade))
+        {
+            pinned.insert(mesh.id, mesh);
+        }
+    }
+
+    /// Unpins every request for which `active` is false.
+    pub fn release_pins(&mut self, mut active: impl FnMut(RequestId) -> bool) {
+        let before = self.pins.len();
+        self.pins.retain(|request, _| active(*request));
+        if self.pins.len() != before {
+            self.meshes.retain(|_, mesh| mesh.strong_count() > 0);
+        }
+    }
+
+    /// The shared mesh for a worker message: a reference, a full mesh, or a
+    /// full mesh whose geometry is already held, which keeps its GPU buffers.
+    fn resolve(
+        &mut self,
+        message: protocol::Mesh,
+        request: Option<RequestId>,
+    ) -> Result<Arc<Mesh>, String> {
+        let id = message.id.clone();
+        let held = (!id.is_empty())
+            .then(|| self.meshes.get(&id).and_then(Weak::upgrade))
+            .flatten();
+        let mesh = match held {
+            Some(mesh) => mesh,
+            None if message.bbox.is_some() => {
+                let mesh = Arc::new(Mesh::from(message));
+                if !id.is_empty() {
+                    self.meshes.insert(id.clone(), Arc::downgrade(&mesh));
+                }
+                mesh
+            }
+            None => return Err(format!("worker referenced unavailable mesh {id}")),
+        };
+        if !id.is_empty() {
+            if let Some(request) = request {
+                self.pins
+                    .entry(request)
+                    .or_default()
+                    .insert(mesh.id, mesh.clone());
+            }
+            self.touch(id, &mesh);
+        }
+        Ok(mesh)
+    }
+
+    fn touch(&mut self, id: String, mesh: &Arc<Mesh>) {
+        self.clock += 1;
+        if let Some(entry) = self.recent.get_mut(&id) {
+            entry.1 = self.clock;
+        } else {
+            self.recent_bytes += mesh.byte_size();
+            self.recent.insert(id, (mesh.clone(), self.clock));
+        }
+    }
+
+    /// Drops the least recently used meshes beyond the budget.
+    fn evict(&mut self) {
+        if self.recent_bytes <= self.budget {
+            return;
+        }
+        let mut by_age: Vec<(u64, String, usize)> = self
+            .recent
+            .iter()
+            .map(|(id, (mesh, used))| (*used, id.clone(), mesh.byte_size()))
+            .collect();
+        by_age.sort_unstable();
+        for (_, id, bytes) in by_age {
+            if self.recent_bytes <= self.budget {
+                break;
+            }
+            self.recent.remove(&id);
+            self.recent_bytes -= bytes;
+        }
+        self.meshes.retain(|_, mesh| mesh.strong_count() > 0);
+    }
+}
+
 pub struct Scene {
     pub nodes: Vec<SceneNode>,
     pub axes: [AxisHelper; 3],
@@ -543,7 +683,7 @@ pub struct Scene {
     pub topology_selections: Vec<TopologySelection>,
     topology_highlights: Vec<Part>,
     pub overlay: Overlay,
-    mesh_cache: HashMap<String, Weak<Mesh>>,
+    meshes: MeshLibrary,
     /// Changes only when the set, placement or visibility of pickable parts
     /// changes. Camera and selection changes deliberately leave it alone.
     pick_revision: u64,
@@ -576,7 +716,7 @@ impl Default for Scene {
             topology_selections: Vec::new(),
             topology_highlights: Vec::new(),
             overlay: Overlay::default(),
-            mesh_cache: HashMap::new(),
+            meshes: MeshLibrary::default(),
             pick_revision: next_pick_revision(),
         }
     }
@@ -588,26 +728,35 @@ pub type PreservedProperties = HashMap<String, (bool, Overrides)>;
 
 impl Scene {
     /// Resolves full content-addressed meshes and references in one worker
-    /// response. Existing scene meshes stay alive while replacements decode.
+    /// response to `request`, whose meshes stay pinned until it ends.
     pub fn decode_nodes(
         &mut self,
+        request: Option<RequestId>,
         messages: Vec<protocol::SceneNode>,
     ) -> Result<Vec<SceneNode>, String> {
-        messages
+        let nodes = messages
             .into_iter()
-            .map(|message| SceneNode::from_message(message, &mut self.mesh_cache))
-            .collect()
+            .map(|message| SceneNode::from_message(message, &mut self.meshes, request))
+            .collect();
+        self.meshes.evict();
+        nodes
     }
 
+    /// Geometry the worker may send as references: everything in the scene
+    /// and the recently used meshes the library still retains.
     pub fn known_geometry(&self) -> Vec<String> {
-        let mut seen = HashSet::new();
-        self.iter()
-            .flat_map(|node| &node.parts)
-            .filter(|part| {
-                !part.mesh.geometry_id.is_empty() && seen.insert(part.mesh.geometry_id.clone())
-            })
-            .map(|part| part.mesh.geometry_id.clone())
-            .collect()
+        self.meshes.known()
+    }
+
+    /// Guarantees that `request` can reference `ids` until it is released.
+    pub fn pin_geometry(&mut self, request: RequestId, ids: &[String]) {
+        self.meshes.pin(request, ids);
+    }
+
+    /// Ends the guarantee of [`Scene::pin_geometry`] and of decoded meshes
+    /// for every request that is no longer `active`.
+    pub fn release_geometry(&mut self, active: impl FnMut(RequestId) -> bool) {
+        self.meshes.release_pins(active);
     }
 
     pub fn is_empty(&self) -> bool {

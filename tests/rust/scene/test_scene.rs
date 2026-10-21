@@ -264,7 +264,7 @@ fn content_addressed_mesh_references_reuse_cpu_geometry() {
         ..Default::default()
     };
     let first = scene
-        .decode_nodes(vec![worker_node("first", full, Mat4::IDENTITY)])
+        .decode_nodes(None, vec![worker_node("first", full, Mat4::IDENTITY)])
         .unwrap();
     scene.append(first, None);
     assert_eq!(scene.known_geometry(), ["same-geometry"]);
@@ -274,11 +274,14 @@ fn content_addressed_mesh_references_reuse_cpu_geometry() {
         ..Default::default()
     };
     let second = scene
-        .decode_nodes(vec![worker_node(
-            "second",
-            reference,
-            Mat4::from_translation(Vec3::X * 10.0),
-        )])
+        .decode_nodes(
+            None,
+            vec![worker_node(
+                "second",
+                reference,
+                Mat4::from_translation(Vec3::X * 10.0),
+            )],
+        )
         .unwrap();
     assert!(Arc::ptr_eq(
         &scene.nodes[0].parts[0].mesh,
@@ -296,7 +299,147 @@ fn an_unknown_mesh_reference_is_rejected() {
         ..Default::default()
     };
     let error = scene
-        .decode_nodes(vec![worker_node("node", reference, Mat4::IDENTITY)])
+        .decode_nodes(None, vec![worker_node("node", reference, Mat4::IDENTITY)])
         .unwrap_err();
     assert!(error.contains("missing"));
+}
+
+/// A full one-triangle worker mesh of 84 bytes.
+fn triangle_mesh(id: &str) -> protocol::Mesh {
+    protocol::Mesh {
+        id: id.into(),
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 3],
+        indices: vec![0, 1, 2],
+        bbox: Some([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]]),
+        ..Default::default()
+    }
+}
+
+fn mesh_reference(id: &str) -> protocol::Mesh {
+    protocol::Mesh {
+        id: id.into(),
+        ..Default::default()
+    }
+}
+
+/// Decodes a one-part node answering `request`.
+fn decode_part(
+    scene: &mut Scene,
+    request: Option<RequestId>,
+    mesh: protocol::Mesh,
+) -> Result<Arc<Mesh>, String> {
+    let mut nodes = scene.decode_nodes(request, vec![worker_node("n", mesh, Mat4::IDENTITY)])?;
+    Ok(nodes.remove(0).parts.remove(0).mesh)
+}
+
+fn without_retention() -> Scene {
+    Scene {
+        meshes: MeshLibrary::with_budget(0),
+        ..Scene::default()
+    }
+}
+
+#[test]
+fn a_debugging_session_resolves_meshes_its_paused_views_dropped() {
+    // Without retention only the request's own pins can keep the mesh.
+    let mut scene = without_retention();
+    let run = 7;
+    // Pause 1 shows `a`; the worker now treats it as known to the GUI.
+    let first = decode_part(&mut scene, Some(run), triangle_mesh("a")).unwrap();
+    let nodes = scene
+        .decode_nodes(
+            Some(run),
+            vec![worker_node("a", mesh_reference("a"), Mat4::IDENTITY)],
+        )
+        .unwrap();
+    scene.replace(nodes, None);
+    drop(first);
+    // Pause 2, inside a function, shows nothing.
+    scene.replace(Vec::new(), None);
+
+    // Pause 3 shows `a` again, as a reference.
+    let again = decode_part(&mut scene, Some(run), mesh_reference("a"))
+        .expect("a mesh sent earlier in the session stays available");
+    assert_eq!(again.positions.len(), 3);
+    drop(again);
+
+    // Once the request ends, the worker may no longer rely on it.
+    scene.release_geometry(|_| false);
+    assert!(scene.known_geometry().is_empty());
+    assert!(decode_part(&mut scene, Some(8), mesh_reference("a")).is_err());
+}
+
+#[test]
+fn advertised_geometry_survives_clearing_the_view_until_its_request_ends() {
+    let mut scene = without_retention();
+    let shown = scene
+        .decode_nodes(
+            None,
+            vec![worker_node("a", triangle_mesh("a"), Mat4::IDENTITY)],
+        )
+        .unwrap();
+    scene.append(shown, None);
+    let known = scene.known_geometry();
+    assert_eq!(known, ["a"]);
+
+    // A debugging run clears the view right after sending its request.
+    scene.pin_geometry(3, &known);
+    scene.clear();
+    assert!(decode_part(&mut scene, Some(3), mesh_reference("a")).is_ok());
+
+    scene.release_geometry(|request| request != 3);
+    assert!(scene.known_geometry().is_empty());
+}
+
+#[test]
+fn recently_used_meshes_are_retained_within_the_byte_budget() {
+    // Room for two 84-byte meshes.
+    let mut scene = Scene {
+        meshes: MeshLibrary::with_budget(200),
+        ..Scene::default()
+    };
+    let first = decode_part(&mut scene, Some(1), triangle_mesh("a")).unwrap();
+    let first_id = first.id;
+    drop(first);
+    for (request, id) in [(2, "b"), (3, "c")] {
+        decode_part(&mut scene, Some(request), triangle_mesh(id)).unwrap();
+    }
+    scene.release_geometry(|_| false);
+
+    // Nothing is shown, yet the two newest meshes remain known.
+    assert_eq!(scene.known_geometry(), ["b", "c"]);
+    assert!(decode_part(&mut scene, None, mesh_reference("a")).is_err());
+
+    // Using `b` again makes `c` the oldest, so a new mesh evicts `c`.
+    decode_part(&mut scene, None, mesh_reference("b")).unwrap();
+    decode_part(&mut scene, None, triangle_mesh("d")).unwrap();
+    assert_eq!(scene.known_geometry(), ["b", "d"]);
+
+    // A fresh copy of evicted geometry is a new mesh with its own buffers.
+    assert_ne!(
+        decode_part(&mut scene, None, triangle_mesh("a"))
+            .unwrap()
+            .id,
+        first_id
+    );
+}
+
+#[test]
+fn a_full_mesh_for_held_geometry_keeps_the_existing_mesh_and_gpu_buffers() {
+    let mut scene = Scene::default();
+    let first = decode_part(&mut scene, None, triangle_mesh("a")).unwrap();
+    let resent = decode_part(&mut scene, None, triangle_mesh("a")).unwrap();
+    assert!(Arc::ptr_eq(&first, &resent));
+    // The renderer keys GPU buffers by this id.
+    assert_eq!(first.id, resent.id);
+}
+
+#[test]
+fn mesh_byte_size_counts_every_array() {
+    let mut mesh = Mesh::from(triangle_mesh("a"));
+    assert_eq!(mesh.byte_size(), 3 * 12 + 3 * 12 + 3 * 4);
+    mesh.topology.triangle_faces = vec![1];
+    mesh.topology.vertices = vec![[0.0; 3]; 2];
+    assert_eq!(mesh.byte_size(), 84 + 4 + 2 * 12);
 }

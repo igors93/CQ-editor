@@ -186,7 +186,16 @@ free the new worker's objects.
 sends the ids of meshes it already has (`known_geometry`), and the worker
 answers with a bare reference instead of the arrays. Re-running an unchanged
 model, or showing the same part many times in an assembly, sends each mesh
-only once.
+only once: after editing one part of an assembly, only that part is meshed,
+sent and uploaded again.
+
+On the GUI side, `MeshLibrary` (`scene.rs`) holds the meshes by content id.
+It pins the meshes a running request may reference and retains up to
+128 MB of recently used ones beyond the shown scene. A reference, or a full
+mesh for geometry it still holds, resolves to the same `Arc<Mesh>`, and the
+renderer keeps GPU buffers per mesh for as long as it lives, so a render
+after Clear, a debugging session and repeated runs reuse both the CPU mesh
+and its GPU buffers.
 
 ## Persistence
 

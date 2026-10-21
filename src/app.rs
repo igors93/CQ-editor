@@ -863,6 +863,9 @@ impl AppState {
                 }
             }
         }
+        // References in a response are only valid while its request runs.
+        let pending = &self.pending;
+        self.scene.release_geometry(|id| pending.contains_key(&id));
     }
 
     fn handle_message(&mut self, message: Message) {
@@ -920,7 +923,7 @@ impl AppState {
                 self.phase = Phase::Paused { id };
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
-                let Some(nodes) = self.decode_scene_nodes(objects) else {
+                let Some(nodes) = self.decode_scene_nodes(Some(id), objects) else {
                     return;
                 };
                 let removed = self.scene.replace(nodes, None);
@@ -982,9 +985,9 @@ impl AppState {
                     self.measurements.result = Some(result);
                 }
             }
-            Message::SceneAdd { objects } => {
+            Message::SceneAdd { id, objects } => {
                 let was_empty = self.scene.is_empty();
-                let Some(nodes) = self.decode_scene_nodes(objects) else {
+                let Some(nodes) = self.decode_scene_nodes(id, objects) else {
                     return;
                 };
                 self.scene.append(nodes, None);
@@ -1107,6 +1110,10 @@ impl AppState {
         // A reload may have changed the text since the editor last drew.
         self.editor.sync_markers(&self.document.text);
         let id = self.worker.next_id();
+        // Pinned, so a debugging session may reference them even after it
+        // clears the view below.
+        let known_geometry = self.scene.known_geometry();
+        self.scene.pin_geometry(id, &known_geometry);
         let request = Request::Run {
             id,
             script: self.document.text.clone(),
@@ -1115,11 +1122,7 @@ impl AppState {
             breakpoints: self.editor.breakpoints.iter().copied().collect(),
             settings: self.settings.run_settings(),
             scene: self.settings.scene_settings(),
-            known_geometry: if debug {
-                Vec::new()
-            } else {
-                self.scene.known_geometry()
-            },
+            known_geometry,
         };
         if !self.worker.send(&request) {
             self.set_status(StatusKind::Error, "Cannot reach Python");
@@ -1170,7 +1173,7 @@ impl AppState {
                 .preserve_properties
                 .then(|| self.scene.snapshot_properties());
             let was_empty = self.scene.is_empty();
-            let Some(nodes) = self.decode_scene_nodes(objects) else {
+            let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) else {
                 return;
             };
             let count = nodes.len();
@@ -1576,12 +1579,20 @@ impl AppState {
         self.console.record_input(&source);
         let scene = self.settings.scene_settings();
         let known_geometry = self.scene.known_geometry();
-        if !self.send_tracked(Pending::Console, |id| Request::Console {
-            id,
-            source,
-            scene,
-            known_geometry,
+        let mut sent = None;
+        if self.send_tracked(Pending::Console, |id| {
+            sent = Some(id);
+            Request::Console {
+                id,
+                source,
+                scene,
+                known_geometry: known_geometry.clone(),
+            }
         }) {
+            if let Some(id) = sent {
+                self.scene.pin_geometry(id, &known_geometry);
+            }
+        } else {
             self.console.busy = false;
         }
     }
@@ -1617,8 +1628,12 @@ impl AppState {
             upload.failed("Python is not ready");
         }
     }
-    fn decode_scene_nodes(&mut self, objects: Vec<NodeMessage>) -> Option<Vec<SceneNode>> {
-        match self.scene.decode_nodes(objects) {
+    fn decode_scene_nodes(
+        &mut self,
+        request: Option<RequestId>,
+        objects: Vec<NodeMessage>,
+    ) -> Option<Vec<SceneNode>> {
+        match self.scene.decode_nodes(request, objects) {
             Ok(nodes) => Some(nodes),
             Err(error) => {
                 log::error!("Cannot decode worker scene: {error}");

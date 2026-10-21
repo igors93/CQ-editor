@@ -149,7 +149,16 @@ A full mesh:
 
 A **reference** is just `{"id": "…"}`. The worker sends it instead of the
 arrays when the id is in the request's `known_geometry` or was already sent
-in the same response. The GUI resolves it from the meshes it holds.
+earlier for the same request, which includes the previous `debug_paused`
+messages of a debugging session. The GUI resolves it from its mesh library
+and therefore pins every advertised and received mesh until the request
+ends (`run_finished`, `console_result` or a worker restart), even when a
+paused view no longer shows it. `scene_add` carries its request `id` for the
+same reason.
+
+`known_geometry` lists every mesh the GUI still holds: the shown ones and
+up to 128 MB of recently used ones, so a render after Clear or a debugging
+session can also receive references.
 
 Binary arrays are decoded on the GUI's reader thread, so large models never
 stall the interface.

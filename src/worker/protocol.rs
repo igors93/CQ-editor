@@ -203,6 +203,8 @@ pub enum Message {
     },
     Measurement(Measurement),
     SceneAdd {
+        #[serde(default)]
+        id: Option<RequestId>,
         objects: Vec<SceneNode>,
     },
     ConsoleResult {
