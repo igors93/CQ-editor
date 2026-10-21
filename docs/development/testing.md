@@ -28,7 +28,7 @@ The test folders follow the parts of the application they protect:
 | --- | --- |
 | `tests/rust/app/` | Commands, preferences, file watching, logging, embedded files and the command line |
 | `tests/rust/editor/` | Document persistence, recovery, text editing and highlighting |
-| `tests/rust/panels/` | Console behavior |
+| `tests/rust/panels/` | Console behavior and the Objects panel layout |
 | `tests/rust/protocol/` | JSON messages, binary mesh decoding and interpreter discovery |
 | `tests/rust/scene/` | Scene tree, visibility, selection, colors and bounds |
 | `tests/rust/viewer/` | Camera, navigation overlays and picking |
@@ -59,7 +59,7 @@ black --check worker tests/worker
 PYTHONPATH=worker python -m pytest tests/worker
 ```
 
-> **Current status:** all checks pass: 99 Rust tests, 135 worker tests,
+> **Current status:** all checks pass: 101 Rust tests, 135 worker tests,
 > `cargo fmt`, clippy and `black` (CI installs the latest black, currently
 > 26.10.1; use the same version locally to avoid formatting differences).
 

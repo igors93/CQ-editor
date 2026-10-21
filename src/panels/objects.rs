@@ -9,6 +9,11 @@ use crate::commands::Action;
 use crate::scene::{Rgb, SceneNode};
 use crate::worker::protocol::ExportFormat;
 
+/// Height the object tree keeps while the property sheet is open.
+const TREE_MIN_HEIGHT: f32 = 80.0;
+/// Smallest useful property sheet.
+const SHEET_MIN_HEIGHT: f32 = 70.0;
+
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     let mut actions = Vec::new();
 
@@ -48,12 +53,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     ui.separator();
 
     if !state.scene.selection.is_empty() {
-        egui::Panel::bottom("object_properties")
-            .resizable(true)
-            .default_size(130.0)
-            .min_size(70.0)
-            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
-            .show(ui, |ui| properties(ui, state, &mut actions));
+        property_sheet(ui, |ui| properties(ui, state, &mut actions));
     }
 
     // The tree takes what the properties panel leaves (panels must be
@@ -67,9 +67,36 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     state.queue(actions);
 }
 
+/// Shows the property sheet at the bottom of `ui` and returns its rect.
+///
+/// A panel grows to fit its contents, so on a short pane the sheet used to
+/// take the whole height and the tree was drawn over it. The sheet now
+/// scrolls instead, and its height is capped so the tree keeps
+/// [`TREE_MIN_HEIGHT`] (or most of a very short pane).
+fn property_sheet(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) -> egui::Rect {
+    let available = ui.available_height();
+    let max_height = (available - TREE_MIN_HEIGHT).max(available * 0.4);
+    egui::Panel::bottom("object_properties")
+        .resizable(true)
+        .default_size(130.0)
+        .size_range(SHEET_MIN_HEIGHT.min(max_height)..=max_height)
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("object_properties_scroll")
+                .auto_shrink([false, false])
+                .min_scrolled_height(0.0)
+                .show(ui, add_contents);
+        })
+        .response
+        .rect
+}
+
 fn tree(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
     egui::ScrollArea::both()
         .auto_shrink([false, false])
+        // The default minimum (64 px) would overflow a squeezed pane.
+        .min_scrolled_height(0.0)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             let default = state.default_color();
@@ -332,3 +359,7 @@ fn number(value: f32) -> String {
     let text = format!("{value:.3}");
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
+
+#[cfg(test)]
+#[path = "../../tests/rust/panels/test_objects.rs"]
+mod tests;

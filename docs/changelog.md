@@ -42,6 +42,8 @@ options, menus, shortcuts and panels work as before.
   free its own objects, so the CQ Inspector, export and upload failed; scene
   keys are now unique per worker process
 * Fixed: the CI format check (`black`) failed on three worker files
+* Fixed: in a short Objects pane, the property sheet grew over the object
+  tree; it now scrolls and leaves the tree its room
 * Removed: the PyQt GUI, PyInstaller and conda constructor packaging
 
 ## Release 0.5.0

@@ -48,7 +48,7 @@ conflict-safe autoreload; see the [changelog](changelog.md)).
 
 | Check | Status |
 | --- | --- |
-| Rust tests (`cargo test`) | 99 passing |
+| Rust tests (`cargo test`) | 101 passing |
 | Worker tests (`pytest tests/worker`) | 135 passing |
 | `cargo fmt --check`, `cargo clippy --all-targets` | clean |
 | `black --check worker tests/worker` | clean (BUG-03 ✅) |
@@ -60,7 +60,7 @@ conflict-safe autoreload; see the [changelog](changelog.md)).
 | Status | Id | Problem | Priority |
 | :---: | --- | --- | --- |
 | ✅ | [BUG-01](#bug-01--object-keys-collide-after-python-restarts) | Object keys collide after Python restarts | P1 |
-| | [BUG-02](#bug-02--objects-panel-the-property-sheet-overlaps-the-tree) | Objects panel: the property sheet overlaps the tree | P1 |
+| ✅ | [BUG-02](#bug-02--objects-panel-the-property-sheet-overlaps-the-tree) | Objects panel: the property sheet overlaps the tree | P1 |
 | ✅ | [BUG-03](#bug-03--ci-format-check-fails) | CI format check fails | P1 |
 | | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
 | | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
@@ -117,17 +117,25 @@ Inspector shows its construction stack.
 
 #### BUG-02 · Objects panel: the property sheet overlaps the tree
 
-*Evidence: seen*
+✅ **Resolved.** *Evidence: seen; the fix was checked in the app.*
 
 **Where:** `src/panels/objects.rs`.
 
 When the Objects pane is short, the property sheet (Type, Visible, Color,
 Opacity, Size, Triangles) grows over the *CQ models* tree. The texts overlap
-and nothing scrolls. It is visible in the selection and error screenshots of
-these docs.
+and nothing scrolls.
 
-**Fix:** give the sheet a resizable bottom area with a maximum height and its
-own scroll area, or collapse it into a header. Make the tree fill the rest.
+**Resolution:** the sheet is laid out by `property_sheet` in
+`src/panels/objects.rs`. Its contents scroll instead of growing the panel,
+and its height is capped so the tree keeps at least 80 points (or 60 % of a
+very short pane). The tree's scroll area no longer insists on its default
+64-point minimum, which made it spill over the sheet.
+
+Regression tests (`tests/rust/panels/test_objects.rs`) lay out a sheet much
+taller than the pane with a headless `egui::Context` and check that the tree
+keeps its room above the sheet. Both fail with the previous layout. Checked
+in the app: with a short Objects pane, the sheet shows a scroll bar and the
+tree stays readable above it.
 
 #### BUG-03 · CI format check fails
 
