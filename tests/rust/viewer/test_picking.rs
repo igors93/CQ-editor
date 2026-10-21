@@ -261,6 +261,33 @@ fn explicit_selection_modes_only_return_the_requested_topology() {
 }
 
 #[test]
+fn display_triangles_carry_face_ids_without_separate_pick_triangles() {
+    // The worker's normal output: face ids for the display triangles only.
+    let mut mesh = square(0.0, 5.0);
+    mesh.topology.face_positions.clear();
+    mesh.topology.face_indices.clear();
+    mesh.topology.triangle_faces = vec![3, 4];
+    let pick_at = |pointer| {
+        pick(
+            &top_camera(),
+            1.0,
+            pointer,
+            Vec2::splat(1000.0),
+            SelectionMode::Face,
+            [Candidate {
+                id: (),
+                mesh: &mesh,
+                transform: Mat4::IDENTITY,
+            }],
+        )
+        .and_then(|hit| hit.entity)
+    };
+    // Triangle 0 is (0, 1, 2) below the diagonal, triangle 1 above it.
+    assert_eq!(pick_at(Vec2::new(0.2, -0.2)), Some(TopologyEntity::Face(3)));
+    assert_eq!(pick_at(Vec2::new(-0.2, 0.2)), Some(TopologyEntity::Face(4)));
+}
+
+#[test]
 fn triangle_bvh_prunes_a_large_mesh() {
     let mut positions = Vec::new();
     let mut indices = Vec::new();

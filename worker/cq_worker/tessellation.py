@@ -3,8 +3,10 @@
 Faces are meshed in parallel by BRepMesh and written out through OCCT's glTF
 writer, which emits positions, exact surface normals and indices from C++ in a
 single pass. Reading that binary back with numpy is orders of magnitude faster
-than walking ``Poly_Triangulation`` nodes from Python. Edges and free vertices
-are discretized directly, since glTF has no notion of them.
+than walking ``Poly_Triangulation`` nodes from Python. The same triangles serve
+picking: each is tagged with its OCCT face id from per-face triangle counts.
+Edges and free vertices are discretized directly, since glTF has no notion of
+them.
 
 Every array travels to the GUI as base64-encoded little-endian binary.
 """
@@ -81,9 +83,13 @@ class Mesh:
     indices: np.ndarray  # (m,) uint32, three per triangle
     edges: np.ndarray  # (k, 6) float32, one line segment per row
     points: np.ndarray  # (p, 3) float32
+    # Separate pick triangles, only when the display triangles cannot be
+    # matched to their faces; normally empty.
     face_positions: np.ndarray  # (n, 3) float32, grouped by OCCT face
     face_indices: np.ndarray  # (m,) uint32, three per triangle
-    triangle_faces: np.ndarray  # (m / 3,) uint32, 1-based OCCT face ids
+    # 1-based OCCT face id per pick triangle: the display triangles, or the
+    # separate pick triangles when ``face_indices`` is set.
+    triangle_faces: np.ndarray  # (m / 3,) uint32
     segment_edges: np.ndarray  # (k,) uint32, 1-based OCCT edge ids
     topology_vertices: np.ndarray  # (v, 3) float32, in 1-based id order
 
@@ -269,7 +275,11 @@ def tessellate(
 
     topology = topology or TopologyIndex.build(shape)
     positions, normals, indices = _mesh_faces(shape, deflection, tolerance.angular)
-    face_positions, face_indices, triangle_faces = _topology_faces(topology.faces)
+    triangle_faces = _display_triangle_faces(shape, len(indices) // 3)
+    if triangle_faces is None:
+        face_positions, face_indices, triangle_faces = _topology_faces(topology.faces)
+    else:
+        face_positions, face_indices = _empty(3), np.zeros(0, dtype=np.uint32)
     edges, segment_edges = _discretize_edges(
         topology.edges, deflection, tolerance.angular
     )
@@ -451,10 +461,41 @@ def _node_matrix(node: dict) -> np.ndarray:
     return matrix
 
 
+def _display_triangle_faces(
+    shape: TopoDS_Shape, triangle_count: int
+) -> np.ndarray | None:
+    """The 1-based OCCT face id of every display triangle.
+
+    The glTF writer emits the triangles of each meshed face in explorer
+    order, so per-face triangle counts are enough: one call per face instead
+    of a Python loop over every node. Returns ``None`` when the counts do not
+    add up to ``triangle_count``, and the caller extracts separate pick
+    triangles instead of guessing.
+    """
+
+    index = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_FACE, index)
+    identifiers, counts = [], []
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        triangulation = BRep_Tool.Triangulation_s(face, TopLoc_Location())
+        if triangulation is not None and triangulation.NbTriangles() > 0:
+            identifiers.append(index.FindIndex(face))
+            counts.append(triangulation.NbTriangles())
+        explorer.Next()
+    faces = np.repeat(np.array(identifiers, dtype=np.uint32), counts)
+    return faces if len(faces) == triangle_count else None
+
+
 def _topology_faces(
     faces: tuple[TopoDS_Shape, ...],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return pick triangles tagged with their 1-based OCCT face id."""
+    """Return separate pick triangles tagged with their 1-based OCCT face id.
+
+    Slow (it walks every node from Python); only a fallback for display
+    triangles that :func:`_display_triangle_faces` cannot match.
+    """
 
     positions: list[np.ndarray] = []
     indices: list[np.ndarray] = []

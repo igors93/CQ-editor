@@ -60,6 +60,9 @@ tracked in the compatibility matrix instead of being assumed.
   the next pauses and the final result fail with "Cannot update the 3D
   scene" once the object reappeared; meshes now stay available for the
   whole session
+* New: faster meshing for selection; the display triangles carry their OCCT
+  face ids instead of a second set of pick triangles, so detailed parts mesh
+  up to 3x faster and their messages are about a third smaller
 * New: recently used meshes and their GPU buffers are kept (up to 128 MB),
   so rendering after Clear, debugging and repeated runs transfer and upload
   only geometry that changed

@@ -233,6 +233,31 @@ fn topology_selection_builds_and_clears_an_exact_highlight() {
     assert!(scene.topology_highlights().is_empty());
 }
 
+#[test]
+fn face_highlights_use_display_triangles_without_separate_pick_triangles() {
+    let mut mesh = Mesh::new(
+        vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        vec![[0.0, 0.0, 1.0]; 4],
+        vec![0, 1, 2, 0, 2, 3],
+        Vec::new(),
+        Vec::new(),
+    );
+    mesh.topology.triangle_faces = vec![2, 5];
+
+    let highlight = mesh.topology_mesh(TopologyEntity::Face(5)).unwrap();
+    assert_eq!(highlight.triangle_count(), 1);
+    assert_eq!(
+        highlight.positions,
+        [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+    );
+    assert!(mesh.topology_mesh(TopologyEntity::Face(9)).is_none());
+}
+
 fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::SceneNode {
     protocol::SceneNode {
         key: key.into(),

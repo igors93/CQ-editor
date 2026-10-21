@@ -325,8 +325,8 @@ caller frame explicitly.
 
 | Status | Id | Problem | Where | Suggested fix |
 | :---: | --- | --- | --- | --- |
-| | PERF-01 | Pick topology walks every triangulation node and triangle **in Python** (`_topology_faces`), which is the slow path the glTF writer was introduced to avoid. The pick triangles also duplicate the display triangles in memory and over the pipe | `worker/cq_worker/tessellation.py:449` | Build a per-triangle face id array for the display mesh (glTF primitives map to faces) and pick on the display triangles; vectorize the rest with numpy |
-| | PERF-02 | Each tessellation writes and reads a temporary `.glb` file on disk | `tessellation.py:306` | Reuse one temporary directory, or use an in-memory stream if OCCT allows it; measure first |
+| ✅ | PERF-01 | Resolved: display triangles are tagged with their OCCT face from per-face triangle counts and picked directly; the separate pick triangles (and their Python node walk) remain only as a fallback when the counts do not match. A 324-hole plate meshes in 1.5 s instead of 2.2 s with a 34% smaller message | `worker/cq_worker/tessellation.py` | Covered by a face-by-face comparison with the former extraction on ten shape kinds |
+| | PERF-02 | Each tessellation writes and reads a temporary `.glb` file on disk | `tessellation.py:306` | Reuse one temporary directory, or use an in-memory stream if OCCT allows it. Measured: writing and reading the glTF of the 83k-triangle plate takes about 0.19 s, against 1.3 s for BRepMesh itself |
 | ✅ | PERF-03 | Resolved: a retained scene-part BVH prefilters parts and per-mesh BVHs prune edges and vertices in screen space; hover picking already pauses while dragging or when the pointer is still | `src/viewer/picking.rs`, `src/spatial.rs` | Covered by linear-scan equivalence tests and the `pick_latency_on_growing_assemblies` benchmark |
 | ✅ | PERF-04 | Resolved: the `measure` request resolves selected ids through `RegistryEntry.subshape` and calculates against live OCCT geometry | `worker/cq_worker/measurement.py`, `protocol.rs` | Covered by exact numeric worker and protocol tests |
 

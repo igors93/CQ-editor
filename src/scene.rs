@@ -151,9 +151,12 @@ pub struct Mesh {
 /// Pick geometry and its association with the worker's OCCT topology index.
 #[derive(Debug, Default)]
 pub struct MeshTopology {
+    /// Separate pick triangles; normally empty, and the display triangles
+    /// are picked instead.
     pub face_positions: Vec<[f32; 3]>,
     pub face_indices: Vec<u32>,
-    /// One 1-based face id per triangle in `face_indices`.
+    /// One 1-based face id per pick triangle: per triangle of
+    /// `face_indices` when present, otherwise of [`Mesh::indices`].
     pub triangle_faces: Vec<u32>,
     /// One 1-based edge id per segment in [`Mesh::edges`].
     pub segment_edges: Vec<u32>,
@@ -274,12 +277,11 @@ impl Mesh {
     pub fn topology_mesh(&self, entity: TopologyEntity) -> Option<Mesh> {
         match entity {
             TopologyEntity::Face(identifier) => {
+                let (pick_positions, pick_indices) = self.pick_triangles();
                 let mut positions = Vec::new();
                 let mut normals = Vec::new();
                 let mut indices = Vec::new();
-                for (triangle, &face) in self
-                    .topology
-                    .face_indices
+                for (triangle, &face) in pick_indices
                     .as_chunks::<3>()
                     .0
                     .iter()
@@ -288,8 +290,8 @@ impl Mesh {
                     if face != identifier {
                         continue;
                     }
-                    let [Some(a), Some(b), Some(c)] = triangle
-                        .map(|index| self.topology.face_positions.get(index as usize).copied())
+                    let [Some(a), Some(b), Some(c)] =
+                        triangle.map(|index| pick_positions.get(index as usize).copied())
                     else {
                         continue;
                     };

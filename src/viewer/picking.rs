@@ -209,7 +209,7 @@ pub fn pick<'a, T: Clone>(
         let local_dir = inverse.transform_vector3(dir);
 
         if ray_hits_box(local_origin, local_dir, mesh.bounds.min, mesh.bounds.max) {
-            let topology_faces = !mesh.topology.face_indices.is_empty();
+            let topology_faces = !mesh.topology.triangle_faces.is_empty();
             if let Some((distance, triangle)) = mesh.nearest_triangle(local_origin, local_dir) {
                 let local_position = local_origin + local_dir * distance;
                 let position = candidate.transform.transform_point3(local_position);

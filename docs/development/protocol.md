@@ -145,7 +145,7 @@ A full mesh:
 | `edges` | base64 `f32` triples, two points per segment |
 | `points` | base64 `f32` triples (free vertices) |
 | `bbox` | `[[min x, y, z], [max x, y, z]]` |
-| `topology` | `face_positions`, `face_indices`, `triangle_faces` (OCCT face id per pick triangle), `segment_edges` (OCCT edge id per segment), `vertices` |
+| `topology` | `triangle_faces` (OCCT face id per pick triangle), `segment_edges` (OCCT edge id per segment), `vertices`, and `face_positions` / `face_indices`: separate pick triangles, normally empty so that `triangle_faces` follows the display `indices` |
 
 A **reference** is just `{"id": "…"}`. The worker sends it instead of the
 arrays when the id is in the request's `known_geometry` or was already sent
