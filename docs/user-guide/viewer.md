@@ -16,6 +16,11 @@ navigation cube and the View menu.
 | Clear the selection | Click on empty space |
 | Zoom to an object | Double-click it |
 
+The floating zoom controls in the top-left corner offer precise adjustments
+without a mouse wheel. Use the magnifying-glass buttons for small steps or drag
+the logarithmic slider to a specific percentage. **100%** is the framing set by
+the most recent **Fit** or **Zoom to Selection** command.
+
 **Orbit method** (*Preferences > 3D View*):
 
 * **Turntable** (default) rotates around the world Z axis and the screen's

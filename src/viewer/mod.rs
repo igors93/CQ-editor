@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{Color32, Pos2, Rect, Sense, Vec2};
+use egui_phosphor::regular as icon;
 use glam::{Mat4 as GMat4, Vec2 as GVec2, Vec3};
 
 use crate::scene::{Grid, Mesh, NodeKey, Scene, TopologySelection};
@@ -28,6 +29,15 @@ use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
 const ZOOM_PER_SCROLL_POINT: f32 = 0.9978;
 /// Zoom factor per point of vertical drag with the zoom button.
 const ZOOM_PER_DRAG_POINT: f32 = 1.006;
+/// Each overlay button changes the magnification by this ratio.
+const ZOOM_BUTTON_STEP: f32 = 1.25;
+/// Slider range relative to the framing established by the last Fit command.
+const MIN_ZOOM_PERCENT: f32 = 10.0;
+const MAX_ZOOM_PERCENT: f32 = 1600.0;
+const ZOOM_CONTROLS_MARGIN: f32 = 12.0;
+const ZOOM_CONTROLS_HEIGHT: f32 = 42.0;
+const ZOOM_CONTROLS_WIDTH: f32 = 280.0;
+const MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS: f32 = 220.0;
 /// Duration of camera transitions, seconds.
 const ANIMATION_SECONDS: f64 = 0.25;
 const POINT_SIZE: f32 = 7.0;
@@ -86,6 +96,16 @@ enum DragMode {
 struct Drag {
     mode: DragMode,
     start: Pos2,
+    last: Pos2,
+}
+
+impl Drag {
+    /// Returns only the motion since the previous frame.
+    fn advance(&mut self, current: Pos2) -> Vec2 {
+        let delta = current - self.last;
+        self.last = current;
+        delta
+    }
 }
 
 pub struct Viewer {
@@ -99,6 +119,8 @@ pub struct Viewer {
     last_pointer: Option<Pos2>,
     orbit_method: OrbitMethod,
     aspect: f32,
+    /// Camera extent treated as 100% by the zoom controls.
+    zoom_reference_extent: f32,
     screenshot: Option<PathBuf>,
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
@@ -120,6 +142,7 @@ impl Default for Viewer {
             last_pointer: None,
             orbit_method: OrbitMethod::Turntable,
             aspect: 1.5,
+            zoom_reference_extent: Camera::default().extent,
             screenshot: None,
             axis_meshes: None,
             grid_mesh: None,
@@ -131,6 +154,7 @@ impl Viewer {
     /// Frames everything visible.
     pub fn fit(&mut self, scene: &Scene, animate: bool, now: f64) {
         let pose = self.camera.fit_pose(scene.visible_bounds(), self.aspect);
+        self.zoom_reference_extent = pose.extent;
         self.animate_to(pose, animate, now);
     }
 
@@ -141,6 +165,7 @@ impl Viewer {
             self.fit(scene, animate, now);
         } else {
             let pose = self.camera.fit_pose(bounds, self.aspect);
+            self.zoom_reference_extent = pose.extent;
             self.animate_to(pose, animate, now);
         }
     }
@@ -182,7 +207,6 @@ impl Viewer {
         frame: &eframe::Frame,
         input: ViewInput<'_>,
     ) -> Vec<ViewerEvent> {
-        let mut events = Vec::new();
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let now = ui.input(|i| i.time);
@@ -190,7 +214,8 @@ impl Viewer {
 
         self.apply_settings(input.settings);
         self.update_scene_extent(input.scene);
-        self.handle_input(ui, &response, rect, &input, now, &mut events);
+        let zoom_controls = zoom_controls_rect(rect);
+        let mut events = self.handle_input(ui, &response, rect, zoom_controls, &input, now);
 
         if let Some(animation) = &self.animation {
             let (pose, done) = animation.sample(now);
@@ -257,6 +282,9 @@ impl Viewer {
         }
 
         self.paint_overlays(&painter, rect, &input);
+        if let Some(controls) = zoom_controls {
+            self.show_zoom_controls(ui, rect, controls);
+        }
         events
     }
 
@@ -301,13 +329,15 @@ impl Viewer {
         ui: &egui::Ui,
         response: &egui::Response,
         rect: Rect,
+        zoom_controls: Option<Rect>,
         input: &ViewInput<'_>,
         now: f64,
-        events: &mut Vec<ViewerEvent>,
-    ) {
+    ) -> Vec<ViewerEvent> {
+        let mut events = Vec::new();
         let show_cube = input.settings.show_navigation_cube;
         let pointer = response.hover_pos();
         let over_cube = |p: Pos2| show_cube && NavigationCube::contains(rect, p);
+        let over_zoom_controls = |p: Pos2| zoom_controls.is_some_and(|area| area.contains(p));
 
         if show_cube {
             let hover_pos = pointer.filter(|_| self.drag.is_none());
@@ -332,7 +362,9 @@ impl Viewer {
                     i.pointer.button_down(egui::PointerButton::Secondary),
                 )
             });
-            let mode = if middle || (primary && modifiers.command) {
+            let mode = if over_zoom_controls(start) {
+                None
+            } else if middle || (primary && modifiers.command) {
                 Some(DragMode::Pan)
             } else if secondary || (primary && modifiers.shift) {
                 Some(DragMode::Zoom)
@@ -341,33 +373,36 @@ impl Viewer {
             } else {
                 None
             };
-            self.drag = mode.map(|mode| Drag { mode, start });
+            self.drag = mode.map(|mode| Drag {
+                mode,
+                start,
+                last: start,
+            });
             if self.drag.is_some() {
                 self.settle_animation();
             }
         }
-        if let Some(drag) = &self.drag
-            && response.dragged()
+        if response.dragged()
+            && let Some(current) = response.interact_pointer_pos()
+            && let Some(drag) = &mut self.drag
         {
-            let delta = response.drag_delta();
-            match drag.mode {
+            let (mode, start, previous) = (drag.mode, drag.start, drag.last);
+            let delta = drag.advance(current);
+            match mode {
                 DragMode::Orbit => match self.orbit_method {
                     OrbitMethod::Turntable => {
                         self.camera.orbit_turntable(GVec2::new(delta.x, delta.y))
                     }
                     OrbitMethod::Trackball => {
-                        if let Some(current) = pointer {
-                            let previous = current - delta;
-                            self.camera.orbit_trackball(
-                                trackball_coords(rect, previous),
-                                trackball_coords(rect, current),
-                            );
-                        }
+                        self.camera.orbit_trackball(
+                            trackball_coords(rect, previous),
+                            trackball_coords(rect, current),
+                        );
                     }
                 },
                 DragMode::Pan => self.camera.pan(GVec2::new(delta.x, delta.y), rect.height()),
                 DragMode::Zoom => {
-                    let anchor = ndc(rect, drag.start);
+                    let anchor = ndc(rect, start);
                     self.camera
                         .zoom(ZOOM_PER_DRAG_POINT.powf(delta.y), anchor, self.aspect);
                 }
@@ -378,7 +413,7 @@ impl Viewer {
         }
 
         // Wheel and pinch zoom at the pointer.
-        if let Some(pos) = pointer.filter(|_| response.hovered()) {
+        if let Some(pos) = pointer.filter(|p| response.hovered() && !over_zoom_controls(*p)) {
             let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
             let factor = ZOOM_PER_SCROLL_POINT.powf(scroll) / pinch;
             if (factor - 1.0).abs() > 1e-6 {
@@ -390,6 +425,7 @@ impl Viewer {
         // Clicks: the cube, then object selection.
         if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
+            && !over_zoom_controls(pos)
         {
             if over_cube(pos) {
                 if let Some(action) = self.nav_cube.click(rect, self.camera.rotation, pos) {
@@ -405,12 +441,15 @@ impl Viewer {
                 });
             }
         }
-        if response.double_clicked() && pointer.is_some_and(|p| !over_cube(p)) {
+        if response.double_clicked()
+            && pointer.is_some_and(|p| !over_cube(p) && !over_zoom_controls(p))
+        {
             events.push(ViewerEvent::FocusRequested);
         }
 
         // Hover highlighting, recomputed only when the pointer moves.
-        let hover_pos = pointer.filter(|p| self.drag.is_none() && !over_cube(*p));
+        let hover_pos =
+            pointer.filter(|p| self.drag.is_none() && !over_cube(*p) && !over_zoom_controls(*p));
         if hover_pos != self.last_pointer {
             self.last_pointer = hover_pos;
             let hovered = hover_pos
@@ -421,6 +460,7 @@ impl Viewer {
                 ui.ctx().request_repaint();
             }
         }
+        events
     }
 
     fn apply_nav_action(&mut self, action: NavAction, animate: bool, now: f64) {
@@ -444,6 +484,92 @@ impl Viewer {
     fn settle_animation(&mut self) {
         if let Some(animation) = self.animation.take() {
             self.camera.set_pose(animation.target());
+        }
+    }
+
+    fn zoom_percent(&self) -> f32 {
+        self.zoom_reference_extent / self.camera.extent * 100.0
+    }
+
+    /// Sets magnification relative to the last Fit framing. The center of the
+    /// view stays fixed; pointer-oriented zoom remains available on the wheel.
+    fn set_zoom_percent(&mut self, percent: f32) {
+        let percent = percent.clamp(MIN_ZOOM_PERCENT, MAX_ZOOM_PERCENT);
+        let desired_extent = self.zoom_reference_extent * 100.0 / percent;
+        self.camera.zoom(
+            desired_extent / self.camera.extent,
+            GVec2::ZERO,
+            self.aspect,
+        );
+    }
+
+    fn show_zoom_controls(&mut self, parent: &mut egui::Ui, view: Rect, controls: Rect) {
+        let mut requested_zoom = self
+            .zoom_percent()
+            .clamp(MIN_ZOOM_PERCENT, MAX_ZOOM_PERCENT);
+        let mut changed = false;
+        let mut controls_ui = parent.new_child(
+            egui::UiBuilder::new()
+                .max_rect(controls)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        controls_ui.set_clip_rect(view);
+
+        egui::Frame::popup(parent.style())
+            .corner_radius(6)
+            .inner_margin(egui::Margin::symmetric(6, 5))
+            .show(&mut controls_ui, |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let zoom_out = ui
+                    .add_sized(
+                        [28.0, 28.0],
+                        egui::Button::new(
+                            egui::RichText::new(icon::MAGNIFYING_GLASS_MINUS).size(17.0),
+                        ),
+                    )
+                    .on_hover_text("Zoom out");
+
+                let slider_width =
+                    (ui.available_width() - 28.0 - 48.0 - 3.0 * ui.spacing().item_spacing.x)
+                        .max(60.0);
+                let slider = ui
+                    .add_sized(
+                        [slider_width, 28.0],
+                        egui::Slider::new(&mut requested_zoom, MIN_ZOOM_PERCENT..=MAX_ZOOM_PERCENT)
+                            .logarithmic(true)
+                            .show_value(false),
+                    )
+                    .on_hover_text("Zoom level (100% = last Fit)");
+
+                let zoom_in = ui
+                    .add_sized(
+                        [28.0, 28.0],
+                        egui::Button::new(
+                            egui::RichText::new(icon::MAGNIFYING_GLASS_PLUS).size(17.0),
+                        ),
+                    )
+                    .on_hover_text("Zoom in");
+
+                if zoom_out.clicked() {
+                    requested_zoom /= ZOOM_BUTTON_STEP;
+                    changed = true;
+                }
+                if zoom_in.clicked() {
+                    requested_zoom *= ZOOM_BUTTON_STEP;
+                    changed = true;
+                }
+                changed |= slider.changed();
+                ui.add_sized(
+                    [48.0, 28.0],
+                    egui::Label::new(format!("{requested_zoom:.0}%")),
+                )
+                .on_hover_text("Magnification relative to the last Fit command");
+            });
+
+        if changed {
+            self.settle_animation();
+            self.set_zoom_percent(requested_zoom);
+            parent.ctx().request_repaint();
         }
     }
 
@@ -686,6 +812,22 @@ impl Viewer {
     }
 }
 
+fn zoom_controls_rect(view: Rect) -> Option<Rect> {
+    if view.width() < MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS
+        || view.height() < ZOOM_CONTROLS_HEIGHT + 2.0 * ZOOM_CONTROLS_MARGIN
+    {
+        return None;
+    }
+    let size = Vec2::new(
+        ZOOM_CONTROLS_WIDTH.min(view.width() - 2.0 * ZOOM_CONTROLS_MARGIN),
+        ZOOM_CONTROLS_HEIGHT,
+    );
+    Some(Rect::from_min_size(
+        view.left_top() + Vec2::splat(ZOOM_CONTROLS_MARGIN),
+        size,
+    ))
+}
+
 fn collect_keys<'a>(
     node: &'a crate::scene::SceneNode,
     out: &mut std::collections::HashSet<&'a NodeKey>,
@@ -780,6 +922,10 @@ fn paint_spinner(painter: &egui::Painter, center: Pos2, radius: f32, color: Colo
         .collect();
     painter.add(egui::Shape::line(points, egui::Stroke::new(2.0, color)));
 }
+
+#[cfg(test)]
+#[path = "../../tests/rust/viewer/test_navigation.rs"]
+mod tests;
 
 fn save_screenshot(renderer: &SceneRenderer, path: PathBuf) -> Result<PathBuf, String> {
     let ([width, height], pixels) = renderer
