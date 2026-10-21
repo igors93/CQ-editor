@@ -30,6 +30,7 @@ pub struct FileWatcher {
     last_poll: Option<Instant>,
     /// When a change was first seen; reported once the settle delay passed.
     changed_at: Option<Instant>,
+    pending: Vec<PathBuf>,
 }
 
 impl FileWatcher {
@@ -55,21 +56,26 @@ impl FileWatcher {
                 (path, current)
             })
             .collect();
-        self.changed_at = None;
+        self.pending
+            .retain(|changed| self.files.iter().any(|(path, _)| path == changed));
+        if self.pending.is_empty() {
+            self.changed_at = None;
+        }
     }
 
     pub fn clear(&mut self) {
         self.files.clear();
         self.changed_at = None;
+        self.pending.clear();
     }
 
-    /// Returns `true` once a change has settled for `delay` (so the writer
-    /// has finished). Call every frame; ask for a repaint after
+    /// Returns the paths whose changes have settled for `delay` (so the
+    /// writer has finished). Call every frame; ask for a repaint after
     /// [`FileWatcher::next_poll_in`] to keep polling while idle.
-    pub fn poll(&mut self, delay: Duration) -> bool {
+    pub fn poll(&mut self, delay: Duration) -> Vec<PathBuf> {
         let now = Instant::now();
         if self.files.is_empty() {
-            return false;
+            return Vec::new();
         }
         if self
             .last_poll
@@ -82,6 +88,9 @@ impl FileWatcher {
                     && *known != Some(current)
                 {
                     *known = Some(current);
+                    if !self.pending.contains(path) {
+                        self.pending.push(path.clone());
+                    }
                     self.changed_at.get_or_insert(now);
                 }
             }
@@ -89,9 +98,9 @@ impl FileWatcher {
         match self.changed_at {
             Some(at) if now - at >= delay => {
                 self.changed_at = None;
-                true
+                std::mem::take(&mut self.pending)
             }
-            _ => false,
+            _ => Vec::new(),
         }
     }
 

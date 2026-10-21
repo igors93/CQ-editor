@@ -5,8 +5,9 @@
 //! as UTF-8.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Script shown when no file is open.
 pub const DEFAULT_SCRIPT: &str = "import cadquery as cq\n\nresult = cq.Workplane(\"XY\").box(3, 3, 0.5).edges(\"|Z\").fillet(0.125)\nshow_object(result)\n";
@@ -16,6 +17,28 @@ pub enum LineEnding {
     Lf,
     CrLf,
     Cr,
+}
+
+/// A normalized snapshot read from the document's current path without
+/// modifying the editor buffer.
+#[derive(Clone, Debug)]
+pub struct DiskVersion {
+    pub text: String,
+    path: PathBuf,
+    line_ending: LineEnding,
+}
+
+/// Relationship between an on-disk snapshot and the editor's local state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternalUpdate {
+    /// Only metadata changed; disk contents still match the saved baseline.
+    Unchanged,
+    /// Disk and buffer now agree, so accepting the snapshot loses nothing.
+    MatchesBuffer,
+    /// The buffer is clean and can be reloaded automatically.
+    Reload,
+    /// Disk and buffer diverged from the same saved baseline.
+    Conflict,
 }
 
 impl LineEnding {
@@ -143,29 +166,125 @@ impl Document {
         Ok(())
     }
 
-    /// Re-reads the file after an external change. Returns `true` if the
-    /// contents differ from the buffer.
-    pub fn reload(&mut self) -> io::Result<bool> {
+    /// Applies an inspected disk version when the editor buffer is clean.
+    /// Unsaved changes are never discarded by this convenience method;
+    /// callers need an explicit conflict flow to replace a modified buffer.
+    pub fn reload(&mut self, version: DiskVersion) -> io::Result<bool> {
+        if self.is_modified() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "refusing to reload a document with unsaved changes",
+            ));
+        }
+        self.apply_disk_version(version)
+    }
+
+    /// Reads the current file without changing the buffer or saved state.
+    pub fn disk_version(&self) -> io::Result<Option<DiskVersion>> {
         let Some(path) = &self.path else {
-            return Ok(false);
+            return Ok(None);
         };
         let (text, line_ending) = read(path)?;
-        let changed = text != self.text;
-        self.saved_hash = hash(&text);
-        self.text = text;
-        self.line_ending = line_ending;
+        Ok(Some(DiskVersion {
+            text,
+            path: path.clone(),
+            line_ending,
+        }))
+    }
+
+    /// Whether a disk snapshot still has the contents last loaded or saved.
+    pub fn disk_matches_saved(&self, version: &DiskVersion) -> bool {
+        self.path.as_ref() == Some(&version.path) && hash(&version.text) == self.saved_hash
+    }
+
+    pub fn classify_external_update(&self, version: &DiskVersion) -> ExternalUpdate {
+        if self.disk_matches_saved(version) {
+            ExternalUpdate::Unchanged
+        } else if version.text == self.text {
+            ExternalUpdate::MatchesBuffer
+        } else if self.is_modified() {
+            ExternalUpdate::Conflict
+        } else {
+            ExternalUpdate::Reload
+        }
+    }
+
+    /// Explicitly replaces the buffer with a previously inspected snapshot.
+    pub fn apply_disk_version(&mut self, version: DiskVersion) -> io::Result<bool> {
+        if self.path.as_ref() != Some(&version.path) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "disk snapshot belongs to another document",
+            ));
+        }
+        let changed = version.text != self.text;
+        self.saved_hash = hash(&version.text);
+        self.text = version.text;
+        self.line_ending = version.line_ending;
         Ok(changed)
     }
 
+    /// Writes the current buffer elsewhere without changing this document's
+    /// path or marking its edits as saved.
+    pub fn save_copy(&self, path: &Path) -> io::Result<()> {
+        if self.path.as_deref() == Some(path) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the copy must use a different path",
+            ));
+        }
+        std::fs::write(path, self.encoded_text())
+    }
+
+    /// Creates a uniquely named recovery copy of the current editor buffer.
+    /// The document remains modified and keeps its original path.
+    pub fn create_recovery_backup(&self, directory: &Path) -> io::Result<PathBuf> {
+        std::fs::create_dir_all(directory)?;
+        let stem = self
+            .path
+            .as_deref()
+            .and_then(Path::file_stem)
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("script");
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        for suffix in 0..1000 {
+            let path = directory.join(format!("{stem}-{timestamp}-{suffix}.recovery.py"));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    file.write_all(self.encoded_text().as_bytes())?;
+                    file.sync_all()?;
+                    return Ok(path);
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a unique recovery file name",
+        ))
+    }
+
     fn write(&mut self, path: &Path) -> io::Result<()> {
-        let text = if self.line_ending == LineEnding::Lf {
+        std::fs::write(path, self.encoded_text())?;
+        self.saved_hash = hash(&self.text);
+        Ok(())
+    }
+
+    fn encoded_text(&self) -> String {
+        if self.line_ending == LineEnding::Lf {
             self.text.clone()
         } else {
             self.text.replace('\n', self.line_ending.as_str())
-        };
-        std::fs::write(path, text)?;
-        self.saved_hash = hash(&self.text);
-        Ok(())
+        }
     }
 }
 

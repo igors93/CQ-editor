@@ -11,6 +11,7 @@ use egui_phosphor::regular as icon;
 
 use crate::app::AppState;
 use crate::commands::Action;
+use crate::document::DiskVersion;
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -27,6 +28,21 @@ pub enum UnsavedChoice {
     Save,
     Discard,
     Cancel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternalChangeChoice {
+    Reload,
+    KeepLocal,
+    SaveCopy,
+}
+
+/// An on-disk edit that conflicts with unsaved editor contents.
+pub struct ExternalChange {
+    pub path: PathBuf,
+    pub disk: DiskVersion,
+    pub show_comparison: bool,
+    pub rerun_after_resolution: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +64,7 @@ pub struct Dialogs {
     pub about: bool,
     pub upload: Option<upload::UploadDialog>,
     pub unsaved: Option<Intent>,
+    pub external_change: Option<ExternalChange>,
     pub message: Option<Message>,
 }
 
@@ -98,6 +115,18 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     {
         state.dialogs.unsaved = None;
         state.resolve_unsaved(intent, choice);
+    }
+
+    let document_name = state.document.display_name();
+    let external_choice = state
+        .dialogs
+        .external_change
+        .as_mut()
+        .and_then(|change| external_change(ctx, &document_name, &state.document.text, change));
+    if let Some(choice) = external_choice
+        && let Some(change) = state.dialogs.external_change.take()
+    {
+        state.resolve_external_change(change, choice);
     }
 
     if let Some(message) = &state.dialogs.message
@@ -189,6 +218,100 @@ fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
         });
     if response.should_close() && choice.is_none() {
         choice = Some(UnsavedChoice::Cancel);
+    }
+    choice
+}
+
+/// Returns a resolution only after an explicit choice. Comparing keeps the
+/// dialog open and Escape takes the lossless "keep local" path.
+fn external_change(
+    ctx: &egui::Context,
+    name: &str,
+    local_text: &str,
+    change: &mut ExternalChange,
+) -> Option<ExternalChangeChoice> {
+    let mut choice = None;
+    let response = egui::Modal::new(egui::Id::new("external_change"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(if change.show_comparison { 760.0 } else { 500.0 });
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(icon::WARNING)
+                        .size(28.0)
+                        .color(ui.visuals().warn_fg_color),
+                );
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("File changed on disk").strong().size(16.0));
+                    ui.label(format!(
+                        "{name} was changed by another program while you have unsaved edits."
+                    ));
+                    ui.weak("Your editor contents have not been replaced.");
+                });
+            });
+
+            if change.show_comparison {
+                ui.add_space(10.0);
+                ui.columns(2, |columns| {
+                    let show_version =
+                        |column: &mut egui::Ui, title: &str, text: &str, id: &str| {
+                            column.label(RichText::new(title).strong());
+                            egui::Frame::group(column.style()).show(column, |ui| {
+                                egui::ScrollArea::both().id_salt(id).max_height(300.0).show(
+                                    ui,
+                                    |ui| {
+                                        ui.add(
+                                            egui::Label::new(RichText::new(text).monospace())
+                                                .selectable(true),
+                                        );
+                                    },
+                                );
+                            });
+                        };
+                    show_version(&mut columns[0], "Your version", local_text, "local_change");
+                    show_version(
+                        &mut columns[1],
+                        "Version on disk",
+                        &change.disk.text,
+                        "disk_change",
+                    );
+                });
+            }
+
+            ui.add_space(12.0);
+            ui.weak(
+                "Reload creates a recovery backup before replacing the editor contents. \
+                 Saving a copy preserves your version separately, then reloads the disk version.",
+            );
+            ui.add_space(8.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("Keep my version").strong())
+                            .fill(ui.visuals().selection.bg_fill),
+                    )
+                    .clicked()
+                {
+                    choice = Some(ExternalChangeChoice::KeepLocal);
+                }
+                if ui.button("Reload from disk").clicked() {
+                    choice = Some(ExternalChangeChoice::Reload);
+                }
+                if ui.button("Save a copy…").clicked() {
+                    choice = Some(ExternalChangeChoice::SaveCopy);
+                }
+                let compare = if change.show_comparison {
+                    "Hide comparison"
+                } else {
+                    "Compare changes"
+                };
+                if ui.button(compare).clicked() {
+                    change.show_comparison = !change.show_comparison;
+                }
+            });
+        });
+    if response.should_close() && choice.is_none() {
+        choice = Some(ExternalChangeChoice::KeepLocal);
     }
     choice
 }

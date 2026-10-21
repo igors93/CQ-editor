@@ -38,7 +38,8 @@ fn preserves_line_endings_and_tracks_modification() {
     );
 
     std::fs::write(&path, "x = 1\r\n").unwrap();
-    assert!(doc.reload().unwrap());
+    let external = doc.disk_version().unwrap().unwrap();
+    assert!(doc.reload(external).unwrap());
     assert_eq!(doc.text, "x = 1\n");
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -92,17 +93,129 @@ fn opens_and_saves_classic_mac_line_endings() {
 }
 
 #[test]
-fn reload_reports_unchanged_content_and_clears_modified_state() {
+fn reload_refuses_to_discard_unsaved_changes() {
     let path = temporary_file("reload.py");
     std::fs::write(&path, "x = 1\n").unwrap();
     let mut doc = Document::open(&path).unwrap();
-    assert!(!doc.reload().unwrap());
+    let unchanged = doc.disk_version().unwrap().unwrap();
+    assert!(!doc.reload(unchanged).unwrap());
     doc.text = "unsaved change".into();
     assert!(doc.is_modified());
-    assert!(doc.reload().unwrap());
-    assert_eq!(doc.text, "x = 1\n");
+    std::fs::write(&path, "external change\n").unwrap();
+
+    let disk = doc.disk_version().unwrap().unwrap();
+    let error = doc.reload(disk.clone()).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+    assert_eq!(doc.text, "unsaved change");
+    assert!(doc.is_modified());
+
+    assert!(!doc.disk_matches_saved(&disk));
+    assert!(doc.apply_disk_version(disk).unwrap());
+    assert_eq!(doc.text, "external change\n");
     assert!(!doc.is_modified());
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn classifies_external_updates_without_mutating_the_buffer() {
+    let path = temporary_file("external-update.py");
+    std::fs::write(&path, "original\n").unwrap();
+    let mut doc = Document::open(&path).unwrap();
+
+    let unchanged = doc.disk_version().unwrap().unwrap();
+    assert_eq!(
+        doc.classify_external_update(&unchanged),
+        ExternalUpdate::Unchanged
+    );
+
+    std::fs::write(&path, "external\n").unwrap();
+    let external = doc.disk_version().unwrap().unwrap();
+    assert_eq!(
+        doc.classify_external_update(&external),
+        ExternalUpdate::Reload
+    );
+    assert_eq!(doc.text, "original\n");
+
+    doc.text = "local\n".into();
+    assert_eq!(
+        doc.classify_external_update(&external),
+        ExternalUpdate::Conflict
+    );
+    assert_eq!(doc.text, "local\n");
+
+    std::fs::write(&path, "local\n").unwrap();
+    let matching = doc.disk_version().unwrap().unwrap();
+    assert_eq!(
+        doc.classify_external_update(&matching),
+        ExternalUpdate::MatchesBuffer
+    );
+    assert_eq!(doc.text, "local\n");
+    assert!(doc.is_modified());
+
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn recovery_backup_preserves_edits_without_marking_them_saved() {
+    let path = temporary_file("recovery.py");
+    let recovery_dir = temporary_file("recovery-dir");
+    std::fs::write(&path, "original\r\n").unwrap();
+    let mut doc = Document::open(&path).unwrap();
+    doc.text = "local edit\nsecond line\n".into();
+
+    let backup = doc.create_recovery_backup(&recovery_dir).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&backup).unwrap(),
+        "local edit\r\nsecond line\r\n"
+    );
+    assert_eq!(doc.path(), Some(path.as_path()));
+    assert!(doc.is_modified());
+
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir_all(recovery_dir).unwrap();
+}
+
+#[test]
+fn saving_a_copy_does_not_change_document_identity_or_saved_state() {
+    let path = temporary_file("source.py");
+    let copy = temporary_file("copy.py");
+    std::fs::write(&path, "original\n").unwrap();
+    let mut doc = Document::open(&path).unwrap();
+    doc.text = "local edit\n".into();
+
+    doc.save_copy(&copy).unwrap();
+    assert_eq!(std::fs::read_to_string(&copy).unwrap(), "local edit\n");
+    assert_eq!(doc.path(), Some(path.as_path()));
+    assert!(doc.is_modified());
+    assert_eq!(
+        doc.save_copy(&path).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_file(copy).unwrap();
+}
+
+#[test]
+fn applying_a_disk_snapshot_rejects_another_document() {
+    let first = temporary_file("first.py");
+    let second = temporary_file("second.py");
+    std::fs::write(&first, "first\n").unwrap();
+    std::fs::write(&second, "second\n").unwrap();
+    let snapshot = Document::open(&first)
+        .unwrap()
+        .disk_version()
+        .unwrap()
+        .unwrap();
+    let mut doc = Document::open(&second).unwrap();
+
+    assert_eq!(
+        doc.apply_disk_version(snapshot).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    assert_eq!(doc.text, "second\n");
+    std::fs::remove_file(first).unwrap();
+    std::fs::remove_file(second).unwrap();
 }
 
 #[test]

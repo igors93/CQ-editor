@@ -15,8 +15,8 @@ use egui::ViewportCommand;
 use egui_dock::{DockArea, DockState};
 
 use crate::commands::{self, Action};
-use crate::dialogs::{self, Dialogs, Intent, UnsavedChoice};
-use crate::document::{DEFAULT_SCRIPT, Document};
+use crate::dialogs::{self, Dialogs, ExternalChange, ExternalChangeChoice, Intent, UnsavedChoice};
+use crate::document::{DEFAULT_SCRIPT, Document, ExternalUpdate};
 use crate::editor::{CodeEditor, CompletionRequest, EditorOptions};
 use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
@@ -422,6 +422,27 @@ impl AppState {
         }
     }
 
+    pub fn resolve_external_change(
+        &mut self,
+        change: ExternalChange,
+        choice: ExternalChangeChoice,
+    ) {
+        if self.document.path() != Some(change.path.as_path()) {
+            return;
+        }
+        match choice {
+            ExternalChangeChoice::KeepLocal => {
+                self.set_status(
+                    StatusKind::Info,
+                    format!("Kept unsaved changes to {}", self.document.display_name()),
+                );
+                self.rerun_after_external_change(change.rerun_after_resolution);
+            }
+            ExternalChangeChoice::Reload => self.reload_external_change(change),
+            ExternalChangeChoice::SaveCopy => self.save_copy_then_reload(change),
+        }
+    }
+
     fn perform(&mut self, intent: Intent) {
         match intent {
             Intent::New => self.set_document(Document::untitled("")),
@@ -468,6 +489,7 @@ impl AppState {
 
     fn set_document(&mut self, document: Document) {
         self.document = document;
+        self.dialogs.external_change = None;
         self.editor.reset();
         self.traceback = None;
     }
@@ -521,6 +543,92 @@ impl AppState {
                     .error("Cannot save", format!("{}\n\n{err}", path.display()));
                 false
             }
+        }
+    }
+
+    fn save_copy_then_reload(&mut self, change: ExternalChange) {
+        let stem = change
+            .path
+            .file_stem()
+            .map_or_else(|| "script".into(), |name| name.to_string_lossy());
+        let mut dialog = rfd::FileDialog::new()
+            .add_filter("Python script", &["py"])
+            .set_file_name(format!("{stem}.local-copy.py"));
+        if let Some(directory) = change.path.parent() {
+            dialog = dialog.set_directory(directory);
+        }
+        let Some(mut path) = dialog.save_file() else {
+            self.dialogs.external_change = Some(change);
+            return;
+        };
+        if path.extension().is_none() {
+            path.set_extension("py");
+        }
+        match self.document.save_copy(&path) {
+            Ok(()) => self.reload_external_change(change),
+            Err(error) => {
+                self.dialogs.error(
+                    "Cannot save a copy",
+                    format!("{}\n\n{error}", path.display()),
+                );
+                self.dialogs.external_change = Some(change);
+            }
+        }
+    }
+
+    fn reload_external_change(&mut self, change: ExternalChange) {
+        let backup = if self.document.is_modified() {
+            match self
+                .document
+                .create_recovery_backup(&self.cache_dir.join("recovery"))
+            {
+                Ok(path) => Some(path),
+                Err(error) => {
+                    self.dialogs.error(
+                        "Cannot create recovery backup",
+                        format!(
+                            "The file was not reloaded and your edits are unchanged.\n\n{error}"
+                        ),
+                    );
+                    self.dialogs.external_change = Some(change);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        match self.document.apply_disk_version(change.disk) {
+            Ok(_) => {
+                if let Some(path) = &backup {
+                    logging::push(
+                        Level::Info,
+                        "recovery",
+                        &format!("Saved unsaved edits to {}", path.display()),
+                    );
+                }
+                let message = backup.map_or_else(
+                    || format!("Reloaded {}", self.document.display_name()),
+                    |path| {
+                        format!(
+                            "Reloaded {}; recovery backup: {}",
+                            self.document.display_name(),
+                            path.display()
+                        )
+                    },
+                );
+                self.set_status(StatusKind::Info, message);
+                self.rerun_after_external_change(change.rerun_after_resolution);
+            }
+            Err(error) => self
+                .dialogs
+                .error("Cannot reload the script", error.to_string()),
+        }
+    }
+
+    fn rerun_after_external_change(&mut self, rerun: bool) {
+        if rerun {
+            self.start_run(false);
         }
     }
 
@@ -1021,8 +1129,60 @@ impl AppState {
         }
         ctx.request_repaint_after(self.watcher.next_poll_in());
         let delay = Duration::from_millis(self.settings.editor.autoreload_delay_ms);
-        if self.watcher.poll(delay) {
-            match self.document.reload() {
+        let changed = self.watcher.poll(delay);
+        if changed.is_empty() {
+            return;
+        }
+
+        let document_path = self.document.path().map(Path::to_path_buf);
+        let document_changed = document_path
+            .as_ref()
+            .is_some_and(|path| changed.iter().any(|changed| changed == path));
+        let imported_changed = changed
+            .iter()
+            .any(|changed| Some(changed) != document_path.as_ref());
+
+        if !document_changed {
+            if let Some(conflict) = &mut self.dialogs.external_change {
+                conflict.rerun_after_resolution |= imported_changed;
+            } else if imported_changed {
+                self.start_run(false);
+            }
+            return;
+        }
+
+        let version = match self.document.disk_version() {
+            Ok(Some(version)) => version,
+            Ok(None) => return,
+            Err(error) => {
+                log::warn!("Cannot read the changed script: {error}");
+                self.dialogs
+                    .error("Cannot read the changed script", error.to_string());
+                return;
+            }
+        };
+
+        match self.document.classify_external_update(&version) {
+            // A timestamp-only rewrite of the main file must neither erase
+            // local edits nor trigger a needless rebuild.
+            ExternalUpdate::Unchanged => {
+                if imported_changed {
+                    self.start_run(false);
+                }
+            }
+            ExternalUpdate::Conflict => {
+                self.dialogs.external_change = Some(ExternalChange {
+                    path: document_path.expect("a watched document has a path"),
+                    disk: version,
+                    show_comparison: false,
+                    rerun_after_resolution: true,
+                });
+                self.set_status(
+                    StatusKind::Warning,
+                    "File changed on disk; waiting for your decision",
+                );
+            }
+            ExternalUpdate::MatchesBuffer => match self.document.apply_disk_version(version) {
                 Ok(_) => {
                     self.set_status(
                         StatusKind::Info,
@@ -1030,8 +1190,18 @@ impl AppState {
                     );
                     self.start_run(false);
                 }
-                Err(err) => log::warn!("Cannot reload the script: {err}"),
-            }
+                Err(error) => log::warn!("Cannot reload the script: {error}"),
+            },
+            ExternalUpdate::Reload => match self.document.reload(version) {
+                Ok(_) => {
+                    self.set_status(
+                        StatusKind::Info,
+                        format!("Reloaded {}", self.document.display_name()),
+                    );
+                    self.start_run(false);
+                }
+                Err(error) => log::warn!("Cannot reload the script: {error}"),
+            },
         }
     }
 
