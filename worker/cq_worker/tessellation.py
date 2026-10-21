@@ -525,9 +525,7 @@ def _discretize_edges(
         )
         edge_segments = np.hstack((polyline[:-1], polyline[1:]))
         segments.append(edge_segments)
-        identifiers.append(
-            np.full(len(edge_segments), identifier, dtype=np.uint32)
-        )
+        identifiers.append(np.full(len(edge_segments), identifier, dtype=np.uint32))
 
     if not segments:
         return _empty(6), np.zeros(0, dtype=np.uint32)

@@ -187,9 +187,7 @@ def test_known_geometry_is_sent_as_a_reference_without_tessellating_again(
         geometry_cache=cache,
         known_geometry=[geometry_id],
     )
-    second = second_builder.build(
-        {"box": ShownObject(cq.Workplane().box(1, 2, 3))}
-    )
+    second = second_builder.build({"box": ShownObject(cq.Workplane().box(1, 2, 3))})
 
     assert second[0]["parts"][0]["mesh"] == {"id": geometry_id}
 

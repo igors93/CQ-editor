@@ -89,15 +89,11 @@ def test_geometry_cache_survives_occt_meshing_side_effects():
     shape = cq.Workplane().sphere(5).val().wrapped
     tolerance = Tolerance()
     cache = GeometryCache()
-    first_id, first = cache.tessellate(
-        shape, tolerance, TopologyIndex.build(shape)
-    )
+    first_id, first = cache.tessellate(shape, tolerance, TopologyIndex.build(shape))
 
     # Meshing changes internal OCCT flags and therefore the raw BREP digest.
     # The cache aliases that post-mesh representation back to the original.
-    second_id, second = cache.tessellate(
-        shape, tolerance, TopologyIndex.build(shape)
-    )
+    second_id, second = cache.tessellate(shape, tolerance, TopologyIndex.build(shape))
     assert second_id == first_id
     assert second is first
 
