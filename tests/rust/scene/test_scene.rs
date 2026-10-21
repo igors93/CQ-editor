@@ -8,6 +8,7 @@ fn node(key: &str, name: &str, children: Vec<SceneNode>) -> SceneNode {
         inspectable: false,
         parts: vec![Part {
             mesh: Arc::new(Mesh::lines(vec![[0.0; 3], [1.0, 2.0, 3.0]])),
+            transform: Mat4::IDENTITY,
             color: None,
             alpha: None,
         }],
@@ -213,9 +214,77 @@ fn topology_selection_builds_and_clears_an_exact_highlight() {
     };
     assert!(scene.select_topology(selection.clone()));
     assert_eq!(scene.topology_selection, Some(selection));
-    assert_eq!(scene.topology_highlight().unwrap().triangle_count(), 1);
+    assert_eq!(scene.topology_highlight().unwrap().mesh.triangle_count(), 1);
 
     scene.select_only("n");
     assert!(scene.topology_selection.is_none());
     assert!(scene.topology_highlight().is_none());
+}
+
+fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::SceneNode {
+    protocol::SceneNode {
+        key: key.into(),
+        name: key.into(),
+        kind: "Shape".into(),
+        inspectable: false,
+        color: None,
+        alpha: None,
+        edge_color: None,
+        parts: vec![protocol::Part {
+            mesh,
+            transform: transform.to_cols_array(),
+            color: None,
+            alpha: None,
+        }],
+        children: Vec::new(),
+    }
+}
+
+#[test]
+fn content_addressed_mesh_references_reuse_cpu_geometry() {
+    let mut scene = Scene::default();
+    let full = protocol::Mesh {
+        id: "same-geometry".into(),
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 3],
+        indices: vec![0, 1, 2],
+        bbox: Some([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]]),
+        ..Default::default()
+    };
+    let first = scene
+        .decode_nodes(vec![worker_node("first", full, Mat4::IDENTITY)])
+        .unwrap();
+    scene.append(first, None);
+    assert_eq!(scene.known_geometry(), ["same-geometry"]);
+
+    let reference = protocol::Mesh {
+        id: "same-geometry".into(),
+        ..Default::default()
+    };
+    let second = scene
+        .decode_nodes(vec![worker_node(
+            "second",
+            reference,
+            Mat4::from_translation(Vec3::X * 10.0),
+        )])
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        &scene.nodes[0].parts[0].mesh,
+        &second[0].parts[0].mesh
+    ));
+    assert_eq!(second[0].own_bounds().min.x, 10.0);
+    assert_eq!(second[0].own_bounds().max.x, 11.0);
+}
+
+#[test]
+fn an_unknown_mesh_reference_is_rejected() {
+    let mut scene = Scene::default();
+    let reference = protocol::Mesh {
+        id: "missing".into(),
+        ..Default::default()
+    };
+    let error = scene
+        .decode_nodes(vec![worker_node("node", reference, Mat4::IDENTITY)])
+        .unwrap_err();
+    assert!(error.contains("missing"));
 }

@@ -677,7 +677,9 @@ impl AppState {
                 self.phase = Phase::Paused { id };
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
-                let nodes = to_nodes(objects);
+                let Some(nodes) = self.decode_scene_nodes(objects) else {
+                    return;
+                };
                 let removed = self.scene.replace(nodes, None);
                 self.release(removed);
                 self.refresh_inspector();
@@ -728,7 +730,10 @@ impl AppState {
             }
             Message::SceneAdd { objects } => {
                 let was_empty = self.scene.is_empty();
-                self.scene.append(to_nodes(objects), None);
+                let Some(nodes) = self.decode_scene_nodes(objects) else {
+                    return;
+                };
+                self.scene.append(nodes, None);
                 if was_empty {
                     self.viewer.fit(&self.scene, false, self.now());
                 }
@@ -847,6 +852,11 @@ impl AppState {
             breakpoints: self.editor.breakpoints.iter().copied().collect(),
             settings: self.settings.run_settings(),
             scene: self.settings.scene_settings(),
+            known_geometry: if debug {
+                Vec::new()
+            } else {
+                self.scene.known_geometry()
+            },
         };
         if !self.worker.send(&request) {
             self.set_status(StatusKind::Error, "Cannot reach Python");
@@ -896,7 +906,9 @@ impl AppState {
                 .preserve_properties
                 .then(|| self.scene.snapshot_properties());
             let was_empty = self.scene.is_empty();
-            let nodes = to_nodes(objects);
+            let Some(nodes) = self.decode_scene_nodes(objects) else {
+                return;
+            };
             let count = nodes.len();
             if self.settings.objects.clear_before_run || result.debug {
                 let removed = self.scene.replace(nodes, preserved.as_ref());
@@ -1184,10 +1196,12 @@ impl AppState {
         }
         self.console.record_input(&source);
         let scene = self.settings.scene_settings();
+        let known_geometry = self.scene.known_geometry();
         if !self.send_tracked(Pending::Console, |id| Request::Console {
             id,
             source,
             scene,
+            known_geometry,
         }) {
             self.console.busy = false;
         }
@@ -1224,10 +1238,16 @@ impl AppState {
             upload.failed("Python is not ready");
         }
     }
-}
-
-fn to_nodes(objects: Vec<NodeMessage>) -> Vec<SceneNode> {
-    objects.into_iter().map(SceneNode::from_message).collect()
+    fn decode_scene_nodes(&mut self, objects: Vec<NodeMessage>) -> Option<Vec<SceneNode>> {
+        match self.scene.decode_nodes(objects) {
+            Ok(nodes) => Some(nodes),
+            Err(error) => {
+                log::error!("Cannot decode worker scene: {error}");
+                self.set_status(StatusKind::Error, "Cannot update the 3D scene");
+                None
+            }
+        }
+    }
 }
 
 fn open_url(url: &str) {

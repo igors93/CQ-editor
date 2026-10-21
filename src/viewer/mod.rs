@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{Color32, Pos2, Rect, Sense, Vec2};
-use glam::{Vec2 as GVec2, Vec3};
+use glam::{Mat4 as GMat4, Vec2 as GVec2, Vec3};
 
 use crate::scene::{Grid, Mesh, NodeKey, Scene, TopologySelection};
 use crate::settings::{self, OrbitMethod};
@@ -460,6 +460,7 @@ impl Viewer {
                 .map(move |(part_index, part)| picking::Candidate {
                     id: (node.key.clone(), part_index),
                     mesh: &part.mesh,
+                    transform: part.transform,
                 })
         });
         picking::pick(
@@ -525,6 +526,7 @@ impl Viewer {
                 };
                 items.push(DrawItem {
                     mesh: part.mesh.clone(),
+                    transform: part.transform,
                     style: Style {
                         face_color: rgb_to_linear(rgb, alpha),
                         edge_color,
@@ -544,10 +546,11 @@ impl Viewer {
             }
         }
 
-        if let Some(mesh) = scene.topology_highlight() {
+        if let Some(part) = scene.topology_highlight() {
             let color = linear_color(colors.selection, 1.0);
             items.push(DrawItem {
-                mesh: mesh.clone(),
+                mesh: part.mesh.clone(),
+                transform: part.transform,
                 style: Style {
                     face_color: linear_color(colors.selection, 0.55),
                     edge_color: color,
@@ -611,6 +614,7 @@ impl Viewer {
         for mesh in &scene.overlay.meshes {
             items.push(DrawItem {
                 mesh: mesh.clone(),
+                transform: GMat4::IDENTITY,
                 style: Style {
                     face_color: linear_color(colors.overlay, 0.55),
                     edge_color: linear_color(colors.overlay, 1.0),
@@ -695,6 +699,7 @@ fn collect_keys<'a>(
 fn line_item(mesh: Arc<Mesh>, color: [f32; 4], width: f32, layer: Layer) -> DrawItem {
     DrawItem {
         mesh,
+        transform: GMat4::IDENTITY,
         style: Style {
             face_color: color,
             edge_color: color,

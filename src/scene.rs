@@ -5,12 +5,13 @@
 //! subtrees). Display state that belongs to the GUI (visibility, color
 //! overrides, selection) lives here too.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 
+use crate::spatial::TriangleBvh;
 use crate::worker::protocol;
 
 pub type NodeKey = String;
@@ -99,6 +100,31 @@ impl Aabb {
             max: b.max.max(p),
         })
     }
+
+    pub fn transformed(self, transform: Mat4) -> Aabb {
+        if self.is_empty() {
+            return self;
+        }
+        Aabb::from_points((0..8).map(|corner| {
+            transform.transform_point3(Vec3::new(
+                if corner & 1 == 0 {
+                    self.min.x
+                } else {
+                    self.max.x
+                },
+                if corner & 2 == 0 {
+                    self.min.y
+                } else {
+                    self.max.y
+                },
+                if corner & 4 == 0 {
+                    self.min.z
+                } else {
+                    self.max.z
+                },
+            ))
+        }))
+    }
 }
 
 /// Triangulated geometry on the CPU side. The renderer caches GPU buffers by
@@ -106,6 +132,8 @@ impl Aabb {
 #[derive(Debug, Default)]
 pub struct Mesh {
     pub id: u64,
+    /// Content id supplied by the worker; empty for GUI-generated helpers.
+    pub geometry_id: String,
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
@@ -114,6 +142,7 @@ pub struct Mesh {
     pub points: Vec<[f32; 3]>,
     pub topology: MeshTopology,
     pub bounds: Aabb,
+    triangle_bvh: OnceLock<TriangleBvh>,
 }
 
 /// Pick geometry and its association with the worker's OCCT topology index.
@@ -147,6 +176,7 @@ impl Mesh {
         );
         Self {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            geometry_id: String::new(),
             positions,
             normals,
             indices,
@@ -154,6 +184,7 @@ impl Mesh {
             points,
             topology: MeshTopology::default(),
             bounds,
+            triangle_bvh: OnceLock::new(),
         }
     }
 
@@ -164,6 +195,33 @@ impl Mesh {
 
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
+    }
+
+    fn pick_triangles(&self) -> (&[[f32; 3]], &[u32]) {
+        if self.topology.face_indices.is_empty() {
+            (&self.positions, &self.indices)
+        } else {
+            (&self.topology.face_positions, &self.topology.face_indices)
+        }
+    }
+
+    pub(crate) fn nearest_triangle(&self, origin: Vec3, direction: Vec3) -> Option<(f32, usize)> {
+        let (positions, indices) = self.pick_triangles();
+        self.triangle_bvh
+            .get_or_init(|| TriangleBvh::build(positions, indices))
+            .nearest(origin, direction, positions, indices)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn nearest_triangle_with_stats(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> (Option<(f32, usize)>, usize) {
+        let (positions, indices) = self.pick_triangles();
+        self.triangle_bvh
+            .get_or_init(|| TriangleBvh::build(positions, indices))
+            .nearest_with_count(origin, direction, positions, indices)
     }
 
     /// Builds a small render mesh that highlights exactly one CAD entity.
@@ -232,7 +290,21 @@ impl From<protocol::Mesh> for Mesh {
     fn from(mesh: protocol::Mesh) -> Self {
         let mut normals = mesh.normals;
         normals.resize(mesh.positions.len(), [0.0, 0.0, 1.0]);
-        let [min, max] = mesh.bbox;
+        let bounds = mesh.bbox.map_or_else(
+            || {
+                Aabb::from_points(
+                    mesh.positions
+                        .iter()
+                        .chain(&mesh.edges)
+                        .chain(&mesh.points)
+                        .map(|point| Vec3::from_array(*point)),
+                )
+            },
+            |[min, max]| Aabb {
+                min: Vec3::from_array(min),
+                max: Vec3::from_array(max),
+            },
+        );
         let topology = MeshTopology {
             face_positions: mesh.topology.face_positions,
             face_indices: mesh.topology.face_indices,
@@ -242,10 +314,8 @@ impl From<protocol::Mesh> for Mesh {
         };
         Mesh {
             // The worker already measured the geometry.
-            bounds: Aabb {
-                min: Vec3::from_array(min),
-                max: Vec3::from_array(max),
-            },
+            bounds,
+            geometry_id: mesh.id,
             topology,
             ..Mesh::new(
                 mesh.positions,
@@ -258,9 +328,10 @@ impl From<protocol::Mesh> for Mesh {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Part {
     pub mesh: Arc<Mesh>,
+    pub transform: Mat4,
     pub color: Option<Rgb>,
     pub alpha: Option<f32>,
 }
@@ -290,39 +361,56 @@ pub struct SceneNode {
 }
 
 impl SceneNode {
-    pub fn from_message(message: protocol::SceneNode) -> Self {
-        Self {
+    fn from_message(
+        message: protocol::SceneNode,
+        cache: &mut HashMap<String, Weak<Mesh>>,
+    ) -> Result<Self, String> {
+        let mut parts = Vec::with_capacity(message.parts.len());
+        for part in message.parts {
+            let geometry_id = part.mesh.id.clone();
+            let mesh = if part.mesh.bbox.is_none() {
+                cache
+                    .get(&geometry_id)
+                    .and_then(Weak::upgrade)
+                    .ok_or_else(|| format!("worker referenced unavailable mesh {geometry_id}"))?
+            } else {
+                let mesh = Arc::new(Mesh::from(part.mesh));
+                if !geometry_id.is_empty() {
+                    cache.insert(geometry_id, Arc::downgrade(&mesh));
+                }
+                mesh
+            };
+            parts.push(Part {
+                mesh,
+                transform: Mat4::from_cols_array(&part.transform),
+                color: part.color,
+                alpha: part.alpha,
+            });
+        }
+        let mut children = Vec::with_capacity(message.children.len());
+        for child in message.children {
+            children.push(Self::from_message(child, cache)?);
+        }
+        Ok(Self {
             key: message.key,
             name: message.name,
             kind: message.kind,
             inspectable: message.inspectable,
-            parts: message
-                .parts
-                .into_iter()
-                .map(|part| Part {
-                    mesh: Arc::new(part.mesh.into()),
-                    color: part.color,
-                    alpha: part.alpha,
-                })
-                .collect(),
-            children: message
-                .children
-                .into_iter()
-                .map(Self::from_message)
-                .collect(),
+            parts,
+            children,
             visible: true,
             color: message.color,
             alpha: message.alpha,
             edge_color: message.edge_color,
             overrides: Overrides::default(),
-        }
+        })
     }
 
     /// Bounds of this node's own parts (not its children).
     pub fn own_bounds(&self) -> Aabb {
-        self.parts
-            .iter()
-            .fold(Aabb::EMPTY, |b, part| b.union(part.mesh.bounds))
+        self.parts.iter().fold(Aabb::EMPTY, |b, part| {
+            b.union(part.mesh.bounds.transformed(part.transform))
+        })
     }
 
     pub fn subtree_bounds(&self) -> Aabb {
@@ -419,8 +507,9 @@ pub struct Scene {
     /// Selected node keys; the last one is the "current" object.
     pub selection: Vec<NodeKey>,
     pub topology_selection: Option<TopologySelection>,
-    topology_highlight: Option<Arc<Mesh>>,
+    topology_highlight: Option<Part>,
     pub overlay: Overlay,
+    mesh_cache: HashMap<String, Weak<Mesh>>,
 }
 
 impl Default for Scene {
@@ -443,6 +532,7 @@ impl Default for Scene {
             topology_selection: None,
             topology_highlight: None,
             overlay: Overlay::default(),
+            mesh_cache: HashMap::new(),
         }
     }
 }
@@ -452,6 +542,29 @@ impl Default for Scene {
 pub type PreservedProperties = HashMap<String, (bool, Overrides)>;
 
 impl Scene {
+    /// Resolves full content-addressed meshes and references in one worker
+    /// response. Existing scene meshes stay alive while replacements decode.
+    pub fn decode_nodes(
+        &mut self,
+        messages: Vec<protocol::SceneNode>,
+    ) -> Result<Vec<SceneNode>, String> {
+        messages
+            .into_iter()
+            .map(|message| SceneNode::from_message(message, &mut self.mesh_cache))
+            .collect()
+    }
+
+    pub fn known_geometry(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.iter()
+            .flat_map(|node| &node.parts)
+            .filter(|part| {
+                !part.mesh.geometry_id.is_empty() && seen.insert(part.mesh.geometry_id.clone())
+            })
+            .map(|part| part.mesh.geometry_id.clone())
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
@@ -615,13 +728,20 @@ impl Scene {
         let highlight = self
             .find(&selection.node)
             .and_then(|node| node.parts.get(selection.part))
-            .and_then(|part| part.mesh.topology_mesh(selection.entity));
+            .and_then(|part| {
+                part.mesh.topology_mesh(selection.entity).map(|mesh| Part {
+                    mesh: Arc::new(mesh),
+                    transform: part.transform,
+                    color: None,
+                    alpha: None,
+                })
+            });
         let Some(highlight) = highlight else {
             self.clear_topology_selection();
             return false;
         };
         self.topology_selection = Some(selection);
-        self.topology_highlight = Some(Arc::new(highlight));
+        self.topology_highlight = Some(highlight);
         true
     }
 
@@ -630,7 +750,7 @@ impl Scene {
         self.topology_highlight = None;
     }
 
-    pub fn topology_highlight(&self) -> Option<&Arc<Mesh>> {
+    pub fn topology_highlight(&self) -> Option<&Part> {
         self.topology_highlight.as_ref()
     }
 

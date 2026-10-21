@@ -33,7 +33,7 @@ from .execution import (
 )
 from .protocol import PROTOCOL_VERSION, Channel, Message
 from .scene import Registry, SceneBuilder, find_cq_objects, to_compound
-from .tessellation import Tolerance
+from .tessellation import GeometryCache, Tolerance
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class Server:
         self.channel = channel
         self.registry = Registry()
         self.console = ConsoleSession()
+        self.geometry_cache = GeometryCache()
         #: Stack frames of inspected workplanes, by scene key.
         self.inspections: dict[str, list[cq.Workplane]] = {}
         self._debugger: Debugger | None = None
@@ -366,6 +367,8 @@ class Server:
             self.registry,
             self._tolerance(request),
             merge_assemblies=bool(scene.get("merge_assemblies", False)),
+            geometry_cache=self.geometry_cache,
+            known_geometry=request.get("known_geometry", ()),
         )
 
 

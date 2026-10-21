@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from conftest import decode
-from cq_worker.tessellation import Tolerance, tessellate
+from cq_worker.tessellation import GeometryCache, Tolerance, TopologyIndex, tessellate
 
 
 def test_box_mesh():
@@ -83,3 +83,38 @@ def test_finer_tolerance_gives_more_triangles():
         cq.Workplane().sphere(5).val().wrapped, Tolerance(linear=1e-4, angular=0.1)
     )
     assert len(fine.indices) > len(coarse.indices)
+
+
+def test_geometry_cache_survives_occt_meshing_side_effects():
+    shape = cq.Workplane().sphere(5).val().wrapped
+    tolerance = Tolerance()
+    cache = GeometryCache()
+    first_id, first = cache.tessellate(
+        shape, tolerance, TopologyIndex.build(shape)
+    )
+
+    # Meshing changes internal OCCT flags and therefore the raw BREP digest.
+    # The cache aliases that post-mesh representation back to the original.
+    second_id, second = cache.tessellate(
+        shape, tolerance, TopologyIndex.build(shape)
+    )
+    assert second_id == first_id
+    assert second is first
+
+    rebuilt = cq.Workplane().sphere(5).val().wrapped
+    rebuilt_id, rebuilt_mesh = cache.tessellate(
+        rebuilt, tolerance, TopologyIndex.build(rebuilt)
+    )
+    assert rebuilt_id == first_id
+    assert rebuilt_mesh is first
+
+
+def test_large_structural_dimensions_keep_submillimeter_cross_sections():
+    mesh = tessellate(
+        cq.Workplane().box(1_000_000, 0.5, 0.25).val().wrapped, Tolerance()
+    )
+    lo, hi = mesh.bounds()
+
+    assert hi[0] - lo[0] == pytest.approx(1_000_000, abs=0.05)
+    assert hi[1] - lo[1] == pytest.approx(0.5, abs=1e-6)
+    assert hi[2] - lo[2] == pytest.approx(0.25, abs=1e-6)

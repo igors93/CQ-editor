@@ -9,7 +9,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 pub type RequestId = u64;
 
@@ -24,6 +24,9 @@ pub enum Request {
         breakpoints: Vec<usize>,
         settings: RunSettings,
         scene: SceneSettings,
+        /// Content-addressed meshes currently retained by the scene. The
+        /// worker may answer with lightweight references to these ids.
+        known_geometry: Vec<String>,
     },
     /// Only valid while a debugging session is paused.
     Debug {
@@ -59,6 +62,7 @@ pub enum Request {
         id: RequestId,
         source: String,
         scene: SceneSettings,
+        known_geometry: Vec<String>,
     },
     ConsoleReset {
         id: RequestId,
@@ -329,6 +333,8 @@ pub struct SceneNode {
 #[derive(Deserialize, Debug)]
 pub struct Part {
     pub mesh: Mesh,
+    #[serde(default = "identity_transform")]
+    pub transform: [f32; 16],
     pub color: Option<[f32; 3]>,
     pub alpha: Option<f32>,
 }
@@ -336,34 +342,44 @@ pub struct Part {
 /// Triangulated geometry, already decoded.
 #[derive(Deserialize, Debug, Default)]
 pub struct Mesh {
-    #[serde(deserialize_with = "vec3_f32")]
+    /// Stable digest of the local CAD geometry and tessellation settings.
+    #[serde(default)]
+    pub id: String,
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub positions: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "vec3_f32")]
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub normals: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "u32_array")]
+    #[serde(default, deserialize_with = "u32_array")]
     pub indices: Vec<u32>,
     /// Line segments, two points each.
-    #[serde(deserialize_with = "vec3_f32")]
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub edges: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "vec3_f32")]
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub points: Vec<[f32; 3]>,
+    #[serde(default)]
     pub topology: MeshTopology,
-    pub bbox: [[f32; 3]; 2],
+    /// Absent only for a content-addressed reference.
+    #[serde(default)]
+    pub bbox: Option<[[f32; 3]; 2]>,
 }
 
 /// OCCT subshape associations for precise face, edge and vertex picking.
 #[derive(Deserialize, Debug, Default)]
 pub struct MeshTopology {
-    #[serde(deserialize_with = "vec3_f32")]
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub face_positions: Vec<[f32; 3]>,
-    #[serde(deserialize_with = "u32_array")]
+    #[serde(default, deserialize_with = "u32_array")]
     pub face_indices: Vec<u32>,
-    #[serde(deserialize_with = "u32_array")]
+    #[serde(default, deserialize_with = "u32_array")]
     pub triangle_faces: Vec<u32>,
-    #[serde(deserialize_with = "u32_array")]
+    #[serde(default, deserialize_with = "u32_array")]
     pub segment_edges: Vec<u32>,
-    #[serde(deserialize_with = "vec3_f32")]
+    #[serde(default, deserialize_with = "vec3_f32")]
     pub vertices: Vec<[f32; 3]>,
+}
+
+fn identity_transform() -> [f32; 16] {
+    glam::Mat4::IDENTITY.to_cols_array()
 }
 
 fn base64_bytes<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {

@@ -13,7 +13,7 @@ use std::sync::{Arc, Weak};
 
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::{self, wgpu};
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt as _;
 
 use super::camera::Camera;
@@ -42,6 +42,7 @@ struct CameraUniform {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct ObjectUniform {
+    model: [[f32; 4]; 4],
     face_color: [f32; 4],
     edge_color: [f32; 4],
     highlight: [f32; 4],
@@ -72,6 +73,7 @@ pub enum Layer {
 
 pub struct DrawItem {
     pub mesh: Arc<Mesh>,
+    pub transform: Mat4,
     pub style: Style,
     pub layer: Layer,
 }
@@ -448,6 +450,7 @@ impl SceneRenderer {
         for (slot, item) in items.iter().enumerate() {
             let style = &item.style;
             let uniform = ObjectUniform {
+                model: item.transform.to_cols_array_2d(),
                 face_color: style.face_color,
                 edge_color: style.edge_color,
                 highlight: style.highlight,
@@ -543,7 +546,10 @@ fn draw_order(input: &FrameInput<'_>) -> Vec<(usize, Layer)> {
         .items
         .iter()
         .enumerate()
-        .map(|(i, item)| (i, (item.mesh.bounds.center() - eye).dot(forward)))
+        .map(|(i, item)| {
+            let center = item.transform.transform_point3(item.mesh.bounds.center());
+            (i, (center - eye).dot(forward))
+        })
         .collect();
     order.sort_by(|a, b| b.1.total_cmp(&a.1));
     order

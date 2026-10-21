@@ -10,7 +10,7 @@ from cq_worker.scene import (
     parse_color,
     to_compound,
 )
-from cq_worker.tessellation import Tolerance
+from cq_worker.tessellation import GeometryCache, Tolerance
 
 
 def test_to_compound_applies_sketch_placement():
@@ -141,10 +141,12 @@ def test_builder_explodes_assemblies():
     pin = pins["children"][0]
     # The part's own color wins over the inherited one.
     assert pin["parts"][0]["color"] == pytest.approx((1, 0, 0))
-    # Locations accumulate down the tree.
+    # Geometry stays in local coordinates and locations accumulate in the
+    # instance transform, allowing identical parts to share one mesh.
     bbox = pin["parts"][0]["mesh"]["bbox"]
-    assert bbox[0][2] == pytest.approx(0.5, abs=1e-3)
-    assert bbox[1][2] == pytest.approx(5.5, abs=1e-3)
+    assert bbox[0][2] == pytest.approx(-2.5, abs=1e-3)
+    assert bbox[1][2] == pytest.approx(2.5, abs=1e-3)
+    assert pin["parts"][0]["transform"][14] == pytest.approx(3)
     assert len(registry.subtree_shapes([root["key"]])) == 2
 
 
@@ -165,3 +167,46 @@ def test_registry_release_drops_subtrees():
     registry.release([root["key"]])
     with pytest.raises(KeyError):
         registry.get(root["children"][0]["key"])
+
+
+def test_known_geometry_is_sent_as_a_reference_without_tessellating_again(
+    monkeypatch,
+):
+    cache = GeometryCache()
+    first_builder = SceneBuilder(Registry(), Tolerance(), geometry_cache=cache)
+    first = first_builder.build({"box": ShownObject(cq.Workplane().box(1, 2, 3))})
+    geometry_id = first[0]["parts"][0]["mesh"]["id"]
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("known geometry was tessellated again")
+
+    monkeypatch.setattr(cache, "tessellate", unexpected)
+    second_builder = SceneBuilder(
+        Registry(),
+        Tolerance(),
+        geometry_cache=cache,
+        known_geometry=[geometry_id],
+    )
+    second = second_builder.build(
+        {"box": ShownObject(cq.Workplane().box(1, 2, 3))}
+    )
+
+    assert second[0]["parts"][0]["mesh"] == {"id": geometry_id}
+
+
+def test_repeated_assembly_parts_share_local_geometry():
+    profile = cq.Workplane().box(40, 20, 1000)
+    assembly = (
+        cq.Assembly()
+        .add(profile, name="left", loc=cq.Location(cq.Vector(0, 0, 0)))
+        .add(profile, name="right", loc=cq.Location(cq.Vector(5000, 0, 0)))
+    )
+    _, nodes = build({"frame": assembly})
+    left, right = nodes[0]["children"]
+    left_part, right_part = left["parts"][0], right["parts"][0]
+
+    assert left_part["mesh"]["id"] == right_part["mesh"]["id"]
+    assert "bbox" in left_part["mesh"]
+    assert right_part["mesh"] == {"id": left_part["mesh"]["id"]}
+    assert left_part["transform"][12:15] == pytest.approx([0, 0, 0])
+    assert right_part["transform"][12:15] == pytest.approx([5000, 0, 0])

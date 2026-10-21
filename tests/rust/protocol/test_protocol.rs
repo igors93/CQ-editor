@@ -83,6 +83,7 @@ fn serializes_run_request_with_worker_settings() {
             angular_tolerance: 0.2,
             merge_assemblies: false,
         },
+        known_geometry: vec!["abc".into()],
     };
     let json = serde_json::to_value(request).unwrap();
     assert_eq!(json["cmd"], "run");
@@ -91,6 +92,7 @@ fn serializes_run_request_with_worker_settings() {
     assert_eq!(json["breakpoints"], serde_json::json!([4]));
     assert_eq!(json["settings"]["add_script_dir_to_path"], true);
     assert_eq!(json["scene"]["linear_tolerance"], 0.001);
+    assert_eq!(json["known_geometry"], serde_json::json!(["abc"]));
 }
 
 #[test]

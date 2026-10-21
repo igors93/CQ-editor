@@ -4,7 +4,7 @@
 //! are matched in screen space within a few pixels, since a ray would
 //! practically never touch them. A front face occludes entities behind it.
 
-use glam::{Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 use super::camera::Camera;
 use crate::scene::{Mesh, TopologyEntity};
@@ -18,6 +18,7 @@ const OCCLUSION_EPSILON: f32 = 1e-3;
 pub struct Candidate<'a, T> {
     pub id: T,
     pub mesh: &'a Mesh,
+    pub transform: Mat4,
 }
 
 /// Exact result of a view pick. `entity` is absent only for legacy meshes
@@ -57,16 +58,15 @@ pub fn pick<'a, T: Clone>(
         if mesh.bounds.is_empty() {
             continue;
         }
+        let inverse = candidate.transform.inverse();
+        let local_origin = inverse.transform_point3(origin);
+        let local_dir = inverse.transform_vector3(dir);
 
-        if ray_hits_box(origin, dir, mesh.bounds.min, mesh.bounds.max) {
+        if ray_hits_box(local_origin, local_dir, mesh.bounds.min, mesh.bounds.max) {
             let topology_faces = !mesh.topology.face_indices.is_empty();
-            let (positions, indices) = if topology_faces {
-                (&mesh.topology.face_positions, &mesh.topology.face_indices)
-            } else {
-                (&mesh.positions, &mesh.indices)
-            };
-            if let Some((distance, triangle)) = nearest_triangle(origin, dir, positions, indices) {
-                let position = origin + dir * distance;
+            if let Some((distance, triangle)) = mesh.nearest_triangle(local_origin, local_dir) {
+                let local_position = local_origin + local_dir * distance;
+                let position = candidate.transform.transform_point3(local_position);
                 if let Some(depth) = projected_depth(camera, aspect, position) {
                     hits.push(RankedHit {
                         hit: Hit {
@@ -87,9 +87,10 @@ pub fn pick<'a, T: Clone>(
         }
 
         let screen = |p: &[f32; 3]| {
+            let world = candidate.transform.transform_point3(Vec3::from_array(*p));
             camera
-                .project(Vec3::from_array(*p), aspect)
-                .map(|ndc| (to_px(ndc.truncate()), Vec3::from_array(*p), ndc.z))
+                .project(world, aspect)
+                .map(|ndc| (to_px(ndc.truncate()), world, ndc.z))
         };
         for (segment_index, segment) in mesh.edges.as_chunks::<2>().0.iter().enumerate() {
             let (Some((a, wa, _)), Some((b, wb, _))) = (screen(&segment[0]), screen(&segment[1]))
@@ -169,52 +170,6 @@ fn projected_depth(camera: &Camera, aspect: f32, point: Vec3) -> Option<f32> {
         .project(point, aspect)
         .map(|projected| projected.z)
         .filter(|depth| (0.0..=1.0).contains(depth))
-}
-
-fn nearest_triangle(
-    origin: Vec3,
-    dir: Vec3,
-    positions: &[[f32; 3]],
-    indices: &[u32],
-) -> Option<(f32, usize)> {
-    let vertex = |i: u32| positions.get(i as usize).copied().map(Vec3::from_array);
-    indices
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .enumerate()
-        .filter_map(|(index, tri)| {
-            let (Some(a), Some(b), Some(c)) = (vertex(tri[0]), vertex(tri[1]), vertex(tri[2]))
-            else {
-                return None;
-            };
-            ray_triangle(origin, dir, a, b, c).map(|distance| (distance, index))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-}
-
-/// Möller–Trumbore intersection, accepting both triangle sides; returns the
-/// distance along the ray.
-fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
-    let (ab, ac) = (b - a, c - a);
-    let p = dir.cross(ac);
-    let det = ab.dot(p);
-    if det.abs() < 1e-12 {
-        return None;
-    }
-    let inv = 1.0 / det;
-    let s = origin - a;
-    let u = s.dot(p) * inv;
-    if !(0.0..=1.0).contains(&u) {
-        return None;
-    }
-    let q = s.cross(ab);
-    let v = dir.dot(q) * inv;
-    if v < 0.0 || u + v > 1.0 {
-        return None;
-    }
-    let t = ac.dot(q) * inv;
-    (t > 0.0).then_some(t)
 }
 
 /// Slab test.

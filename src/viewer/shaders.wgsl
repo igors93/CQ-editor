@@ -18,6 +18,7 @@ struct Camera {
 };
 
 struct Object {
+    model: mat4x4<f32>,
     face_color: vec4<f32>,
     edge_color: vec4<f32>,
     // rgb: highlight color; a: how strongly faces are tinted with it.
@@ -67,9 +68,11 @@ struct MeshOut {
 @vertex
 fn vs_mesh(in: MeshIn) -> MeshOut {
     var out: MeshOut;
-    out.clip = camera.view_proj * vec4<f32>(in.position, 1.0);
-    out.world = in.position;
-    out.normal = in.normal;
+    let world = object.model * vec4<f32>(in.position, 1.0);
+    out.clip = camera.view_proj * world;
+    out.world = world.xyz;
+    let rotation = mat3x3<f32>(object.model[0].xyz, object.model[1].xyz, object.model[2].xyz);
+    out.normal = rotation * in.normal;
     return out;
 }
 
@@ -128,8 +131,8 @@ fn clip_to_near(point: vec4<f32>, other: vec4<f32>) -> vec4<f32> {
 
 @vertex
 fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> @builtin(position) vec4<f32> {
-    let start_raw = camera.view_proj * vec4<f32>(in.start, 1.0);
-    let end_raw = camera.view_proj * vec4<f32>(in.end, 1.0);
+    let start_raw = camera.view_proj * object.model * vec4<f32>(in.start, 1.0);
+    let end_raw = camera.view_proj * object.model * vec4<f32>(in.end, 1.0);
     let start = clip_to_near(start_raw, end_raw);
     let end = clip_to_near(end_raw, start_raw);
 
@@ -177,7 +180,7 @@ fn vs_point(@builtin(vertex_index) index: u32, @location(0) position: vec3<f32>)
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
     );
     let corner = corners[index];
-    var clip = camera.view_proj * vec4<f32>(position, 1.0);
+    var clip = camera.view_proj * object.model * vec4<f32>(position, 1.0);
     let radius_px = object.params.y * 0.5;
     clip = vec4<f32>(clip.xy + corner * radius_px * camera.viewport.zw * 2.0 * clip.w, clip.zw);
     var out: PointOut;

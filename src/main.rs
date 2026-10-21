@@ -17,6 +17,7 @@ mod logging;
 mod panels;
 mod scene;
 mod settings;
+mod spatial;
 mod theme;
 mod ui;
 mod viewer;

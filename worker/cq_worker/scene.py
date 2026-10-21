@@ -17,11 +17,22 @@ from typing import Any
 import cadquery as cq
 from OCP.TopoDS import TopoDS_Shape
 
-from .tessellation import Tolerance, TopologyIndex, tessellate
+from .tessellation import GeometryCache, Tolerance, TopologyIndex
 
 log = logging.getLogger(__name__)
 
 Color = tuple[float, float, float]
+
+
+def location_matrix(location: cq.Location) -> list[float]:
+    """Return an OCCT rigid transform in column-major order for glam/WebGPU."""
+
+    transform = location.wrapped.Transformation()
+    return [
+        transform.Value(row, column) if row <= 3 else (1.0 if column == 4 else 0.0)
+        for column in range(1, 5)
+        for row in range(1, 5)
+    ]
 
 
 def is_cq_object(obj: Any) -> bool:
@@ -222,11 +233,23 @@ class Registry:
 
 class SceneBuilder:
     def __init__(
-        self, registry: Registry, tolerance: Tolerance, merge_assemblies: bool = False
+        self,
+        registry: Registry,
+        tolerance: Tolerance,
+        merge_assemblies: bool = False,
+        geometry_cache: GeometryCache | None = None,
+        known_geometry: Iterable[str] = (),
     ) -> None:
         self.registry = registry
         self.tolerance = tolerance
         self.merge_assemblies = merge_assemblies
+        self.geometry_cache = geometry_cache or GeometryCache()
+        # Updated as a response is built, so repeated parts in the same
+        # assembly become references after the first full mesh.
+        self.known_geometry = set(known_geometry)
+        # Tessellation mutates OCCT's polygonal cache. Remember the signature
+        # by source object so reuse within one run is unaffected by that.
+        self._source_geometry: dict[int, str] = {}
 
     def build(self, objects: Mapping[str, ShownObject]) -> list[dict]:
         nodes = []
@@ -250,7 +273,7 @@ class SceneBuilder:
 
         shape = to_compound(obj)
         topology = TopologyIndex.build(shape.wrapped)
-        part = self._part(shape, topology, None, None)
+        part = self._part(shape, topology, None, None, cq.Location(), obj)
         if part is None:
             return None
         key = self.registry.add(RegistryEntry(obj, shape, topologies=[topology]))
@@ -270,9 +293,16 @@ class SceneBuilder:
         shape, parts, topologies = None, [], []
         if assembly.obj is not None:
             # A node can have both a shape and children.
-            shape = to_compound(assembly.obj).moved(location)
+            local_shape = to_compound(assembly.obj)
+            shape = local_shape.moved(location)
             topology = TopologyIndex.build(shape.wrapped)
-            part = self._part(shape, topology, *self._part_color(color))
+            part = self._part(
+                local_shape,
+                None,
+                *self._part_color(color),
+                location,
+                assembly.obj,
+            )
             if part is not None:
                 parts.append(part)
                 topologies.append(topology)
@@ -312,10 +342,17 @@ class SceneBuilder:
             location = parent * node.loc
             color = node.color if node.color is not None else inherited
             if node.obj is not None:
-                shape = to_compound(node.obj).moved(location)
+                local_shape = to_compound(node.obj)
+                shape = local_shape.moved(location)
                 shapes.append(shape)
                 topology = TopologyIndex.build(shape.wrapped)
-                part = self._part(shape, topology, *self._part_color(color))
+                part = self._part(
+                    local_shape,
+                    None,
+                    *self._part_color(color),
+                    location,
+                    node.obj,
+                )
                 if part is not None:
                     parts.append(part)
                     topologies.append(topology)
@@ -344,15 +381,33 @@ class SceneBuilder:
     def _part(
         self,
         shape: cq.Shape,
-        topology: TopologyIndex,
+        topology: TopologyIndex | None,
         color: Color | None,
         alpha: float | None,
+        location: cq.Location,
+        source: Any,
     ) -> dict | None:
-        mesh = tessellate(shape.wrapped, self.tolerance, topology)
-        if mesh is None:
-            return None
+        source_id = id(source)
+        geometry_id = self._source_geometry.get(source_id)
+        if geometry_id is None:
+            geometry_id = self.geometry_cache.identifier(shape.wrapped, self.tolerance)
+            geometry_id = self.geometry_cache.canonical_id(geometry_id)
+            self._source_geometry[source_id] = geometry_id
+
+        if geometry_id in self.known_geometry:
+            mesh_message = {"id": geometry_id}
+        else:
+            topology = topology or TopologyIndex.build(shape.wrapped)
+            _, mesh = self.geometry_cache.tessellate(
+                shape.wrapped, self.tolerance, topology, geometry_id
+            )
+            if mesh is None:
+                return None
+            mesh_message = mesh.to_message(geometry_id)
+            self.known_geometry.add(geometry_id)
         return {
-            "mesh": mesh.to_message(),
+            "mesh": mesh_message,
+            "transform": location_matrix(location),
             "color": list(color) if color else None,
             "alpha": alpha,
         }

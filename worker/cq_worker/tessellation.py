@@ -12,10 +12,13 @@ Every array travels to the GUI as base64-encoded little-endian binary.
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 import json
 import os
 import struct
 import tempfile
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +27,7 @@ from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.Bnd import Bnd_Box
+from OCP.BinTools import BinTools, BinTools_FormatVersion
 from OCP.GCPnts import GCPnts_TangentialDeflection
 from OCP.Message import Message_ProgressRange
 from OCP.RWGltf import RWGltf_CafWriter
@@ -39,6 +43,10 @@ from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
 # Never mesh finer than this, whatever the model size (model units).
 MIN_DEFLECTION = 1e-4
+# A worker is long-lived, so cached meshes need a hard memory ceiling. The
+# serialized arrays dominate the size and this limit is deliberately modest
+# compared with the memory normally available to OCCT itself.
+DEFAULT_CACHE_BYTES = 256 * 1024 * 1024
 
 _GLB_MAGIC = 0x46546C67  # "glTF"
 _CHUNK_JSON = 0x4E4F534A
@@ -91,9 +99,27 @@ class Mesh:
         stacked = np.concatenate(coords)
         return stacked.min(axis=0).tolist(), stacked.max(axis=0).tolist()
 
-    def to_message(self) -> dict:
+    def byte_size(self) -> int:
+        return sum(
+            array.nbytes
+            for array in (
+                self.positions,
+                self.normals,
+                self.indices,
+                self.edges,
+                self.points,
+                self.face_positions,
+                self.face_indices,
+                self.triangle_faces,
+                self.segment_edges,
+                self.topology_vertices,
+            )
+        )
+
+    def to_message(self, geometry_id: str = "") -> dict:
         lo, hi = self.bounds()
         return {
+            "id": geometry_id,
             "positions": _encode(self.positions, "<f4"),
             "normals": _encode(self.normals, "<f4"),
             "indices": _encode(self.indices, "<u4"),
@@ -108,6 +134,87 @@ class Mesh:
             },
             "bbox": [lo, hi],
         }
+
+
+class GeometryCache:
+    """Content-addressed LRU cache of tessellated OCCT shapes.
+
+    The identifier is calculated from a triangle-free BREP representation and
+    the two tessellation tolerances. It is stable when a script recreates the
+    same part, unlike Python object identity or OCCT's in-process hash code.
+    """
+
+    def __init__(self, max_bytes: int = DEFAULT_CACHE_BYTES) -> None:
+        self.max_bytes = max(0, max_bytes)
+        self._meshes: OrderedDict[str, Mesh] = OrderedDict()
+        self._aliases: dict[str, str] = {}
+        self._bytes = 0
+
+    @staticmethod
+    def identifier(shape: TopoDS_Shape, tolerance: Tolerance) -> str:
+        stream = io.BytesIO()
+        BinTools.Write_s(
+            shape,
+            stream,
+            False,
+            False,
+            BinTools_FormatVersion.BinTools_FormatVersion_CURRENT,
+        )
+        digest = hashlib.blake2b(digest_size=16, person=b"cq-editor-mesh")
+        digest.update(struct.pack("<dd", tolerance.linear, tolerance.angular))
+        digest.update(stream.getbuffer())
+        return digest.hexdigest()
+
+    def canonical_id(self, geometry_id: str) -> str:
+        return self._aliases.get(geometry_id, geometry_id)
+
+    def get(self, geometry_id: str) -> Mesh | None:
+        geometry_id = self.canonical_id(geometry_id)
+        mesh = self._meshes.get(geometry_id)
+        if mesh is not None:
+            self._meshes.move_to_end(geometry_id)
+        return mesh
+
+    def put(self, geometry_id: str, mesh: Mesh) -> None:
+        if self.max_bytes == 0 or mesh.byte_size() > self.max_bytes:
+            return
+        previous = self._meshes.pop(geometry_id, None)
+        if previous is not None:
+            self._bytes -= previous.byte_size()
+        self._meshes[geometry_id] = mesh
+        self._bytes += mesh.byte_size()
+        while self._bytes > self.max_bytes:
+            removed_id, removed = self._meshes.popitem(last=False)
+            self._bytes -= removed.byte_size()
+            self._aliases = {
+                alias: target
+                for alias, target in self._aliases.items()
+                if target != removed_id
+            }
+
+    def tessellate(
+        self,
+        shape: TopoDS_Shape,
+        tolerance: Tolerance,
+        topology: TopologyIndex,
+        geometry_id: str | None = None,
+    ) -> tuple[str, Mesh | None]:
+        geometry_id = self.canonical_id(
+            geometry_id or self.identifier(shape, tolerance)
+        )
+        cached = self.get(geometry_id)
+        if cached is not None:
+            return geometry_id, cached
+        mesh = tessellate(shape, tolerance, topology)
+        if mesh is not None:
+            self.put(geometry_id, mesh)
+            # OCCT changes internal shape flags while meshing. Treat the
+            # resulting signature as an alias so the same live part remains
+            # cacheable in later console/debug requests.
+            after = self.identifier(shape, tolerance)
+            if after != geometry_id:
+                self._aliases[after] = geometry_id
+        return geometry_id, mesh
 
 
 @dataclass(frozen=True)
