@@ -6,7 +6,6 @@ import pytest
 
 from cq_worker.execution import Execution, RunSettings
 
-
 EXAMPLES = Path(__file__).parents[3] / "examples"
 LEGACY_EXAMPLES = sorted(EXAMPLES.glob("*.py"))
 
