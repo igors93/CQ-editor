@@ -144,3 +144,51 @@ fn newline_ignores_colons_inside_comments_and_strings() {
     let block = "    if ready: # note";
     assert_eq!(newline_with_indent(block, block.len()), "\n        ");
 }
+
+#[test]
+fn line_map_keeps_lines_while_typing_inside_a_line() {
+    let map = LineMap::new("a\nb\nc", "a\nbx\nc");
+    assert_eq!([1, 2, 3].map(|l| map.map(l)), [Some(1), Some(2), Some(3)]);
+}
+
+#[test]
+fn line_map_moves_lines_below_inserted_lines() {
+    let map = LineMap::new("a\nb\nc", "a\nnew\nb\nc");
+    assert_eq!([1, 2, 3].map(|l| map.map(l)), [Some(1), Some(3), Some(4)]);
+
+    // Enter at the start of a line pushes it down; in its middle it stays.
+    assert_eq!(LineMap::new("x\ny", "x\n\ny").map(2), Some(3));
+    let split = LineMap::new("x = 1\ny", "x =\n 1\ny");
+    assert_eq!((split.map(1), split.map(2)), (Some(1), Some(3)));
+}
+
+#[test]
+fn line_map_follows_the_statement_rather_than_similar_text() {
+    // The new line resembles the old one; the old line still moves down.
+    let map = LineMap::new("y\nx = 1\nz", "y\nx = 0\nx = 1\nz");
+    assert_eq!(map.map(2), Some(3));
+}
+
+#[test]
+fn line_map_drops_deleted_lines_and_keeps_merged_ones() {
+    let deleted = LineMap::new("a\nb\nc\nd", "a\nd");
+    assert_eq!(
+        [1, 2, 3, 4].map(|l| deleted.map(l)),
+        [Some(1), None, None, Some(2)]
+    );
+
+    let merged = LineMap::new("a\nb\nc", "ab\nc");
+    assert_eq!(
+        [1, 2, 3].map(|l| merged.map(l)),
+        [Some(1), Some(1), Some(2)]
+    );
+}
+
+#[test]
+fn line_map_keeps_positions_when_a_block_is_indented() {
+    let map = LineMap::new("if x:\na\nb\nc", "if x:\n    a\n    b\nc");
+    assert_eq!(
+        [1, 2, 3, 4].map(|l| map.map(l)),
+        [Some(1), Some(2), Some(3), Some(4)]
+    );
+}

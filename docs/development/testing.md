@@ -59,7 +59,7 @@ black --check worker tests/worker
 PYTHONPATH=worker python -m pytest tests/worker
 ```
 
-> **Current status:** all checks pass: 101 Rust tests, 135 worker tests,
+> **Current status:** all checks pass: 108 Rust tests, 135 worker tests,
 > `cargo fmt`, clippy and `black` (CI installs the latest black, currently
 > 26.10.1; use the same version locally to avoid formatting differences).
 

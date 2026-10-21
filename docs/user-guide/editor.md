@@ -44,8 +44,10 @@ Without jedi, the command does nothing.
 
 ## Breakpoints and markers
 
-Click a line number to toggle a **breakpoint** (red dot). The gutter and line
-backgrounds also show:
+Click a line number to toggle a **breakpoint** (red dot). Breakpoints stay
+on their statements while you edit: adding or removing lines above one moves
+it along, and deleting its line removes it. The gutter and line backgrounds
+also show:
 
 * the **current debug line** (yellow) while a debugging session is paused;
 * the **error line** (red) after a failed run.

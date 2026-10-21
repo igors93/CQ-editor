@@ -80,6 +80,65 @@ pub fn line_column(text: &str, byte: usize) -> (usize, usize) {
     (line, text[start..byte.min(text.len())].chars().count())
 }
 
+/// Follows 1-based line numbers (breakpoints, the error line) through an
+/// edit, so they stay on their statements when lines are added or removed.
+///
+/// The edit is taken as one block of replaced lines between the lines both
+/// texts share at the start and at the end, which is what typing, pasting,
+/// the editor commands and reloads produce. Lines before the block keep
+/// their number, lines after it shift, and lines inside it map by position
+/// within the block; a block deleted entirely takes its lines with it.
+pub struct LineMap {
+    /// Unchanged leading lines.
+    prefix: usize,
+    /// Length of the replaced block in the old text, in lines.
+    old_count: usize,
+    /// Length of the block that replaced it, in lines.
+    new_count: usize,
+}
+
+impl LineMap {
+    pub fn new(old: &str, new: &str) -> Self {
+        let old_lines: Vec<&str> = old.split('\n').collect();
+        let new_lines: Vec<&str> = new.split('\n').collect();
+        let prefix = old_lines
+            .iter()
+            .zip(&new_lines)
+            .take_while(|(a, b)| a == b)
+            .count();
+        let room = old_lines.len().min(new_lines.len()) - prefix;
+        let suffix = old_lines
+            .iter()
+            .rev()
+            .zip(new_lines.iter().rev())
+            .take(room)
+            .take_while(|(a, b)| a == b)
+            .count();
+        Self {
+            prefix,
+            old_count: old_lines.len() - prefix - suffix,
+            new_count: new_lines.len() - prefix - suffix,
+        }
+    }
+
+    /// Where 1-based `line` of the old text is now; `None` if it was deleted.
+    pub fn map(&self, line: usize) -> Option<usize> {
+        let index = line.checked_sub(1)?;
+        if index < self.prefix {
+            return Some(line);
+        }
+        let offset = index - self.prefix;
+        if offset >= self.old_count {
+            return Some(line - self.old_count + self.new_count);
+        }
+        if self.new_count == 0 {
+            return None;
+        }
+        // Merged lines end up on the last line of the new block.
+        Some(self.prefix + offset.min(self.new_count - 1) + 1)
+    }
+}
+
 /// Lines touched by a selection. A selection ending at the very start of a
 /// line does not include that line.
 fn selected_lines(text: &str, selection: &Selection) -> Range<usize> {

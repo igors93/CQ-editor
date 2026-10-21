@@ -106,6 +106,8 @@ pub struct CodeEditor {
     pub breakpoints: BTreeSet<usize>,
     pub debug_line: Option<usize>,
     pub error_line: Option<usize>,
+    /// The text the line markers above refer to; see [`Self::sync_markers`].
+    marked_text: Option<String>,
     text_id: egui::Id,
     /// Last known selection, in bytes.
     selection: Selection,
@@ -128,6 +130,7 @@ impl Default for CodeEditor {
             breakpoints: BTreeSet::new(),
             debug_line: None,
             error_line: None,
+            marked_text: None,
             text_id: egui::Id::new("code_editor_text"),
             selection: Selection::caret(0),
             pending_selection: None,
@@ -155,6 +158,7 @@ impl CodeEditor {
         self.breakpoints.clear();
         self.debug_line = None;
         self.error_line = None;
+        self.marked_text = None;
         self.close_popups();
         self.pending_selection = Some(Selection::caret(0));
         self.pending_scroll_line = Some(1);
@@ -172,6 +176,28 @@ impl CodeEditor {
         if line.is_some() {
             self.pending_scroll_line = line;
         }
+    }
+
+    /// Moves breakpoints and the error and debug lines along with the edits
+    /// made since the last call, so they stay on their statements when lines
+    /// are added or removed above them. Edits come from typing, the editor
+    /// commands and reloads alike, so this compares texts instead of hooking
+    /// each of them.
+    pub fn sync_markers(&mut self, text: &str) {
+        if let Some(marked) = &self.marked_text {
+            if marked == text {
+                return;
+            }
+            let map = text_ops::LineMap::new(marked, text);
+            self.breakpoints = self
+                .breakpoints
+                .iter()
+                .filter_map(|&line| map.map(line))
+                .collect();
+            self.error_line = self.error_line.and_then(|line| map.map(line));
+            self.debug_line = self.debug_line.and_then(|line| map.map(line));
+        }
+        self.marked_text = Some(text.to_owned());
     }
 
     pub fn toggle_breakpoint(&mut self, line: usize) {
@@ -369,6 +395,8 @@ impl CodeEditor {
                 if text_changed {
                     self.close_popups_if_left(&document.text);
                 }
+                // Before the line backgrounds and the gutter are drawn.
+                self.sync_markers(&document.text);
 
                 // Typing "." asks for member completions.
                 let typed_dot = text_changed

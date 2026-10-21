@@ -48,7 +48,7 @@ conflict-safe autoreload; see the [changelog](changelog.md)).
 
 | Check | Status |
 | --- | --- |
-| Rust tests (`cargo test`) | 101 passing |
+| Rust tests (`cargo test`) | 108 passing |
 | Worker tests (`pytest tests/worker`) | 135 passing |
 | `cargo fmt --check`, `cargo clippy --all-targets` | clean |
 | `black --check worker tests/worker` | clean (BUG-03 ✅) |
@@ -62,7 +62,7 @@ conflict-safe autoreload; see the [changelog](changelog.md)).
 | ✅ | [BUG-01](#bug-01--object-keys-collide-after-python-restarts) | Object keys collide after Python restarts | P1 |
 | ✅ | [BUG-02](#bug-02--objects-panel-the-property-sheet-overlaps-the-tree) | Objects panel: the property sheet overlaps the tree | P1 |
 | ✅ | [BUG-03](#bug-03--ci-format-check-fails) | CI format check fails | P1 |
-| | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
+| ✅ | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
 | | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
 | | [BUG-06](#bug-06--icons-in-dialog-titles-show-as-empty-boxes) | Icons in dialog titles show as empty boxes | P2 |
 | | [BUG-07](#bug-07--wrong-shortcut-in-the-search-bar-tooltip) | Wrong shortcut in the search bar tooltip | P2 |
@@ -154,7 +154,7 @@ pre-commit hook would keep it that way.
 
 #### BUG-04 · Breakpoints do not follow edits
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code.*
 
 **Where:** `src/editor/mod.rs` (`breakpoints: BTreeSet<usize>`).
 
@@ -162,9 +162,19 @@ Breakpoints are plain line numbers. Inserting or deleting lines above a
 breakpoint moves the code but not the dot. The debugger then stops on a
 different statement than the one marked.
 
-**Fix:** remap breakpoint lines through every edit, as the editor already
-does for the selection (`text_ops`). Drop breakpoints on deleted lines. The
-error line has the same problem, to a lesser degree.
+**Resolution:** the editor remembers the text its line markers refer to
+and, whenever the text changes (typing, editor commands, reloads, restored
+versions), moves breakpoints, the error line and the debug line with
+`text_ops::LineMap` (`CodeEditor::sync_markers` in `src/editor/mod.rs`).
+Lines before the edited block keep their number, lines after it shift,
+lines inside it map by position, and a breakpoint on a deleted line is
+removed. Runs and debugger steps sync first, so Python always receives the
+current line numbers.
+
+Regression tests in `tests/rust/editor/test_text_ops.rs` (inserting,
+splitting, merging, deleting and indenting lines) and
+`tests/rust/editor/test_editor.rs` (breakpoints and the error line through
+edits, and a fresh document after a reset).
 
 ### P2: should fix soon
 

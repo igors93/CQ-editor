@@ -1077,6 +1077,8 @@ impl AppState {
             }
         }
 
+        // A reload may have changed the text since the editor last drew.
+        self.editor.sync_markers(&self.document.text);
         let id = self.worker.next_id();
         let request = Request::Run {
             id,
@@ -1182,6 +1184,7 @@ impl AppState {
         let Phase::Paused { id } = self.phase else {
             return;
         };
+        self.editor.sync_markers(&self.document.text);
         let breakpoints = self.editor.breakpoints.iter().copied().collect();
         self.worker.send(&Request::Debug {
             action,

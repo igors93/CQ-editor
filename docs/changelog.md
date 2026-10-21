@@ -44,6 +44,8 @@ options, menus, shortcuts and panels work as before.
 * Fixed: the CI format check (`black`) failed on three worker files
 * Fixed: in a short Objects pane, the property sheet grew over the object
   tree; it now scrolls and leaves the tree its room
+* Fixed: breakpoints and the error line stayed on their line numbers when
+  lines were added or removed above them; they now follow their statements
 * Removed: the PyQt GUI, PyInstaller and conda constructor packaging
 
 ## Release 0.5.0
