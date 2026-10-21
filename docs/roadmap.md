@@ -36,22 +36,28 @@ builds 3D models**. Everything on this roadmap has to respect that:
    available but stay out of the way until needed (progressive disclosure).
 3. **Compatibility.** Scripts written for the original CQ-editor, and the
    `show_object` conventions shared with other CadQuery tools, keep working.
+   The [compatibility matrix](development/compatibility.md) distinguishes
+   tested equivalence, intentional changes and open gaps.
 4. **Never block, never lose work.** Python runs in its own process. Saves
    are atomic. Unsaved work is recoverable.
 
 ## Where we are
 
-The rewrite is functionally complete. Scripts, `show_object` options, menus,
-shortcuts and panels match the original, and several features are new
-(topology picking, assembly instancing, crash recovery, local history,
-conflict-safe autoreload; see the [changelog](changelog.md)).
+The core modeling workflow is implemented and substantially tested, but full
+functional equivalence is not claimed. Scripts, the `show_object` contract,
+legacy shortcuts and mouse bindings have automated compatibility coverage.
+Stereo rendering, the rich Jupyter console and bundled distribution remain
+explicit gaps; some native GUI interactions still require an end-to-end test.
+Several areas are enhanced (topology picking, assembly instancing, crash
+recovery, local history and conflict-safe autoreload; see the
+[changelog](changelog.md)).
 
 | Check | Status |
 | --- | --- |
-| Rust tests (`cargo test`) | 108 passing |
-| Worker tests (`pytest tests/worker`) | 135 passing |
-| `cargo fmt --check`, `cargo clippy --all-targets` | clean |
-| `black --check worker tests/worker` | clean (BUG-03 ✅) |
+| Compatibility inventory | Enforced by `compatibility_matrix_is_complete_and_evidenced` |
+| Legacy projects | All eight pre-rewrite examples run in the worker suite |
+| Rust and worker suites | See the latest CI run; counts are not hand-maintained |
+| Format and lint | `cargo fmt`, clippy and `black` are required by CI |
 
 ---
 
@@ -65,7 +71,7 @@ conflict-safe autoreload; see the [changelog](changelog.md)).
 | ✅ | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
 | | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
 | | [BUG-06](#bug-06--icons-in-dialog-titles-show-as-empty-boxes) | Icons in dialog titles show as empty boxes | P2 |
-| | [BUG-07](#bug-07--wrong-shortcut-in-the-search-bar-tooltip) | Wrong shortcut in the search bar tooltip | P2 |
+| ✅ | [BUG-07](#bug-07--wrong-shortcut-in-the-search-bar-tooltip) | Wrong shortcut in the search bar tooltip | P2 |
 | | [BUG-08](#bug-08--help--documentation-opens-the-old-wiki) | Help > Documentation opens the old wiki | P2 |
 | | [BUG-09](#bug-09--imported-modules-are-watched-only-once) | Imported modules are watched only once | P2 |
 | | [BUG-10](#bug-10--variables-values-are-unreadable) | Variables: values are unreadable | P2 |
@@ -210,15 +216,17 @@ Phosphor font to the semibold family.
 
 #### BUG-07 · Wrong shortcut in the search bar tooltip
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code and regression test.*
 
-**Where:** `src/editor/mod.rs:592`.
+**Where:** `src/editor/mod.rs` (`CodeEditor::search_bar`).
 
 The *Previous match* button says *Shift+F3*. The actual shortcut is
 **Alt+F3** (`src/commands.rs`), and **Shift+F3 is the Top view**.
 
-**Fix:** derive tooltip texts from `commands::shortcut()` instead of
-hard-coding them.
+**Resolution:** both search-button tooltips now derive their platform-formatted
+text from `commands::shortcut()` instead of duplicating the binding. The
+command test protects Alt+F3 for Previous and F3 for Next, so the tooltip and
+command cannot drift independently.
 
 #### BUG-08 · Help > Documentation opens the old wiki
 
@@ -376,6 +384,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | FEAT-C5 ⚪ | High-resolution and transparent-background screenshots, turntable animation export |
 | | FEAT-C6 🔵 | Large-model mode: frustum culling, level of detail, progress and cancellation for tessellation |
 | | FEAT-C7 ⚪ | Ground grid with units and a scale bar |
+| | FEAT-C8 🔵 | **Stereo compatibility**: dual-camera rendering and tested composition for selected legacy modes, with a clear fallback when the GPU/platform cannot provide them |
 
 ### D. Projects and files (advanced path)
 
@@ -397,6 +406,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | FEAT-E3 🟢 | **Environment manager**: create or choose a virtual environment and install CadQuery, jedi and add-on packages from Preferences |
 | | FEAT-E4 🟢 | **Installers with a bundled Python and CadQuery** (Windows installer or winget, macOS `.app` / `.dmg`, Linux AppImage or Flatpak), with "Open with CQ-editor" for `.py` files |
 | | FEAT-E5 🔵 | **Self-update check** for CQ-editor (today only CadQuery releases are checked) |
+| | FEAT-E6 🔵 | **Rich console output**: transport bounded and sanitized Jupyter MIME bundles from the isolated worker without allowing user code to block the GUI |
 
 ### F. Extensibility (advanced path)
 
@@ -422,9 +432,9 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 | Milestone | Goal | Contents |
 | --- | --- | --- |
-| **0.8: stable rewrite** | Ready to replace the PyQt release | BUG-01…BUG-13, BUG-18, ENG-01, basic installers, docs linked from Help |
+| **0.8: stable core rewrite** | Preserve the modeling workflow without hiding incompatibilities | BUG-01…BUG-13, BUG-18, ENG-01, compatibility matrix, docs linked from Help |
 | **0.9: code ↔ model** | The GUI helps write code | FEAT-A3, A4, B1, B2, B3, B5; completion while typing names, Go to line, Replace, hover docs; PERF-01…04 |
 | **1.0: projects** | Comfortable for large designs | FEAT-D1, D2, D3, C1, C2, E1, E3, E4, F1 |
-| **Later** | Exploratory | FEAT-A2, A6, B4, C3–C7, D4–D6, E2, E5, F2, F3, ENG-02…05 |
+| **Later** | Exploratory | FEAT-A2, A6, B4, C3–C8, D4–D6, E2, E5, E6, F2, F3, ENG-02…05 |
 
 The order inside a milestone is flexible. Bugs come before features.

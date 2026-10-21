@@ -21,6 +21,45 @@ fn drag_motion_is_incremental_instead_of_reapplying_the_whole_drag() {
 }
 
 #[test]
+fn legacy_mouse_gestures_keep_their_navigation_modes() {
+    use egui::{Modifiers, PointerButton};
+
+    let mode = |modifiers, button| {
+        requested_drag_mode(
+            modifiers,
+            button == PointerButton::Primary,
+            button == PointerButton::Middle,
+            button == PointerButton::Secondary,
+        )
+    };
+
+    assert!(matches!(
+        mode(Modifiers::NONE, PointerButton::Primary),
+        Some(DragMode::Orbit)
+    ));
+    assert!(matches!(
+        mode(Modifiers::NONE, PointerButton::Middle),
+        Some(DragMode::Pan)
+    ));
+    assert!(matches!(
+        mode(Modifiers::CTRL, PointerButton::Primary),
+        Some(DragMode::Pan)
+    ));
+    assert!(matches!(
+        mode(Modifiers::COMMAND, PointerButton::Primary),
+        Some(DragMode::Pan)
+    ));
+    assert!(matches!(
+        mode(Modifiers::NONE, PointerButton::Secondary),
+        Some(DragMode::Zoom)
+    ));
+    assert!(matches!(
+        mode(Modifiers::SHIFT, PointerButton::Primary),
+        Some(DragMode::Zoom)
+    ));
+}
+
+#[test]
 fn zoom_percentage_is_relative_to_the_last_fit_extent() {
     let mut viewer = Viewer::default();
     viewer.camera.extent = 20.0;

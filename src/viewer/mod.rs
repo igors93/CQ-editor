@@ -842,7 +842,7 @@ fn requested_drag_mode(
     middle: bool,
     secondary: bool,
 ) -> Option<DragMode> {
-    if middle || (primary && modifiers.command) {
+    if middle || (primary && (modifiers.ctrl || modifiers.command)) {
         Some(DragMode::Pan)
     } else if secondary || (primary && modifiers.shift) {
         Some(DragMode::Zoom)

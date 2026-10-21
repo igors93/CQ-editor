@@ -106,3 +106,7 @@ fn window_icon() -> egui::IconData {
 #[cfg(test)]
 #[path = "../tests/rust/app/test_cli.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/rust/app/test_compatibility.rs"]
+mod compatibility_tests;

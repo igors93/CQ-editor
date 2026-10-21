@@ -13,5 +13,48 @@ fn specific_shortcuts_come_first() {
 fn menus_find_their_shortcuts() {
     assert_eq!(shortcut(&Action::Render), Some(key(Key::F5)));
     assert_eq!(shortcut(&Action::Autocomplete), Some(ctrl(Key::Space)));
+    assert_eq!(shortcut(&Action::FindPrevious), Some(alt(Key::F3)));
+    assert_eq!(shortcut(&Action::FindNext), Some(key(Key::F3)));
     assert_eq!(shortcut(&Action::Upload), None);
+}
+
+#[test]
+fn legacy_shortcuts_are_preserved() {
+    let all = shortcuts();
+    let has = |action: Action, binding: KeyboardShortcut| {
+        assert!(
+            all.contains(&(action.clone(), binding)),
+            "missing legacy shortcut for {action:?}"
+        );
+    };
+
+    has(Action::NewFile, ctrl(Key::N));
+    has(Action::OpenFile, ctrl(Key::O));
+    has(Action::Save, ctrl(Key::S));
+    has(Action::SaveAs, ctrl_shift(Key::S));
+    has(Action::Quit, ctrl(Key::Q));
+    has(Action::ToggleComment, ctrl(Key::Slash));
+    has(Action::Autocomplete, alt(Key::Slash));
+    has(Action::Find, ctrl(Key::F));
+
+    has(Action::Render, key(Key::F5));
+    has(Action::ToggleDebug, ctrl(Key::F5));
+    has(Action::Debug(DebugAction::Step), ctrl(Key::F10));
+    has(Action::Debug(DebugAction::StepIn), ctrl(Key::F11));
+    has(Action::Debug(DebugAction::Continue), ctrl(Key::F12));
+
+    has(Action::Fit, shift(Key::F1));
+    for (view, key) in [
+        (StandardView::Iso, Key::F2),
+        (StandardView::Top, Key::F3),
+        (StandardView::Bottom, Key::F4),
+        (StandardView::Front, Key::F5),
+        (StandardView::Back, Key::F6),
+        (StandardView::Left, Key::F7),
+        (StandardView::Right, Key::F8),
+    ] {
+        has(Action::View(view), shift(key));
+    }
+    has(Action::Display(DisplayMode::Wireframe), shift(Key::F9));
+    has(Action::Display(DisplayMode::Shaded), shift(Key::F10));
 }

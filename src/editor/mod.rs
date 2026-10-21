@@ -19,6 +19,7 @@ use egui::{
     TextBuffer, TextEdit, Vec2,
 };
 
+use crate::commands::{self, Action};
 use crate::document::Document;
 use crate::worker::protocol::CompletionItem;
 use highlight::SyntaxColors;
@@ -584,6 +585,14 @@ impl CodeEditor {
         self.update_matches(&document.text);
         let mut navigate: Option<bool> = None;
         let mut close = false;
+        let shortcut_hint = |label: &str, action: Action| {
+            commands::shortcut(&action).map_or_else(
+                || label.to_owned(),
+                |shortcut| format!("{label} ({})", ui.ctx().format_shortcut(&shortcut)),
+            )
+        };
+        let previous_hint = shortcut_hint("Previous match", Action::FindPrevious);
+        let next_hint = shortcut_hint("Next match", Action::FindNext);
         ui.horizontal(|ui| {
             ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
             let response = ui.add(
@@ -617,7 +626,7 @@ impl CodeEditor {
                     !self.search.matches.is_empty(),
                     egui::Button::new(egui_phosphor::regular::ARROW_UP),
                 )
-                .on_hover_text("Previous match (Shift+F3)")
+                .on_hover_text(previous_hint)
                 .clicked()
             {
                 navigate = Some(false);
@@ -627,7 +636,7 @@ impl CodeEditor {
                     !self.search.matches.is_empty(),
                     egui::Button::new(egui_phosphor::regular::ARROW_DOWN),
                 )
-                .on_hover_text("Next match (F3)")
+                .on_hover_text(next_hint)
                 .clicked()
             {
                 navigate = Some(true);

@@ -59,9 +59,27 @@ black --check worker tests/worker
 PYTHONPATH=worker python -m pytest tests/worker
 ```
 
-> **Current status:** all checks pass: 108 Rust tests, 135 worker tests,
-> `cargo fmt`, clippy and `black` (CI installs the latest black, currently
-> 26.10.1; use the same version locally to avoid formatting differences).
+The CI run is the authoritative status. Do not hand-maintain test totals here:
+parameterized compatibility cases make the number change often. CI installs
+the latest `black`; use the version reported by the failing job if local and
+CI formatting differ.
+
+## Original compatibility gate
+
+The [compatibility matrix](compatibility.md) is part of the test suite, not
+just a checklist. `compatibility_matrix_is_complete_and_evidenced` contains
+the stable legacy contract ids and fails when:
+
+* an inventoried capability silently disappears from the matrix;
+* a Verified or Enhanced row does not name an existing test function;
+* a Changed or Gap row has no explicit decision; or
+* an Unverified GUI interaction has no follow-up.
+
+`legacy_shortcuts_are_preserved` checks every original shortcut,
+`legacy_mouse_gestures_keep_their_navigation_modes` checks the original mouse
+bindings, and `test_examples.py` executes the eight example projects that are
+unchanged from the pre-rewrite revision. This gate checks inventory and
+evidence; it deliberately does not claim that documented gaps are complete.
 
 ## Writing tests
 

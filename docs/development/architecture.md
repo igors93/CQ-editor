@@ -180,7 +180,8 @@ only once.
   rewrite the script.
 * **Compatibility.** Scripts written for the original PyQt CQ-editor run
   unchanged: same `show_object` options, same namespace, same execution
-  settings.
+  settings. User-interface equivalence and intentional differences are
+  recorded separately in the [compatibility matrix](compatibility.md).
 * **The UI thread never blocks** on Python, on the disk for long, or on the
   network.
 * **No silent data loss.** Atomic saves, recovery checkpoints, conflict

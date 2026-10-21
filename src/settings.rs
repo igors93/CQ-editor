@@ -1,6 +1,7 @@
 //! User preferences, persisted by eframe between sessions.
 //!
-//! Defaults follow the original CQ-editor where the option existed there.
+//! Defaults follow the original CQ-editor where practical. Compatibility-
+//! relevant deviations are recorded in `docs/development/compatibility.md`.
 
 use std::path::{Path, PathBuf};
 

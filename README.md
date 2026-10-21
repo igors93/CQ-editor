@@ -131,7 +131,11 @@ with CadQuery.
 
 Scripts written for the original PyQt CQ-editor keep working: same
 `show_object` options, same script namespace, same execution settings. See
-[Architecture](docs/development/architecture.md) for the details.
+[Architecture](docs/development/architecture.md) for the details. GUI
+equivalence, deliberate changes and the remaining stereo, rich-console and
+packaging gaps are tracked in the
+[compatibility matrix](docs/development/compatibility.md); they are not
+silently treated as equivalent.
 
 ## Getting Help
 

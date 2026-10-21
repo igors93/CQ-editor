@@ -3,8 +3,9 @@
 ## Unreleased (0.8.0)
 
 The interface was rebuilt in Rust (egui + wgpu); CadQuery now runs in a
-separate Python worker process (`worker/cq_worker`). Scripts, `show_object`
-options, menus, shortcuts and panels work as before.
+separate Python worker process (`worker/cq_worker`). The core script contract,
+legacy shortcuts and mouse bindings are preserved. Full GUI equivalence is
+tracked in the compatibility matrix instead of being assumed.
 
 * New: a running or crashing script no longer freezes or closes the editor;
   Run > Stop (Ctrl+Shift+F5) aborts it and a crashed worker restarts itself
@@ -33,6 +34,8 @@ options, menus, shortcuts and panels work as before.
 * New: content-addressed mesh cache and assembly instancing; unchanged
   meshes are not sent or uploaded again
 * New: documentation in `docs/` (user guide, development guide, roadmap)
+* New: a tested compatibility matrix inventories original features, guards
+  legacy shortcuts and mouse gestures, and runs every pre-rewrite example
 * Changed: theme follows the system by default; the separate editor color
   scheme preference was merged into the application theme
 * Changed: stereo projection modes were dropped (orthographic and
@@ -46,6 +49,10 @@ options, menus, shortcuts and panels work as before.
   tree; it now scrolls and leaves the tree its room
 * Fixed: breakpoints and the error line stayed on their line numbers when
   lines were added or removed above them; they now follow their statements
+* Fixed: the Previous match tooltip now shows its actual Alt+F3 shortcut
+  instead of conflicting with the Shift+F3 Top view shortcut
+* Fixed: Ctrl+left-drag explicitly selects Pan even when a platform event does
+  not also set egui's synthesized Command modifier
 * Removed: the PyQt GUI, PyInstaller and conda constructor packaging
 
 ## Release 0.5.0
