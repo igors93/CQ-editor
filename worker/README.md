@@ -21,5 +21,5 @@ line (see `cq_worker/protocol.py`).
 Run the tests with CadQuery installed:
 
 ```sh
-PYTHONPATH=worker python -m pytest worker/tests
+PYTHONPATH=worker python -m pytest tests/worker
 ```

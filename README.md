@@ -138,13 +138,15 @@ src/            the Rust application
   dialogs/      preferences, upload and message windows
   ui/           menu bar, toolbar, status bar
   worker/       worker process management and protocol types
-worker/         the Python worker package (cq_worker) and its tests
+worker/         the Python worker package (cq_worker)
+tests/rust/      Rust tests, grouped by application area
+tests/worker/    Python worker tests, grouped by execution, geometry and protocol
 examples/       example scripts (File > Examples)
 ```
 
 * `cargo run -- examples/01_hello_box.py` starts a debug build; debug builds
   load the worker straight from `worker/`, so Python changes apply on restart.
-* `cargo test` runs the Rust tests, `pytest worker/tests` (with `worker` on
+* `cargo test` runs the Rust tests, `pytest tests/worker` (with `worker` on
   `PYTHONPATH` and CadQuery installed) the worker tests.
 * `CQ_EDITOR_WORKER_DIR` points any build at another worker directory.
 

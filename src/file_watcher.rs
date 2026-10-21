@@ -101,25 +101,5 @@ impl FileWatcher {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reports_settled_changes_once() {
-        let dir = std::env::temp_dir().join(format!("cq-editor-watch-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("watched.py");
-        std::fs::write(&path, "a").unwrap();
-
-        let mut watcher = FileWatcher::default();
-        watcher.set_files(vec![path.clone()]);
-        assert!(!watcher.poll(Duration::ZERO));
-
-        std::fs::write(&path, "changed").unwrap();
-        watcher.last_poll = None;
-        assert!(watcher.poll(Duration::ZERO));
-        watcher.last_poll = None;
-        assert!(!watcher.poll(Duration::ZERO));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-}
+#[path = "../tests/rust/app/test_file_watcher.rs"]
+mod tests;

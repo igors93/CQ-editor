@@ -71,3 +71,7 @@ fn existing(root: &Path, relative: &[&str]) -> Option<PathBuf> {
         .fold(root.to_path_buf(), |path, part| path.join(part));
     path.is_file().then_some(path)
 }
+
+#[cfg(test)]
+#[path = "../../tests/rust/protocol/test_launch.rs"]
+mod tests;

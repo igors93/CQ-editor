@@ -253,34 +253,5 @@ impl Default for Execution {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn recent_files_are_unique_and_bounded() {
-        let mut settings = Settings::default();
-        for i in 0..15 {
-            settings.add_recent_file(Path::new(&format!("{i}.py")));
-        }
-        settings.add_recent_file(Path::new("12.py"));
-        assert_eq!(settings.recent_files.len(), MAX_RECENT_FILES);
-        assert_eq!(settings.recent_files[0], Path::new("12.py"));
-        assert_eq!(
-            settings
-                .recent_files
-                .iter()
-                .filter(|p| *p == Path::new("12.py"))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn missing_fields_take_defaults() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"viewer": {"show_edges": false}}"#).unwrap();
-        assert!(!settings.viewer.show_edges);
-        assert!(settings.viewer.fit_automatically);
-        assert_eq!(settings.editor, Editor::default());
-    }
-}
+#[path = "../tests/rust/app/test_settings.rs"]
+mod tests;

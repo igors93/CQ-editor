@@ -48,9 +48,9 @@ jobs:
         run: pip install cadquery jedi pytest black
 
       - name: Format
-        run: black --check worker
+        run: black --check worker tests/worker
 
       - name: Test
-        run: python -m pytest worker/tests
+        run: python -m pytest tests/worker
         env:
           PYTHONPATH: worker

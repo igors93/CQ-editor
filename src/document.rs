@@ -196,47 +196,5 @@ fn hash(text: &str) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detects_line_endings() {
-        assert_eq!(LineEnding::detect("a\r\nb"), LineEnding::CrLf);
-        assert_eq!(LineEnding::detect("a\nb"), LineEnding::Lf);
-        assert_eq!(LineEnding::detect("a\rb"), LineEnding::Cr);
-    }
-
-    #[test]
-    fn preserves_line_endings_and_tracks_modification() {
-        let dir = std::env::temp_dir().join(format!("cq-editor-doc-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("script.py");
-        std::fs::write(&path, "a = 1\r\nb = 2\r\n").unwrap();
-
-        let mut doc = Document::open(&path).unwrap();
-        assert_eq!(doc.text, "a = 1\nb = 2\n");
-        assert!(!doc.is_modified());
-
-        doc.text.push_str("c = 3\n");
-        assert!(doc.is_modified());
-        assert!(doc.save().unwrap());
-        assert!(!doc.is_modified());
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "a = 1\r\nb = 2\r\nc = 3\r\n"
-        );
-
-        std::fs::write(&path, "x = 1\r\n").unwrap();
-        assert!(doc.reload().unwrap());
-        assert_eq!(doc.text, "x = 1\n");
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn examples_and_untitled_buffers_need_save_as() {
-        let mut example = Document::example("Hello Box", "x = 1\n");
-        assert!(!example.save().unwrap());
-        assert_eq!(example.display_name(), "Hello Box (example)");
-        assert!(!Document::untitled(DEFAULT_SCRIPT).is_modified());
-    }
-}
+#[path = "../tests/rust/editor/test_document.rs"]
+mod tests;

@@ -20,4 +20,4 @@ test = ["pytest"]
 include = ["cq_worker*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["../tests/worker"]
