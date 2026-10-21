@@ -52,7 +52,8 @@ stopped.
 
 **Run > Stop** (Ctrl+Shift+F5) aborts any run, debug or not, by restarting
 Python. Use it for infinite loops or very slow operations. The console's
-variables are lost, the objects on screen stay.
+variables are lost. The objects on screen stay; render again before
+exporting or inspecting them.
 
 ## CQ Inspector
 

@@ -9,9 +9,10 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def run_worker(*requests):
+def run_worker(*requests, env=None):
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(PROJECT_ROOT / "worker")
+    environment.update(env or {})
     payload = "".join(json.dumps(request) + "\n" for request in requests)
     process = subprocess.run(
         [sys.executable, "-m", "cq_worker"],
@@ -49,6 +50,17 @@ def test_worker_process_keeps_native_stdout_out_of_protocol():
     (finished,) = [m for m in messages if m["type"] == "run_finished"]
     assert finished["ok"]
     assert [obj["name"] for obj in finished["objects"]] == ["result"]
+
+
+def test_worker_namespaces_scene_keys_with_the_gui_session():
+    process, messages = run_worker(
+        {"cmd": "run", "id": 1, "script": "show_object(cq.Workplane().box(1, 1, 1))"},
+        {"cmd": "shutdown"},
+        env={"CQ_EDITOR_SESSION": "7"},
+    )
+    assert process.returncode == 0
+    (finished,) = [m for m in messages if m["type"] == "run_finished"]
+    assert [obj["key"] for obj in finished["objects"]] == ["s7-n1"]
 
 
 def test_worker_can_be_restarted_after_a_native_process_exit():

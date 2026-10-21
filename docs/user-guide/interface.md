@@ -124,4 +124,6 @@ responsive:
 * **Run > Restart Python** starts a fresh process on demand, for example
   after installing a package.
 
-A restart forgets the console's variables. The objects stay on screen.
+A restart forgets the console's variables. The objects stay on screen, but
+the new Python process does not know them: render again before exporting
+or inspecting them.

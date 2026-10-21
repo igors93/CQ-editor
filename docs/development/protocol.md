@@ -17,9 +17,13 @@ Definitions: `src/worker/protocol.rs` (Rust, authoritative for the GUI) and
 The GUI runs:
 
 ```
-<python> -m cq_worker        with PYTHONPATH=<worker dir>[:<existing PYTHONPATH>]
+<python> -u -m cq_worker     with PYTHONPATH=<worker dir>[:<existing PYTHONPATH>]
                                   PYTHONIOENCODING=utf-8
+                                  CQ_EDITOR_SESSION=<worker generation: 1, 2, …>
 ```
+
+`CQ_EDITOR_SESSION` numbers the GUI's successive worker processes. The worker
+uses it to namespace its scene keys (see [Scene nodes](#scene-nodes)).
 
 The worker then:
 
@@ -51,7 +55,7 @@ console and script output in the Log panel.
 A failing request is answered with:
 
 ```json
-{"type":"error","id":7,"message":"KeyError: Unknown object 'n3'; it may have been cleared"}
+{"type":"error","id":7,"message":"KeyError: \"Unknown object 's1-n3'; it may have been cleared or come from a previous Python session (render again)\""}
 ```
 
 The worker handles one request at a time, in arrival order.
@@ -110,7 +114,7 @@ buffer appears as the file `<cq-editor>`.
 
 ```json
 {
-  "key": "n4", "name": "bracket", "kind": "Workplane", "inspectable": true,
+  "key": "s1-n4", "name": "bracket", "kind": "Workplane", "inspectable": true,
   "color": [0.27, 0.51, 0.71], "alpha": null, "edge_color": null,
   "parts": [{ "mesh": { … }, "transform": [16 floats, column-major], "color": null, "alpha": null }],
   "children": []
@@ -118,7 +122,11 @@ buffer appears as the file `<cq-editor>`.
 ```
 
 * `key` identifies the object in the worker's registry. It is used for
-  `export`, `inspect`, `upload` and `release`.
+  `export`, `inspect`, `upload` and `release`. Keys are opaque to the GUI.
+  They have the form `s<session>-n<counter>`, or `n<counter>` when
+  `CQ_EDITOR_SESSION` is not set. A restarted worker therefore never reuses
+  the keys of objects that are still on screen, and releasing such a stale
+  key is a no-op.
 * An assembly is a node whose `children` mirror the assembly tree. Each
   child carries its own parts and placement.
 * Colors are sRGB floats in 0–1. `null` means "use the default".

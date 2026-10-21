@@ -79,9 +79,12 @@ class ChannelLogHandler(logging.Handler):
 
 
 class Server:
-    def __init__(self, channel: Channel) -> None:
+    def __init__(self, channel: Channel, session: str | None = None) -> None:
+        """``session`` identifies this worker process among the GUI's
+        successive workers; it makes scene keys unique across restarts."""
+
         self.channel = channel
-        self.registry = Registry()
+        self.registry = Registry(f"s{session}-n" if session else "n")
         self.console = ConsoleSession()
         self.geometry_cache = GeometryCache()
         #: Stack frames of inspected workplanes, by scene key.

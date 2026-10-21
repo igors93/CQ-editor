@@ -16,10 +16,11 @@ def decode(text: str, dtype: str, columns: int) -> np.ndarray:
 class Conversation:
     """Feeds scripted requests to a server and collects its messages."""
 
-    def __init__(self, requests: list[dict]) -> None:
+    def __init__(self, requests: list[dict], session: str | None = None) -> None:
         payload = "".join(json.dumps(r) + "\n" for r in requests).encode()
         self._output = io.BytesIO()
         self.channel = Channel(io.BytesIO(payload), self._output)
+        self.session = session
 
     def serve(self) -> None:
         """Run a server over the scripted requests with stdout redirected."""
@@ -30,7 +31,7 @@ class Conversation:
         sys.stdout = OutputStream(self.channel, "stdout")
         sys.stderr = OutputStream(self.channel, "stderr")
         try:
-            Server(self.channel).serve_forever()
+            Server(self.channel, session=self.session).serve_forever()
         finally:
             sys.stdout, sys.stderr = saved
 
@@ -50,7 +51,7 @@ class Conversation:
 
 @pytest.fixture
 def conversation():
-    def make(*requests: dict) -> Conversation:
-        return Conversation(list(requests))
+    def make(*requests: dict, session: str | None = None) -> Conversation:
+        return Conversation(list(requests), session)
 
     return make

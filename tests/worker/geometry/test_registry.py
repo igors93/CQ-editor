@@ -40,6 +40,18 @@ def test_clear_drops_entries_without_reusing_old_keys():
         registry.get(old)
 
 
+def test_prefixed_registries_never_share_keys():
+    old = Registry("s1-n")
+    new = Registry("s2-n")
+    stale = old.add(RegistryEntry("old", None))
+    fresh = new.add(RegistryEntry("new", None))
+
+    assert (stale, fresh) == ("s1-n1", "s2-n1")
+    # The GUI releases the stale key after a restart; the new object survives.
+    new.release([stale])
+    assert new.get(fresh).obj == "new"
+
+
 def test_subtree_shapes_skips_nodes_without_geometry():
     registry = Registry()
     shape = cq.Workplane().box(1, 1, 1).val()

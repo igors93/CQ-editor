@@ -38,6 +38,10 @@ options, menus, shortcuts and panels work as before.
 * Changed: stereo projection modes were dropped (orthographic and
   perspective remain)
 * Fixed: `rand_color()` defaulted to a fully transparent color
+* Fixed: after Stop, Restart Python or a worker crash, the first run could
+  free its own objects, so the CQ Inspector, export and upload failed; scene
+  keys are now unique per worker process
+* Fixed: the CI format check (`black`) failed on three worker files
 * Removed: the PyQt GUI, PyInstaller and conda constructor packaging
 
 ## Release 0.5.0

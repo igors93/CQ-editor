@@ -217,6 +217,9 @@ impl Worker {
             .args(["-u", "-m", "cq_worker"])
             .env("PYTHONPATH", python_path(&config.worker_dir))
             .env("PYTHONIOENCODING", "utf-8")
+            // Namespaces the worker's scene keys: objects of a killed worker
+            // stay on screen, and a new worker must not reuse their keys.
+            .env("CQ_EDITOR_SESSION", self.generation.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

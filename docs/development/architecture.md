@@ -136,11 +136,16 @@ useful at a breakpoint.
 
 ### The registry
 
-The GUI never holds CadQuery objects. It holds **keys** (`n1`, `n2`, …). The
-worker's `Registry` maps each key to the live object, its world-space shape
-and its topology index. Export, inspection and upload refer to objects by
-key. When the GUI drops objects it sends `release`, so the worker can free
-them.
+The GUI never holds CadQuery objects. It holds **keys** (`s1-n1`, `s1-n2`,
+…). The worker's `Registry` maps each key to the live object, its
+world-space shape and its topology index. Export, inspection and upload
+refer to objects by key. When the GUI drops objects it sends `release`, so
+the worker can free them.
+
+Keys carry the worker's session number (`CQ_EDITOR_SESSION`, the GUI's
+worker generation). Objects stay on screen when Python is restarted, and the
+next run releases their keys. With per-session keys, that release can never
+free the new worker's objects.
 
 ### Tessellation and the geometry cache
 

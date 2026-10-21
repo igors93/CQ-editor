@@ -185,14 +185,20 @@ class RegistryEntry:
 
 
 class Registry:
-    """Keeps the CadQuery objects behind scene node keys alive."""
+    """Keeps the CadQuery objects behind scene node keys alive.
 
-    def __init__(self) -> None:
+    ``prefix`` namespaces the keys. The GUI keeps showing objects after it
+    restarts the worker, so a fresh worker must never hand out the keys of
+    its predecessor: releasing the stale objects would free the new ones.
+    """
+
+    def __init__(self, prefix: str = "n") -> None:
+        self._prefix = prefix
         self._entries: dict[str, RegistryEntry] = {}
         self._counter = itertools.count(1)
 
     def add(self, entry: RegistryEntry) -> str:
-        key = f"n{next(self._counter)}"
+        key = f"{self._prefix}{next(self._counter)}"
         self._entries[key] = entry
         return key
 
@@ -201,7 +207,8 @@ class Registry:
             return self._entries[key]
         except KeyError:
             raise KeyError(
-                f"Unknown object {key!r}; it may have been cleared"
+                f"Unknown object {key!r}; it may have been cleared "
+                "or come from a previous Python session (render again)"
             ) from None
 
     def release(self, keys: Iterable[str]) -> None:

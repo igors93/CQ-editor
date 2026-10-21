@@ -59,12 +59,9 @@ black --check worker tests/worker
 PYTHONPATH=worker python -m pytest tests/worker
 ```
 
-> **Current status:** all Rust and worker tests pass, and `cargo fmt` and
-> clippy report nothing. `black --check` still reports three files that
-> need reformatting (`worker/cq_worker/tessellation.py`,
-> `tests/worker/geometry/test_scene.py` and
-> `tests/worker/geometry/test_tessellation.py`), so the worker *Format* step
-> fails. This is tracked in the [roadmap](../roadmap.md).
+> **Current status:** all checks pass: 99 Rust tests, 135 worker tests,
+> `cargo fmt`, clippy and `black` (CI installs the latest black, currently
+> 26.10.1; use the same version locally to avoid formatting differences).
 
 ## Writing tests
 

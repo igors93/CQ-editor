@@ -784,6 +784,9 @@ impl AppState {
         self.worker.start(LaunchConfig { python, worker_dir });
         self.worker_was_ready = false;
         self.reset_execution_state();
+        // The new process knows nothing about the old one's inspections.
+        self.inspector.clear();
+        self.scene.overlay = Overlay::default();
     }
 
     /// Forgets everything that was in flight in the worker.

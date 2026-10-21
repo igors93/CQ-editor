@@ -31,7 +31,7 @@ def main() -> int:
         return 1
 
     logging.basicConfig(level=logging.INFO, handlers=[ChannelLogHandler(channel)])
-    Server(channel).serve_forever()
+    Server(channel, session=os.environ.get("CQ_EDITOR_SESSION")).serve_forever()
     return 0
 
 

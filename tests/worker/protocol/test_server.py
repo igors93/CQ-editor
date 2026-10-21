@@ -59,6 +59,28 @@ def test_script_log_reaches_the_gui(conversation):
     assert "from script" in messages
 
 
+def test_restarted_worker_keeps_objects_when_stale_keys_are_released(conversation):
+    # After Stop or Restart Python the GUI still shows the old objects, and
+    # releases their keys once the first run of the new worker finishes.
+    old = conversation({"cmd": "run", "id": 1, "script": BOX_SCRIPT}, session="1")
+    old.serve()
+    (stale_key,) = [o["key"] for o in old.of_type("run_finished")[0]["objects"]]
+
+    new = conversation(
+        {"cmd": "run", "id": 1, "script": BOX_SCRIPT},
+        {"cmd": "release", "keys": [stale_key]},
+        {"cmd": "inspect", "id": 2, "key": "s2-n1"},
+        session="2",
+    )
+    new.serve()
+
+    assert stale_key == "s1-n1"
+    (finished,) = new.of_type("run_finished")
+    assert [o["key"] for o in finished["objects"]] == ["s2-n1"]
+    assert new.of_type("inspection")[0]["key"] == "s2-n1"
+    assert not new.of_type("error")
+
+
 def test_debug_session(conversation):
     script = "a = cq.Workplane().box(1, 1, 1)\nb = 2\nc = 3\n"
     talk = conversation(
