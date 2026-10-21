@@ -1,0 +1,298 @@
+//! Interactive Python console running in the worker.
+//!
+//! Its namespace has the script API (`show_object` adds to the view) and the
+//! variables of the last run. Enter runs the input, Shift+Enter adds a line,
+//! Up/Down browse the history.
+
+use egui::{Color32, Key, Modifiers, RichText};
+use egui_phosphor::regular as icon;
+
+use crate::app::AppState;
+use crate::commands::Action;
+
+const MAX_ENTRIES: usize = 2000;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    Input,
+    Output,
+    Error,
+    Info,
+}
+
+pub struct Entry {
+    pub kind: EntryKind,
+    pub text: String,
+}
+
+#[derive(Default)]
+pub struct ConsoleState {
+    pub entries: Vec<Entry>,
+    pub input: String,
+    /// The last statement is incomplete (a block is open).
+    pub more: bool,
+    pub busy: bool,
+    history: Vec<String>,
+    history_index: Option<usize>,
+    focus_input: bool,
+}
+
+impl ConsoleState {
+    /// Applies completion results for the input: a unique match or the
+    /// common prefix is inserted, otherwise the candidates are listed.
+    pub fn complete(&mut self, inserts: &[(String, String)], signatures: &[String]) {
+        if inserts.is_empty() {
+            if !signatures.is_empty() {
+                self.push(EntryKind::Info, &(signatures.join("\n") + "\n"));
+            }
+            return;
+        }
+        let prefix = common_prefix(inserts.iter().map(|(_, insert)| insert.as_str()));
+        if !prefix.is_empty() {
+            self.input.push_str(prefix);
+        } else if inserts.len() > 1 {
+            let names: Vec<&str> = inserts.iter().map(|(name, _)| name.as_str()).collect();
+            self.push(EntryKind::Info, &(names.join("  ") + "\n"));
+        }
+        self.focus_input = true;
+    }
+
+    pub fn push(&mut self, kind: EntryKind, text: &str) {
+        // Consecutive output chunks are merged into one entry.
+        if let Some(last) = self.entries.last_mut()
+            && last.kind == kind
+            && kind != EntryKind::Input
+            && !last.text.ends_with('\n')
+        {
+            last.text.push_str(text);
+            return;
+        }
+        self.entries.push(Entry {
+            kind,
+            text: text.to_owned(),
+        });
+        if self.entries.len() > MAX_ENTRIES {
+            self.entries.drain(..self.entries.len() - MAX_ENTRIES);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub fn record_input(&mut self, source: &str) {
+        let prompt = if self.more { "... " } else { ">>> " };
+        let shown: Vec<String> = source
+            .lines()
+            .enumerate()
+            .map(|(i, line)| format!("{}{line}", if i == 0 { prompt } else { "... " }))
+            .collect();
+        self.push(EntryKind::Input, &(shown.join("\n") + "\n"));
+        if !source.trim().is_empty() && self.history.last().map(String::as_str) != Some(source) {
+            self.history.push(source.to_owned());
+        }
+        self.history_index = None;
+        self.busy = true;
+    }
+}
+
+fn common_prefix<'a>(mut words: impl Iterator<Item = &'a str>) -> &'a str {
+    let Some(first) = words.next() else { return "" };
+    let mut length = first.len();
+    for word in words {
+        length = first
+            .char_indices()
+            .zip(word.chars())
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map_or(0, |((i, c), _)| i + c.len_utf8())
+            .min(length);
+    }
+    &first[..length]
+}
+
+pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
+    let mut actions = Vec::new();
+    let colors = Colors::new(ui.visuals());
+    let worker_ready = state.worker.is_ready();
+    let console = &mut state.console;
+
+    egui::Panel::bottom("console_input")
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(6, 4)))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if console.more { "..." } else { ">>>" })
+                        .monospace()
+                        .color(colors.prompt),
+                );
+                let input_id = ui.id().with("console_input_text");
+                let focused = ui.memory(|m| m.has_focus(input_id));
+                if focused {
+                    handle_keys(ui, console, &mut actions);
+                }
+                let response = ui.add_enabled(
+                    worker_ready,
+                    egui::TextEdit::multiline(&mut console.input)
+                        .id(input_id)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_rows(1)
+                        .desired_width(ui.available_width() - 62.0)
+                        .hint_text(if worker_ready {
+                            "Python — Enter to run"
+                        } else {
+                            "Waiting for Python…"
+                        }),
+                );
+                if std::mem::take(&mut console.focus_input) {
+                    response.request_focus();
+                }
+                if ui
+                    .button(icon::BROOM)
+                    .on_hover_text("Clear the console")
+                    .clicked()
+                {
+                    actions.push(Action::ClearConsole);
+                }
+                if ui
+                    .button(icon::ARROW_COUNTER_CLOCKWISE)
+                    .on_hover_text("Restart the console (forgets its variables)")
+                    .clicked()
+                {
+                    actions.push(Action::ResetConsole);
+                }
+            });
+        });
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE)
+        .show(ui, |ui| {
+            output(ui, console, &colors);
+        });
+
+    state.queue(actions);
+}
+
+fn output(ui: &mut egui::Ui, console: &ConsoleState, colors: &Colors) {
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(8, 4))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    if console.entries.is_empty() {
+                        ui.weak("Python console. Try: show_object(cq.Workplane().sphere(5))");
+                    }
+                    for entry in &console.entries {
+                        let color = match entry.kind {
+                            EntryKind::Input => colors.input,
+                            EntryKind::Output => colors.output,
+                            EntryKind::Error => colors.error,
+                            EntryKind::Info => colors.info,
+                        };
+                        let text = entry.text.strip_suffix('\n').unwrap_or(&entry.text);
+                        ui.add(
+                            egui::Label::new(RichText::new(text).monospace().color(color))
+                                .selectable(true),
+                        );
+                    }
+                    if console.busy {
+                        ui.spinner();
+                    }
+                });
+        });
+}
+
+fn handle_keys(ui: &egui::Ui, console: &mut ConsoleState, actions: &mut Vec<Action>) {
+    let submit = ui.input_mut(|i| {
+        // Shift+Enter falls through to the text edit and inserts a newline.
+        !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Enter)
+    });
+    if submit {
+        let source = std::mem::take(&mut console.input);
+        actions.push(Action::ConsoleSubmit(source));
+        console.focus_input = true;
+        return;
+    }
+    if !console.input.is_empty() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
+        actions.push(Action::ConsoleComplete);
+        return;
+    }
+    // History navigation only makes sense for single-line input.
+    if console.input.contains('\n') || console.history.is_empty() {
+        return;
+    }
+    if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
+        let index = console
+            .history_index
+            .map_or(console.history.len() - 1, |i| i.saturating_sub(1));
+        console.history_index = Some(index);
+        console.input = console.history[index].clone();
+    } else if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
+        match console.history_index {
+            Some(i) if i + 1 < console.history.len() => {
+                console.history_index = Some(i + 1);
+                console.input = console.history[i + 1].clone();
+            }
+            _ => {
+                console.history_index = None;
+                console.input.clear();
+            }
+        }
+    }
+}
+
+struct Colors {
+    prompt: Color32,
+    input: Color32,
+    output: Color32,
+    error: Color32,
+    info: Color32,
+}
+
+impl Colors {
+    fn new(visuals: &egui::Visuals) -> Self {
+        let text = visuals.text_color();
+        Self {
+            prompt: visuals.hyperlink_color,
+            input: visuals.hyperlink_color.lerp_to_gamma(text, 0.35),
+            output: text,
+            error: visuals.error_fg_color,
+            info: visuals.weak_text_color(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_inserts_unique_matches_and_common_prefixes() {
+        let mut console = ConsoleState {
+            input: "cq.Work".to_owned(),
+            ..Default::default()
+        };
+        console.complete(&[("Workplane".into(), "plane".into())], &[]);
+        assert_eq!(console.input, "cq.Workplane");
+
+        let mut console = ConsoleState::default();
+        console.complete(
+            &[
+                ("box".into(), "ox".into()),
+                ("bounding".into(), "ounding".into()),
+            ],
+            &[],
+        );
+        assert_eq!(console.input, "o");
+
+        let mut console = ConsoleState::default();
+        console.complete(
+            &[("abc".into(), "abc".into()), ("xyz".into(), "xyz".into())],
+            &[],
+        );
+        assert_eq!(console.entries[0].text, "abc  xyz\n");
+    }
+}

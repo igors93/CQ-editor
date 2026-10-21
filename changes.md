@@ -1,3 +1,30 @@
+# Unreleased (0.8.0)
+
+The interface was rebuilt in Rust (egui + wgpu); CadQuery now runs in a
+separate Python worker process (`worker/cq_worker`). Scripts, `show_object`
+options, menus, shortcuts and panels work as before.
+
+* New: a running or crashing script no longer freezes or closes the editor;
+  Run > Stop (Ctrl+Shift+F5) aborts it and a crashed worker restarts itself
+* New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
+  pointer, hover highlighting and double-click to zoom to an object
+* New: navigation cube redrawn natively, with hover feedback and the 45° roll
+  arrows; view icons follow the theme
+* New: debugger "Step out" (Ctrl+Shift+F11) and a cleaner stepping model
+* New: editor auto-indentation, current-line highlight, match-case search,
+  completion popup filtered while typing and call signature tips
+* New: object colors and opacity can be changed in the Objects panel, which
+  also shows sizes and triangle counts
+* New: Open Recent, Reset Layout, Restart Python, BREP export; single
+  assemblies export to STEP with their names and colors
+* New: Log panel with level filters; console with history
+* Changed: theme follows the system by default; the separate editor color
+  scheme preference was merged into the application theme
+* Changed: stereo projection modes were dropped (orthographic and
+  perspective remain)
+* Fixed: `rand_color()` defaulted to a fully transparent color
+* Removed: the PyQt GUI, PyInstaller and conda constructor packaging
+
 # Release 0.5.0
 
 * Implemented a dark theme and tweaked it to work better with icons (#490)

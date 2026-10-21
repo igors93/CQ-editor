@@ -1,0 +1,65 @@
+"""The interactive Python console behind the GUI's console panel."""
+
+from __future__ import annotations
+
+import builtins
+import code
+from typing import Any
+
+import cadquery as cq
+
+from .execution import ShownObjects, rand_color, script_log
+
+
+class ConsoleSession:
+    """A persistent interpreter.
+
+    Its namespace offers the script API (``show_object`` adds objects to the
+    viewer) and, after each run, the variables of the last script run.
+    """
+
+    def __init__(self) -> None:
+        self.shown = ShownObjects()
+        self.namespace: dict[str, Any] = {}
+        self.reset()
+
+    def reset(self) -> None:
+        self.namespace.clear()
+        self.namespace.update(
+            {
+                "__name__": "__console__",
+                "__builtins__": builtins,
+                "cq": cq,
+                "show_object": self._show_object,
+                "show": self._show_object,
+                "debug": self.shown.debug,
+                "rand_color": rand_color,
+                "log": lambda value: script_log.info(str(value)),
+            }
+        )
+        self._interpreter = code.InteractiveConsole(
+            self.namespace, filename="<console>"
+        )
+
+    def update_variables(self, variables: dict[str, Any]) -> None:
+        self.namespace.update(
+            (name, value)
+            for name, value in variables.items()
+            if not name.startswith("__")
+        )
+
+    def execute(self, source: str) -> bool:
+        """Feed ``source`` line by line; ``True`` if a statement is incomplete."""
+
+        more = False
+        for line in source.split("\n"):
+            more = self._interpreter.push(line)
+        return more
+
+    def take_shown(self) -> ShownObjects:
+        shown, self.shown = self.shown, ShownObjects()
+        self.namespace["debug"] = self.shown.debug
+        return shown
+
+    def _show_object(self, obj, name=None, options=None, **kwargs) -> None:
+        self.shown.show(obj, name, options, **kwargs)

@@ -1,0 +1,331 @@
+//! The main menu, organized like the original editor's.
+
+use egui_phosphor::regular as icon;
+
+use crate::app::AppState;
+use crate::commands::{self, Action};
+use crate::panels::Tab;
+use crate::viewer::DisplayMode;
+use crate::viewer::camera::StandardView;
+use crate::worker::protocol::{DebugAction, ExportFormat};
+
+pub fn ui(ui: &mut egui::Ui, state: &mut AppState, open_panels: &[Tab]) {
+    let mut actions = Vec::new();
+    egui::MenuBar::new().ui(ui, |ui| {
+        ui.menu_button("File", |ui| file_menu(ui, state, &mut actions));
+        ui.menu_button("Edit", |ui| edit_menu(ui, &mut actions));
+        ui.menu_button("Tools", |ui| tools_menu(ui, state, &mut actions));
+        ui.menu_button("Run", |ui| run_menu(ui, state, &mut actions));
+        ui.menu_button("View", |ui| view_menu(ui, state, open_panels, &mut actions));
+        ui.menu_button("Help", |ui| help_menu(ui, &mut actions));
+    });
+    state.queue(actions);
+}
+
+/// A menu entry showing its keyboard shortcut.
+fn item(ui: &mut egui::Ui, actions: &mut Vec<Action>, icon: &str, label: &str, action: Action) {
+    item_enabled(ui, actions, icon, label, action, true);
+}
+
+fn item_enabled(
+    ui: &mut egui::Ui,
+    actions: &mut Vec<Action>,
+    icon: &str,
+    label: &str,
+    action: Action,
+    enabled: bool,
+) {
+    let mut button = egui::Button::new(format!("{icon}  {label}"));
+    if let Some(shortcut) = commands::shortcut(&action) {
+        button = button.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+    }
+    if ui.add_enabled(enabled, button).clicked() {
+        actions.push(action);
+        ui.close();
+    }
+}
+
+fn check_item(
+    ui: &mut egui::Ui,
+    actions: &mut Vec<Action>,
+    checked: bool,
+    label: &str,
+    action: Action,
+) {
+    let mut button = egui::Button::new(format!(
+        "{}  {label}",
+        if checked {
+            icon::CHECK_SQUARE
+        } else {
+            icon::SQUARE
+        }
+    ));
+    if let Some(shortcut) = commands::shortcut(&action) {
+        button = button.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+    }
+    if ui.add(button).clicked() {
+        actions.push(action);
+        ui.close();
+    }
+}
+
+fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+    item(ui, actions, icon::FILE_PLUS, "New", Action::NewFile);
+    item(ui, actions, icon::FOLDER_OPEN, "Open…", Action::OpenFile);
+    ui.menu_button(
+        format!("{}  Open Recent", icon::CLOCK_COUNTER_CLOCKWISE),
+        |ui| {
+            if state.settings.recent_files.is_empty() {
+                ui.weak("No recent files");
+            }
+            for path in &state.settings.recent_files {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                if ui
+                    .button(name)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    actions.push(Action::OpenPath(path.clone()));
+                    ui.close();
+                }
+            }
+        },
+    );
+    item(ui, actions, icon::FLOPPY_DISK, "Save", Action::Save);
+    item(
+        ui,
+        actions,
+        icon::FLOPPY_DISK_BACK,
+        "Save As…",
+        Action::SaveAs,
+    );
+    ui.separator();
+    check_item(
+        ui,
+        actions,
+        state.settings.editor.autoreload,
+        "Automatic Reload and Preview",
+        Action::ToggleAutoreload,
+    );
+    ui.separator();
+    ui.menu_button(format!("{}  Examples", icon::BOOK_OPEN), |ui| {
+        for (index, example) in state.examples().iter().enumerate() {
+            if ui.button(&example.title).clicked() {
+                actions.push(Action::OpenExample(index));
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    item(ui, actions, icon::SIGN_OUT, "Quit", Action::Quit);
+}
+
+fn edit_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    item(
+        ui,
+        actions,
+        icon::HASH,
+        "Toggle Comment",
+        Action::ToggleComment,
+    );
+    item(
+        ui,
+        actions,
+        icon::LIGHTNING,
+        "Auto-Complete",
+        Action::Autocomplete,
+    );
+    item(ui, actions, icon::MAGNIFYING_GLASS, "Search", Action::Find);
+    ui.separator();
+    item(
+        ui,
+        actions,
+        icon::GEAR_SIX,
+        "Preferences…",
+        Action::Preferences,
+    );
+}
+
+fn tools_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+    let has_objects = !state.scene.is_empty();
+    for format in ExportFormat::ALL {
+        item_enabled(
+            ui,
+            actions,
+            icon::EXPORT,
+            &format!("Export as {}…", format.label()),
+            Action::Export(format),
+            has_objects,
+        );
+    }
+    ui.separator();
+    check_item(
+        ui,
+        actions,
+        state.inspector.show_in_view,
+        "Inspect CQ Object",
+        Action::ToggleInspect,
+    );
+    item(ui, actions, icon::CAMERA, "Screenshot…", Action::Screenshot);
+    item(
+        ui,
+        actions,
+        icon::UPLOAD_SIMPLE,
+        "Upload Model…",
+        Action::Upload,
+    );
+}
+
+fn run_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+    let paused = state.is_paused();
+    let debugging = state.is_debugging();
+    item(ui, actions, icon::PLAY, "Render", Action::Render);
+    item(
+        ui,
+        actions,
+        icon::BUG,
+        if debugging { "Stop Debugging" } else { "Debug" },
+        Action::ToggleDebug,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_BEND_DOWN_RIGHT,
+        "Step",
+        Action::Debug(DebugAction::Step),
+        paused,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_ELBOW_DOWN_RIGHT,
+        "Step In",
+        Action::Debug(DebugAction::StepIn),
+        paused,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_ELBOW_UP_LEFT,
+        "Step Out",
+        Action::Debug(DebugAction::StepOut),
+        paused,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::FAST_FORWARD,
+        "Continue",
+        Action::Debug(DebugAction::Continue),
+        paused,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::STOP,
+        "Stop",
+        Action::Stop,
+        state.is_busy(),
+    );
+    ui.separator();
+    item(
+        ui,
+        actions,
+        icon::BROOM,
+        "Clear Console",
+        Action::ClearConsole,
+    );
+    item(ui, actions, icon::ERASER, "Clear Log", Action::ClearLog);
+    ui.separator();
+    item(
+        ui,
+        actions,
+        icon::ARROW_CLOCKWISE,
+        "Restart Python",
+        Action::RestartPython,
+    );
+}
+
+fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: &mut Vec<Action>) {
+    item(ui, actions, icon::CORNERS_OUT, "Fit", Action::Fit);
+    item(
+        ui,
+        actions,
+        icon::MAGNIFYING_GLASS_PLUS,
+        "Zoom to Selection",
+        Action::FitSelection,
+    );
+    for view in StandardView::ALL {
+        item(ui, actions, icon::CUBE, view.label(), Action::View(view));
+    }
+    ui.separator();
+    let mode = state.viewer.display_mode;
+    check_item(
+        ui,
+        actions,
+        mode == DisplayMode::Wireframe,
+        "Wireframe",
+        Action::Display(DisplayMode::Wireframe),
+    );
+    check_item(
+        ui,
+        actions,
+        mode == DisplayMode::Shaded,
+        "Shaded",
+        Action::Display(DisplayMode::Shaded),
+    );
+    check_item(
+        ui,
+        actions,
+        state.settings.viewer.projection == crate::settings::Projection::Perspective,
+        "Perspective Projection",
+        Action::ToggleProjection,
+    );
+    ui.separator();
+    for tab in Tab::ALL.into_iter().filter(|t| *t != Tab::Viewer) {
+        check_item(
+            ui,
+            actions,
+            open_panels.contains(&tab),
+            tab.title(),
+            Action::TogglePanel(tab),
+        );
+    }
+    ui.separator();
+    item(
+        ui,
+        actions,
+        icon::LAYOUT,
+        "Reset Layout",
+        Action::ResetLayout,
+    );
+}
+
+fn help_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    item(
+        ui,
+        actions,
+        icon::LIFEBUOY,
+        "Documentation",
+        Action::Documentation,
+    );
+    item(
+        ui,
+        actions,
+        icon::BOOKS,
+        "CadQuery Documentation",
+        Action::CadQueryDocumentation,
+    );
+    ui.separator();
+    item(
+        ui,
+        actions,
+        icon::ARROW_CIRCLE_UP,
+        "Check for CadQuery Updates",
+        Action::CheckUpdates,
+    );
+    item(ui, actions, icon::INFO, "About", Action::About);
+}

@@ -1,0 +1,43 @@
+[package]
+name = "cq-editor"
+version = "0.8.0-dev"
+edition = "2024"
+rust-version = "1.88"
+description = "Cross-platform CadQuery 3D viewer and script editor"
+license = "Apache-2.0"
+repository = "https://github.com/CadQuery/CQ-editor"
+keywords = ["cadquery", "cad", "engineering", "design"]
+# Python example scripts live in `examples/`; they are not Cargo examples.
+autoexamples = false
+
+[dependencies]
+eframe = { version = "0.36", features = ["persistence"] }
+egui = "0.36"
+egui_dock = { version = "0.21", features = ["serde"] }
+egui_extras = { version = "0.36" }
+egui-phosphor = "0.14"
+glam = { version = "0.34", features = ["bytemuck", "serde"] }
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.23"
+rfd = "0.17"
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+log = { version = "0.4", features = ["std"] }
+open = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[profile.dev]
+# Line tables keep panic backtraces useful at a fraction of full debug info's size.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies (wgpu, egui, image) are much faster optimized, even in debug
+# builds, and their debug info would take gigabytes of disk.
+opt-level = 2
+debug = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true

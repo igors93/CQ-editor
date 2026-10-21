@@ -1,0 +1,81 @@
+//! The status bar: last message on the left; Python worker state, cursor
+//! position and file format on the right.
+
+use egui::RichText;
+use egui_phosphor::regular as icon;
+
+use crate::app::{AppState, StatusKind};
+use crate::worker;
+
+pub fn ui(ui: &mut egui::Ui, state: &AppState) {
+    let visuals = ui.visuals().clone();
+    let success = state.palette().success;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 14.0;
+        if let Some(status) = &state.status {
+            let (glyph, color) = match status.kind {
+                StatusKind::Info => (icon::INFO, visuals.weak_text_color()),
+                StatusKind::Success => (icon::CHECK_CIRCLE, success),
+                StatusKind::Warning => (icon::WARNING, visuals.warn_fg_color),
+                StatusKind::Error => (icon::X_CIRCLE, visuals.error_fg_color),
+            };
+            ui.label(RichText::new(glyph).color(color));
+            ui.add(egui::Label::new(&status.text).truncate());
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (glyph, text, color) = match state.worker.status() {
+                worker::Status::Ready(info) => (
+                    icon::CIRCLE,
+                    format!("Python {} · CadQuery {}", info.python, info.cadquery),
+                    success,
+                ),
+                worker::Status::Starting => (
+                    icon::HOURGLASS,
+                    "Starting Python…".to_owned(),
+                    visuals.warn_fg_color,
+                ),
+                worker::Status::NotStarted => (
+                    icon::CIRCLE_DASHED,
+                    "Python not started".to_owned(),
+                    visuals.weak_text_color(),
+                ),
+                worker::Status::Failed(_) => (
+                    icon::WARNING_OCTAGON,
+                    "Python unavailable".to_owned(),
+                    visuals.error_fg_color,
+                ),
+            };
+            let python = state
+                .worker
+                .config()
+                .map(|c| c.python.display().to_string())
+                .unwrap_or_default();
+            let tooltip = match state.worker.status() {
+                worker::Status::Failed(reason) => format!("{reason}\n{python}"),
+                _ => python,
+            };
+            ui.label(RichText::new(text).small())
+                .on_hover_text(&tooltip);
+            ui.label(RichText::new(glyph).color(color).small())
+                .on_hover_text(&tooltip);
+
+            ui.label(RichText::new("UTF-8").small().weak());
+            ui.label(
+                RichText::new(state.document.line_ending().label())
+                    .small()
+                    .weak(),
+            );
+            let (line, column) = state.editor.cursor_position(&state.document.text);
+            ui.label(RichText::new(format!("Ln {line}, Col {column}")).small());
+            if state.settings.editor.autoreload {
+                ui.label(
+                    RichText::new(format!("{} Autoreload", icon::ARROWS_CLOCKWISE))
+                        .small()
+                        .weak(),
+                )
+                .on_hover_text("The script re-runs whenever its file changes on disk");
+            }
+        });
+    });
+}
