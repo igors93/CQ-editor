@@ -81,6 +81,20 @@ bindings, and `test_examples.py` executes the eight example projects that are
 unchanged from the pre-rewrite revision. This gate checks inventory and
 evidence; it deliberately does not claim that documented gaps are complete.
 
+## Benchmarks
+
+Benchmarks are `#[ignore]`d tests, so `cargo test` skips them. Run them in
+release mode, where the timings are meaningful:
+
+```sh
+cargo test --release pick_latency -- --ignored --nocapture
+```
+
+`pick_latency_on_growing_assemblies` sweeps the pointer across assemblies
+of 64 to 16,384 instanced parts and prints the median, 95th percentile and
+maximum pick latency without and with the scene index, plus the index
+build time.
+
 ## Writing tests
 
 * **Rust:** put the test next to its siblings in `tests/rust/<area>/` and

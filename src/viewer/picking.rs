@@ -6,13 +6,155 @@
 
 use glam::{Mat4, Vec2, Vec3};
 
-use super::{SelectionMode, camera::Camera};
-use crate::scene::{Mesh, TopologyEntity};
+use super::SelectionMode;
+use super::camera::{Camera, project_with};
+use crate::scene::{Aabb, Mesh, NodeKey, Scene, TopologyEntity};
+use crate::spatial::{BoundsBvh, QueryStats};
 
 /// How close to an edge or point the pointer must be, in pixels.
 const PICK_TOLERANCE_PX: f32 = 6.0;
 /// NDC depth allowance for an edge or vertex lying on the hit face.
 const OCCLUSION_EPSILON: f32 = 1e-3;
+
+#[derive(Debug)]
+struct ScenePart {
+    path: Vec<usize>,
+    part: usize,
+    key: NodeKey,
+    world_bounds: Aabb,
+}
+
+/// World-space broad phase for all visible scene parts. The viewer retains
+/// this index across pointer moves and rebuilds it only when the scene's
+/// geometry, placement or visibility revision changes.
+#[derive(Debug, Default)]
+pub(crate) struct SceneIndex {
+    revision: Option<u64>,
+    parts: Vec<ScenePart>,
+    bvh: BoundsBvh,
+    rebuilds: u64,
+}
+
+impl SceneIndex {
+    pub(crate) fn update(&mut self, scene: &Scene) -> bool {
+        let revision = scene.pick_revision();
+        if self.revision == Some(revision) {
+            return false;
+        }
+
+        self.parts.clear();
+        let mut path = Vec::new();
+        collect_scene_parts(&scene.nodes, &mut path, &mut self.parts);
+        self.bvh = BoundsBvh::build(
+            self.parts
+                .iter()
+                .map(|entry| (entry.world_bounds.min, entry.world_bounds.max)),
+        );
+        self.revision = Some(revision);
+        self.rebuilds += 1;
+        true
+    }
+
+    pub(crate) fn query(
+        &self,
+        camera: &Camera,
+        aspect: f32,
+        pointer_ndc: Vec2,
+        viewport_px: Vec2,
+        mode: SelectionMode,
+    ) -> Vec<usize> {
+        self.query_with_stats(camera, aspect, pointer_ndc, viewport_px, mode)
+            .0
+    }
+
+    fn query_with_stats(
+        &self,
+        camera: &Camera,
+        aspect: f32,
+        pointer_ndc: Vec2,
+        viewport_px: Vec2,
+        mode: SelectionMode,
+    ) -> (Vec<usize>, QueryStats) {
+        let (origin, direction) = camera.ray(pointer_ndc, aspect);
+        let view_projection = camera.view_projection(aspect);
+        let pointer_px = ndc_to_px(pointer_ndc, viewport_px);
+        let screen_pick = mode.allows_edges() || mode.allows_vertices();
+        let mut candidates = Vec::new();
+        let stats = self.bvh.query_with_stats(
+            |min, max| {
+                ray_hits_box(origin, direction, min, max)
+                    || (screen_pick
+                        && projected_bounds_hit(
+                            view_projection,
+                            viewport_px,
+                            pointer_px,
+                            Mat4::IDENTITY,
+                            min,
+                            max,
+                        ))
+            },
+            &mut candidates,
+        );
+        (candidates, stats)
+    }
+
+    pub(crate) fn candidate<'a>(
+        &self,
+        scene: &'a Scene,
+        index: usize,
+    ) -> Option<Candidate<'a, (NodeKey, usize)>> {
+        let entry = self.parts.get(index)?;
+        // Guards against a tree changed without a new pick revision: a
+        // missed pick is better than reporting another node's part.
+        let node = node_at_path(&scene.nodes, &entry.path).filter(|node| node.key == entry.key)?;
+        let part = node.parts.get(entry.part)?;
+        Some(Candidate {
+            id: (entry.key.clone(), entry.part),
+            mesh: &part.mesh,
+            transform: part.transform,
+        })
+    }
+
+    #[cfg(test)]
+    fn rebuild_count(&self) -> u64 {
+        self.rebuilds
+    }
+}
+
+fn collect_scene_parts(
+    nodes: &[crate::scene::SceneNode],
+    path: &mut Vec<usize>,
+    output: &mut Vec<ScenePart>,
+) {
+    for (node_index, node) in nodes.iter().enumerate().filter(|(_, node)| node.visible) {
+        path.push(node_index);
+        for (part, geometry) in node.parts.iter().enumerate() {
+            if !geometry.mesh.bounds.is_empty() {
+                output.push(ScenePart {
+                    path: path.clone(),
+                    part,
+                    key: node.key.clone(),
+                    world_bounds: geometry.mesh.bounds.transformed(geometry.transform),
+                });
+            }
+        }
+        collect_scene_parts(&node.children, path, output);
+        path.pop();
+    }
+}
+
+fn node_at_path<'a>(
+    mut nodes: &'a [crate::scene::SceneNode],
+    path: &[usize],
+) -> Option<&'a crate::scene::SceneNode> {
+    let mut result = None;
+    for &index in path {
+        let node = nodes.get(index)?;
+        result = Some(node);
+        nodes = &node.children;
+    }
+    result
+}
 
 /// Something to test against, tagged with a caller-defined id.
 pub struct Candidate<'a, T> {
@@ -49,8 +191,10 @@ pub fn pick<'a, T: Clone>(
     candidates: impl IntoIterator<Item = Candidate<'a, T>>,
 ) -> Option<Hit<T>> {
     let (origin, dir) = camera.ray(pointer_ndc, aspect);
-    let to_px = |ndc: Vec2| ndc * viewport_px * 0.5;
-    let pointer_px = to_px(pointer_ndc);
+    // Computed once: projecting thousands of points per pick dominates the
+    // cost when every projection rebuilds the camera matrices.
+    let view_projection = camera.view_projection(aspect);
+    let pointer_px = ndc_to_px(pointer_ndc, viewport_px);
 
     let mut hits = Vec::new();
     let mut front_surface: Option<f32> = None;
@@ -69,7 +213,7 @@ pub fn pick<'a, T: Clone>(
             if let Some((distance, triangle)) = mesh.nearest_triangle(local_origin, local_dir) {
                 let local_position = local_origin + local_dir * distance;
                 let position = candidate.transform.transform_point3(local_position);
-                if let Some(depth) = projected_depth(camera, aspect, position) {
+                if let Some(depth) = projected_depth(view_projection, position) {
                     front_surface = Some(front_surface.map_or(depth, |front| front.min(depth)));
                     let entity = topology_faces
                         .then(|| mesh.topology.triangle_faces.get(triangle).copied())
@@ -94,18 +238,29 @@ pub fn pick<'a, T: Clone>(
 
         let screen = |p: &[f32; 3]| {
             let world = candidate.transform.transform_point3(Vec3::from_array(*p));
-            camera
-                .project(world, aspect)
-                .map(|ndc| (to_px(ndc.truncate()), world, ndc.z))
+            project_with(view_projection, world)
+                .map(|ndc| (ndc_to_px(ndc.truncate(), viewport_px), world, ndc.z))
         };
-        for (segment_index, segment) in mesh
-            .edges
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .enumerate()
-            .filter(|_| mode.allows_edges())
-        {
+        let mut primitive_candidates = Vec::new();
+        if mode.allows_edges() {
+            mesh.edge_bvh().query(
+                |min, max| {
+                    projected_bounds_hit(
+                        view_projection,
+                        viewport_px,
+                        pointer_px,
+                        candidate.transform,
+                        min,
+                        max,
+                    )
+                },
+                &mut primitive_candidates,
+            );
+        }
+        for segment_index in primitive_candidates.drain(..) {
+            let Some(segment) = mesh.edges.as_chunks::<2>().0.get(segment_index) else {
+                continue;
+            };
             let (Some((a, wa, _)), Some((b, wb, _))) = (screen(&segment[0]), screen(&segment[1]))
             else {
                 continue;
@@ -113,7 +268,7 @@ pub fn pick<'a, T: Clone>(
             let (distance, t) = distance_to_segment(pointer_px, a, b);
             if distance <= PICK_TOLERANCE_PX {
                 let position = wa.lerp(wb, t);
-                if let Some(depth) = projected_depth(camera, aspect, position) {
+                if let Some(depth) = projected_depth(view_projection, position) {
                     let entity = mesh
                         .topology
                         .segment_edges
@@ -137,16 +292,26 @@ pub fn pick<'a, T: Clone>(
             }
         }
         let topology_vertices = !mesh.topology.vertices.is_empty();
-        let vertices = if topology_vertices {
-            &mesh.topology.vertices
-        } else {
-            &mesh.points
-        };
-        for (index, point) in vertices
-            .iter()
-            .enumerate()
-            .filter(|_| mode.allows_vertices())
-        {
+        let vertices = mesh.pick_vertices();
+        if mode.allows_vertices() {
+            mesh.vertex_bvh().query(
+                |min, max| {
+                    projected_bounds_hit(
+                        view_projection,
+                        viewport_px,
+                        pointer_px,
+                        candidate.transform,
+                        min,
+                        max,
+                    )
+                },
+                &mut primitive_candidates,
+            );
+        }
+        for index in primitive_candidates.drain(..) {
+            let Some(point) = vertices.get(index) else {
+                continue;
+            };
             if let Some((screen_pos, position, depth)) = screen(point)
                 && let distance = screen_pos.distance(pointer_px)
                 && distance <= PICK_TOLERANCE_PX
@@ -182,9 +347,45 @@ pub fn pick<'a, T: Clone>(
         .map(|ranked| ranked.hit)
 }
 
-fn projected_depth(camera: &Camera, aspect: f32, point: Vec3) -> Option<f32> {
-    camera
-        .project(point, aspect)
+fn ndc_to_px(ndc: Vec2, viewport_px: Vec2) -> Vec2 {
+    ndc * viewport_px * 0.5
+}
+
+/// Conservatively checks whether a transformed 3D AABB can overlap the
+/// pointer's screen-space tolerance. If any corner is behind the eye, keep
+/// the node: pruning an eye-crossing box would risk a false negative.
+fn projected_bounds_hit(
+    view_projection: Mat4,
+    viewport_px: Vec2,
+    pointer_px: Vec2,
+    transform: Mat4,
+    min: Vec3,
+    max: Vec3,
+) -> bool {
+    let mut screen_min = Vec2::splat(f32::INFINITY);
+    let mut screen_max = Vec2::splat(f32::NEG_INFINITY);
+    for corner in 0..8 {
+        let local = Vec3::new(
+            if corner & 1 == 0 { min.x } else { max.x },
+            if corner & 2 == 0 { min.y } else { max.y },
+            if corner & 4 == 0 { min.z } else { max.z },
+        );
+        let world = transform.transform_point3(local);
+        let Some(ndc) = project_with(view_projection, world) else {
+            return true;
+        };
+        let screen = ndc_to_px(ndc.truncate(), viewport_px);
+        screen_min = screen_min.min(screen);
+        screen_max = screen_max.max(screen);
+    }
+    pointer_px.x >= screen_min.x - PICK_TOLERANCE_PX
+        && pointer_px.x <= screen_max.x + PICK_TOLERANCE_PX
+        && pointer_px.y >= screen_min.y - PICK_TOLERANCE_PX
+        && pointer_px.y <= screen_max.y + PICK_TOLERANCE_PX
+}
+
+fn projected_depth(view_projection: Mat4, point: Vec3) -> Option<f32> {
+    project_with(view_projection, point)
         .map(|projected| projected.z)
         .filter(|depth| (0.0..=1.0).contains(depth))
 }

@@ -3,6 +3,7 @@
 use glam::Vec3;
 
 const LEAF_TRIANGLES: usize = 8;
+const LEAF_BOUNDS: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 struct Bounds {
@@ -49,6 +50,103 @@ struct Triangle {
     center: Vec3,
 }
 
+/// BVH over arbitrary axis-aligned primitive bounds. It is used for scene
+/// parts, line segments and points, whose exact pick tests live elsewhere.
+#[derive(Debug, Default)]
+pub(crate) struct BoundsBvh {
+    nodes: Vec<Node>,
+    primitives: Vec<usize>,
+    bounds: Vec<Bounds>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct QueryStats {
+    pub(crate) visited_nodes: usize,
+    pub(crate) tested_bounds: usize,
+}
+
+impl BoundsBvh {
+    pub(crate) fn build(bounds: impl IntoIterator<Item = (Vec3, Vec3)>) -> Self {
+        let bounds: Vec<Bounds> = bounds
+            .into_iter()
+            .map(|(min, max)| Bounds { min, max })
+            .collect();
+        let mut primitives: Vec<Triangle> = bounds
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, bounds)| Triangle {
+                index,
+                bounds,
+                center: (bounds.min + bounds.max) * 0.5,
+            })
+            .collect();
+        if primitives.is_empty() {
+            return Self::default();
+        }
+
+        let mut result = Self {
+            bounds,
+            ..Self::default()
+        };
+        build_node(
+            &mut result.nodes,
+            &mut result.primitives,
+            &mut primitives,
+            LEAF_BOUNDS,
+        );
+        result
+    }
+
+    pub(crate) fn query(
+        &self,
+        intersects: impl FnMut(Vec3, Vec3) -> bool,
+        output: &mut Vec<usize>,
+    ) {
+        self.query_with_stats(intersects, output);
+    }
+
+    /// Appends the primitives whose bounds pass `intersects` in ascending
+    /// index order, so callers resolve ties exactly as a linear scan would.
+    pub(crate) fn query_with_stats(
+        &self,
+        mut intersects: impl FnMut(Vec3, Vec3) -> bool,
+        output: &mut Vec<usize>,
+    ) -> QueryStats {
+        let mut stats = QueryStats::default();
+        if self.nodes.is_empty() {
+            return stats;
+        }
+
+        let first = output.len();
+        let mut stack = vec![0usize];
+        while let Some(node_index) = stack.pop() {
+            stats.visited_nodes += 1;
+            let node = &self.nodes[node_index];
+            if !intersects(node.bounds.min, node.bounds.max) {
+                continue;
+            }
+            match node.kind {
+                NodeKind::Leaf { start, count } => {
+                    for &primitive in &self.primitives[start..start + count] {
+                        stats.tested_bounds += 1;
+                        let bounds = self.bounds[primitive];
+                        if intersects(bounds.min, bounds.max) {
+                            output.push(primitive);
+                        }
+                    }
+                }
+                NodeKind::Branch { left, right } => {
+                    stack.push(right);
+                    stack.push(left);
+                }
+            }
+        }
+        output[first..].sort_unstable();
+        stats
+    }
+}
+
 /// Bounding-volume hierarchy over a mesh's triangle list.
 #[derive(Debug, Default)]
 pub(crate) struct TriangleBvh {
@@ -85,7 +183,12 @@ impl TriangleBvh {
         }
 
         let mut result = Self::default();
-        build_node(&mut result.nodes, &mut result.triangles, &mut triangles);
+        build_node(
+            &mut result.nodes,
+            &mut result.triangles,
+            &mut triangles,
+            LEAF_TRIANGLES,
+        );
         result
     }
 
@@ -173,6 +276,7 @@ fn build_node(
     nodes: &mut Vec<Node>,
     ordered: &mut Vec<usize>,
     triangles: &mut [Triangle],
+    leaf_size: usize,
 ) -> usize {
     let bounds = triangles.iter().fold(Bounds::EMPTY, |bounds, triangle| {
         bounds.union(triangle.bounds)
@@ -183,7 +287,7 @@ fn build_node(
         kind: NodeKind::Leaf { start: 0, count: 0 },
     });
 
-    if triangles.len() <= LEAF_TRIANGLES {
+    if triangles.len() <= leaf_size {
         let start = ordered.len();
         ordered.extend(triangles.iter().map(|triangle| triangle.index));
         nodes[index].kind = NodeKind::Leaf {
@@ -207,8 +311,8 @@ fn build_node(
     triangles.sort_unstable_by(|a, b| a.center[axis].total_cmp(&b.center[axis]));
     let middle = triangles.len() / 2;
     let (left_triangles, right_triangles) = triangles.split_at_mut(middle);
-    let left = build_node(nodes, ordered, left_triangles);
-    let right = build_node(nodes, ordered, right_triangles);
+    let left = build_node(nodes, ordered, left_triangles, leaf_size);
+    let right = build_node(nodes, ordered, right_triangles, leaf_size);
     nodes[index].kind = NodeKind::Branch { left, right };
     index
 }

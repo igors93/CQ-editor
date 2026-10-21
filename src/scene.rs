@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use glam::{Mat4, Vec3};
 
-use crate::spatial::TriangleBvh;
+use crate::spatial::{BoundsBvh, TriangleBvh};
 use crate::worker::protocol;
 
 pub type NodeKey = String;
@@ -146,6 +146,8 @@ pub struct Mesh {
     pub topology: MeshTopology,
     pub bounds: Aabb,
     triangle_bvh: OnceLock<TriangleBvh>,
+    edge_bvh: OnceLock<BoundsBvh>,
+    vertex_bvh: OnceLock<BoundsBvh>,
 }
 
 /// Pick geometry and its association with the worker's OCCT topology index.
@@ -188,6 +190,8 @@ impl Mesh {
             topology: MeshTopology::default(),
             bounds,
             triangle_bvh: OnceLock::new(),
+            edge_bvh: OnceLock::new(),
+            vertex_bvh: OnceLock::new(),
         }
     }
 
@@ -213,6 +217,32 @@ impl Mesh {
         self.triangle_bvh
             .get_or_init(|| TriangleBvh::build(positions, indices))
             .nearest(origin, direction, positions, indices)
+    }
+
+    pub(crate) fn edge_bvh(&self) -> &BoundsBvh {
+        self.edge_bvh.get_or_init(|| {
+            BoundsBvh::build(self.edges.as_chunks::<2>().0.iter().map(|[a, b]| {
+                let (a, b) = (Vec3::from_array(*a), Vec3::from_array(*b));
+                (a.min(b), a.max(b))
+            }))
+        })
+    }
+
+    pub(crate) fn pick_vertices(&self) -> &[[f32; 3]] {
+        if self.topology.vertices.is_empty() {
+            &self.points
+        } else {
+            &self.topology.vertices
+        }
+    }
+
+    pub(crate) fn vertex_bvh(&self) -> &BoundsBvh {
+        self.vertex_bvh.get_or_init(|| {
+            BoundsBvh::build(self.pick_vertices().iter().map(|point| {
+                let point = Vec3::from_array(*point);
+                (point, point)
+            }))
+        })
     }
 
     #[cfg(test)]
@@ -514,6 +544,16 @@ pub struct Scene {
     topology_highlights: Vec<Part>,
     pub overlay: Overlay,
     mesh_cache: HashMap<String, Weak<Mesh>>,
+    /// Changes only when the set, placement or visibility of pickable parts
+    /// changes. Camera and selection changes deliberately leave it alone.
+    pick_revision: u64,
+}
+
+/// Process-wide, so two scenes never share a revision and an index built
+/// for one scene is never mistaken for an index of another.
+fn next_pick_revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Default for Scene {
@@ -537,6 +577,7 @@ impl Default for Scene {
             topology_highlights: Vec::new(),
             overlay: Overlay::default(),
             mesh_cache: HashMap::new(),
+            pick_revision: next_pick_revision(),
         }
     }
 }
@@ -591,12 +632,17 @@ impl Scene {
             }
         }
         self.nodes.extend(nodes);
+        self.bump_pick_revision();
     }
 
     /// Removes all objects; returns the removed top-level keys.
     pub fn clear(&mut self) -> Vec<NodeKey> {
         self.clear_selection();
-        self.nodes.drain(..).map(|n| n.key).collect()
+        let removed: Vec<_> = self.nodes.drain(..).map(|n| n.key).collect();
+        if !removed.is_empty() {
+            self.bump_pick_revision();
+        }
+        removed
     }
 
     /// Removes the given top-level nodes (keys of nested nodes are ignored).
@@ -609,6 +655,9 @@ impl Scene {
             }
             !remove
         });
+        if !removed.is_empty() {
+            self.bump_pick_revision();
+        }
         self.prune_selection();
         removed
     }
@@ -698,9 +747,24 @@ impl Scene {
 
     /// Shows or hides a node and its whole subtree.
     pub fn set_visible(&mut self, key: &str, visible: bool) {
+        let mut changed = false;
         if let Some(node) = self.find_mut(key) {
-            node.visit_mut(&mut |n| n.visible = visible);
+            node.visit_mut(&mut |n| {
+                changed |= n.visible != visible;
+                n.visible = visible;
+            });
         }
+        if changed {
+            self.bump_pick_revision();
+        }
+    }
+
+    pub(crate) fn pick_revision(&self) -> u64 {
+        self.pick_revision
+    }
+
+    fn bump_pick_revision(&mut self) {
+        self.pick_revision = next_pick_revision();
     }
 
     // -- selection ---------------------------------------------------------

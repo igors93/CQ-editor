@@ -194,6 +194,7 @@ pub struct Viewer {
     screenshot: Option<PathBuf>,
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
+    pick_index: picking::SceneIndex,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -217,6 +218,7 @@ impl Default for Viewer {
             screenshot: None,
             axis_meshes: None,
             grid_mesh: None,
+            pick_index: picking::SceneIndex::default(),
         }
     }
 }
@@ -660,21 +662,22 @@ impl Viewer {
     }
 
     fn pick(
-        &self,
+        &mut self,
         scene: &Scene,
         rect: Rect,
         pos: Pos2,
     ) -> Option<(NodeKey, Option<TopologySelection>)> {
-        let candidates = scene.visible_nodes().into_iter().flat_map(|node| {
-            node.parts
-                .iter()
-                .enumerate()
-                .map(move |(part_index, part)| picking::Candidate {
-                    id: (node.key.clone(), part_index),
-                    mesh: &part.mesh,
-                    transform: part.transform,
-                })
-        });
+        self.pick_index.update(scene);
+        let candidate_indices = self.pick_index.query(
+            &self.camera,
+            self.aspect,
+            ndc(rect, pos),
+            GVec2::new(rect.width(), rect.height()),
+            self.selection_mode,
+        );
+        let candidates = candidate_indices
+            .into_iter()
+            .filter_map(|index| self.pick_index.candidate(scene, index));
         picking::pick(
             &self.camera,
             self.aspect,

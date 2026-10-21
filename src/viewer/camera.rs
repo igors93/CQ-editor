@@ -323,13 +323,14 @@ impl Camera {
             extent: extent.max(MIN_EXTENT * 10.0),
         }
     }
+}
 
-    /// Projects a world point to normalized device coordinates; `None`
-    /// behind the eye.
-    pub fn project(&self, point: Vec3, aspect: f32) -> Option<Vec3> {
-        let clip = self.view_projection(aspect) * point.extend(1.0);
-        (clip.w > 1e-6).then(|| clip.truncate() / clip.w)
-    }
+/// Projects a world point to normalized device coordinates with a
+/// [`Camera::view_projection`]; `None` behind the eye. Callers projecting
+/// many points compute the matrix once.
+pub fn project_with(view_projection: Mat4, point: Vec3) -> Option<Vec3> {
+    let clip = view_projection * point.extend(1.0);
+    (clip.w > 1e-6).then(|| clip.truncate() / clip.w)
 }
 
 /// Holroyd's trackball: a sphere blended into a hyperbolic sheet, so the

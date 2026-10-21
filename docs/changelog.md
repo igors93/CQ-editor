@@ -36,6 +36,10 @@ tracked in the compatibility matrix instead of being assumed.
   keep them, reload, save a copy or compare
 * New: content-addressed mesh cache and assembly instancing; unchanged
   meshes are not sent or uploaded again
+* New: hover and click selection stay fast on large assemblies; a retained
+  spatial index of scene parts and per-mesh edge and vertex indexes replace
+  the linear scan (about 0.1 ms instead of 150 ms per pointer move with
+  16,384 parts)
 * New: documentation in `docs/` (user guide, development guide, roadmap)
 * New: a tested compatibility matrix inventories original features, guards
   legacy shortcuts and mouse gestures, and runs every pre-rewrite example

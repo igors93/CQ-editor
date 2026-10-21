@@ -42,7 +42,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `file_watcher.rs` | Polling watcher behind *Automatic reload* |
 | `settings.rs` | Preferences, persisted by eframe |
 | `scene.rs` | What the view shows: nodes, parts, meshes, visibility, colors, selection, topology selection, inspector overlay |
-| `spatial.rs` | Bounding-volume hierarchy for triangle picking |
+| `spatial.rs` | Bounding-volume hierarchies for picking: triangles, and generic boxes for scene parts, edge segments and vertices |
 | `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent) |
 | `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
@@ -111,6 +111,30 @@ pixels, and a face in front of them occludes them. The worker sends, with
 every mesh, which triangle belongs to which OCCT face and which segment to
 which edge (`MeshTopology`). A click can therefore name *Face 6* rather than
 "triangle 1234".
+
+Picking never scans the whole scene. It runs in two phases:
+
+* **Broad phase:** the viewer keeps a `SceneIndex`, a BVH over the
+  world-space bounds of every visible part. A part is kept when the pointer
+  ray hits its box or, when edges or vertices may be picked, when its
+  projected box lies within the pixel tolerance of the pointer. The index is
+  rebuilt only when `Scene::pick_revision` changes (parts added, removed or
+  shown/hidden), never on camera moves or selection changes.
+* **Narrow phase:** each remaining mesh tests its triangles, edge segments
+  and vertices through its own lazily built BVHs, shared by every instance
+  of the mesh. Edge and vertex boxes are pruned in screen space.
+
+Both phases return candidates in scene and index order, so ties between
+coincident entities resolve exactly as a linear scan would. The camera
+matrices are computed once per pick (`camera::project_with`).
+`pick_latency_on_growing_assemblies` measures hover latency as the part
+count grows (see [Testing](testing.md#benchmarks)).
+
+GPU picking (rendering entity ids and reading a pixel back) was considered
+and not adopted for now: the readback adds at least a frame of latency and
+a GPU-to-CPU synchronization, while the CPU path above stays near 0.1 ms per
+hover in the benchmark's assembly of 16,384 parts. Revisit it only if a
+measured scene makes the CPU path the bottleneck again.
 
 ## Python side (`worker/cq_worker/`)
 

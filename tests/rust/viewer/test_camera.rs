@@ -72,7 +72,7 @@ fn projection_round_trips_through_rays() {
             projection,
             ..Camera::default()
         };
-        let ndc = camera.project(Vec3::new(3.0, 4.0, 5.0), 1.3).unwrap();
+        let ndc = project_with(camera.view_projection(1.3), Vec3::new(3.0, 4.0, 5.0)).unwrap();
         assert!(
             ndc.z >= 0.0 && ndc.z <= 1.0,
             "{projection:?} depth {}",

@@ -327,7 +327,7 @@ caller frame explicitly.
 | :---: | --- | --- | --- | --- |
 | | PERF-01 | Pick topology walks every triangulation node and triangle **in Python** (`_topology_faces`), which is the slow path the glTF writer was introduced to avoid. The pick triangles also duplicate the display triangles in memory and over the pipe | `worker/cq_worker/tessellation.py:449` | Build a per-triangle face id array for the display mesh (glTF primitives map to faces) and pick on the display triangles; vectorize the rest with numpy |
 | | PERF-02 | Each tessellation writes and reads a temporary `.glb` file on disk | `tessellation.py:306` | Reuse one temporary directory, or use an in-memory stream if OCCT allows it; measure first |
-| | PERF-03 | Hovering re-runs edge and vertex picking for every segment of every object on each pointer move. Faces use a BVH, edges do not | `src/viewer/picking.rs` | Spatial index (screen grid or BVH) for segments; skip hover picking while a drag is in progress or the pointer is still |
+| ✅ | PERF-03 | Resolved: a retained scene-part BVH prefilters parts and per-mesh BVHs prune edges and vertices in screen space; hover picking already pauses while dragging or when the pointer is still | `src/viewer/picking.rs`, `src/spatial.rs` | Covered by linear-scan equivalence tests and the `pick_latency_on_growing_assemblies` benchmark |
 | ✅ | PERF-04 | Resolved: the `measure` request resolves selected ids through `RegistryEntry.subshape` and calculates against live OCCT geometry | `worker/cq_worker/measurement.py`, `protocol.rs` | Covered by exact numeric worker and protocol tests |
 
 ---
@@ -423,7 +423,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | ENG-01 | Keep CI green (the format check was fixed with BUG-03 ✅). Add `ruff` and a type checker for the worker, and coverage reports for both suites |
 | | ENG-02 | Shared protocol fixtures: golden JSON messages tested by both the Rust and the Python suites, so the two sides cannot drift |
 | | ENG-03 | Headless UI tests of panels and dialogs (for example with `egui_kittest`) |
-| | ENG-04 | Benchmarks for tessellation, decoding and picking on large assemblies, tracked over time |
+| | ENG-04 | Benchmarks for tessellation, decoding and picking on large assemblies, tracked over time (picking has `pick_latency_on_growing_assemblies`; not yet tracked over time) |
 | | ENG-05 | Accessibility review (keyboard-only use, screen readers through AccessKit, contrast of both themes) |
 
 ---
