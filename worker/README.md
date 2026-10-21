@@ -1,25 +1,12 @@
 # cq_worker
 
-The CadQuery execution backend of CQ-editor. The editor starts it as
-`python -m cq_worker` and talks to it over stdin/stdout, one JSON object per
-line (see `cq_worker/protocol.py`).
+The CadQuery execution backend of [CQ-editor](https://github.com/CadQuery/CQ-editor).
+The editor starts it as `python -m cq_worker` and talks to it over
+stdin/stdout, one JSON object per line. The package is embedded in the
+CQ-editor executable, so users never install it themselves.
 
-| Module | Role |
-| --- | --- |
-| `protocol.py` | Message transport and stdout/stderr capture |
-| `server.py` | Request dispatch and session state |
-| `execution.py` | Running scripts: injected API, tracebacks, module reloading |
-| `debugger.py` | Line stepping debugger (`sys.settrace`) |
-| `scene.py` | Shown objects to scene nodes: colors, assemblies, registry |
-| `tessellation.py` | Meshing shapes into compact arrays |
-| `inspector.py` | CadQuery workplane stack inspection |
-| `console.py` | The interactive console |
-| `completion.py` | jedi based completion |
-| `exporting.py` | STEP / STL / BREP export |
-| `network.py` | Model upload and CadQuery release checks |
+Documentation lives in the repository's `docs/` folder:
 
-Run the tests with CadQuery installed:
-
-```sh
-PYTHONPATH=worker python -m pytest tests/worker
-```
+* [Architecture](../docs/development/architecture.md#python-side-workercq_worker): what each module does
+* [Worker protocol](../docs/development/protocol.md): requests and messages
+* [Testing](../docs/development/testing.md): running `pytest tests/worker`

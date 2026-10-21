@@ -1,0 +1,93 @@
+# Keyboard and mouse reference
+
+On macOS, **Ctrl** means **Cmd**.
+
+## Global shortcuts
+
+### File and edit
+
+| Command | Shortcut |
+| --- | --- |
+| New | Ctrl+N |
+| Open… | Ctrl+O |
+| Save | Ctrl+S |
+| Save As… | Ctrl+Shift+S |
+| Quit | Ctrl+Q |
+| Toggle Comment | Ctrl+/ |
+| Auto-Complete | Ctrl+Space or Alt+/ |
+| Search | Ctrl+F |
+| Next / previous match | F3 / Alt+F3 |
+| Preferences… | Ctrl+, |
+| Zoom the interface | Ctrl + plus / Ctrl + minus |
+
+### Run and debug
+
+| Command | Shortcut |
+| --- | --- |
+| Render | F5 |
+| Debug / Stop Debugging | Ctrl+F5 |
+| Stop (abort any run) | Ctrl+Shift+F5 |
+| Step | Ctrl+F10 |
+| Step In | Ctrl+F11 |
+| Step Out | Ctrl+Shift+F11 |
+| Continue | Ctrl+F12 |
+
+Pressing F5 while a script is already rendering queues one more run, which
+starts as soon as the current one ends.
+
+### View
+
+| Command | Shortcut |
+| --- | --- |
+| Fit | Shift+F1 |
+| Iso | Shift+F2 |
+| Top | Shift+F3 |
+| Bottom | Shift+F4 |
+| Front | Shift+F5 |
+| Back | Shift+F6 |
+| Left | Shift+F7 |
+| Right | Shift+F8 |
+| Wireframe | Shift+F9 |
+| Shaded | Shift+F10 |
+
+## Editor
+
+| Key | Action |
+| --- | --- |
+| Tab / Shift+Tab | Indent / unindent the line or the selected lines |
+| Enter | New line with automatic indentation |
+| Click on a line number | Toggle a breakpoint |
+| In the completion popup: ↑ ↓, Enter or Tab, Esc | Choose, accept, close |
+| In the search bar: Enter / Shift+Enter, Esc | Next / previous match, close |
+
+## Console
+
+| Key | Action |
+| --- | --- |
+| Enter | Run |
+| Shift+Enter | New line |
+| ↑ / ↓ | Input history |
+| Tab | Complete |
+
+## 3D view
+
+| Action | Mouse |
+| --- | --- |
+| Orbit | Left drag |
+| Pan | Middle drag, or Ctrl + left drag |
+| Zoom | Wheel or pinch (toward the pointer), right drag, or Shift + left drag |
+| Select a face, edge or vertex | Click |
+| Add to / remove from the selection | Ctrl + click |
+| Clear the selection | Click on empty space |
+| Zoom to an object | Double-click |
+| Look from a side, edge or corner | Click the navigation cube |
+| Roll 45° | Click a curved arrow above the cube |
+
+## Objects panel
+
+| Action | Mouse |
+| --- | --- |
+| Select / add to selection | Click / Ctrl + click |
+| Zoom to object | Double-click |
+| Zoom to, Show/Hide, Export, Remove | Right-click |
+| Show / hide | Checkbox |

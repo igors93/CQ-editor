@@ -1,0 +1,176 @@
+# Worker protocol (version 3)
+
+The GUI and the Python worker exchange **one JSON object per line**, encoded
+as UTF-8:
+
+* **requests** go from the GUI to the worker's **stdin** and carry a `cmd`
+  field;
+* **messages** go from the worker to the GUI on a private duplicate of the
+  original **stdout** and carry a `type` field;
+* the worker's **stderr** is free text, shown in the Log panel line by line.
+
+Definitions: `src/worker/protocol.rs` (Rust, authoritative for the GUI) and
+`worker/cq_worker/server.py` (Python).
+
+## Process start-up
+
+The GUI runs:
+
+```
+<python> -m cq_worker        with PYTHONPATH=<worker dir>[:<existing PYTHONPATH>]
+                                  PYTHONIOENCODING=utf-8
+```
+
+The worker then:
+
+1. duplicates descriptor 1 for the protocol, and points descriptor 1 at
+   stderr. C++ code printing to stdout (OpenCascade) can then never corrupt
+   the message stream;
+2. replaces `sys.stdout`/`sys.stderr` with streams that send `output`
+   messages, and `sys.stdin` with an empty stream (scripts must not consume
+   requests);
+3. removes a stale `CASROOT` variable and imports CadQuery;
+4. sends **`ready`**, or **`fatal`** if the import failed.
+
+```json
+{"type":"ready","protocol":3,"python":"3.10.11","cadquery":"2.7.0","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
+```
+
+The GUI refuses a worker whose `protocol` differs from its own
+`PROTOCOL_VERSION`. **Bump the version on both sides** whenever a change is
+not backward compatible.
+
+## Ids and replies
+
+Most requests carry an `id` chosen by the GUI. The reply carries the same
+`id`. `output` and `log` messages produced while a request is handled are
+tagged with that request's id. This is how console output ends up in the
+console and script output in the Log panel.
+
+A failing request is answered with:
+
+```json
+{"type":"error","id":7,"message":"KeyError: Unknown object 'n3'; it may have been cleared"}
+```
+
+The worker handles one request at a time, in arrival order.
+
+## Requests
+
+| `cmd` | Fields | Reply |
+| --- | --- | --- |
+| `run` | `id`, `script`, `path` (or null), `debug`, `breakpoints` (line numbers), `settings` (RunSettings), `scene` (SceneSettings), `known_geometry` (mesh ids) | `run_finished`, preceded by `debug_paused` messages when debugging |
+| `debug` | `action` (`continue`, `step`, `step_in`, `step_out`, `stop`), `breakpoints` | Only while paused. Resumes the session |
+| `release` | `keys` | None. Frees registry entries |
+| `complete` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path`, `target` (`editor` or `console`) | `completions` |
+| `inspect` | `id`, `key` | `inspection` |
+| `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
+| `console` | `id`, `source`, `scene`, `known_geometry` | `scene_add` (if objects were shown), then `console_result` |
+| `console_reset` | `id` | `console_result` |
+| `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
+| `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
+| `check_updates` | `id` | `updates` |
+| `imports` | `id`, `path` | `imports` (local module files imported by the script) |
+| `shutdown` | | The worker exits |
+
+**RunSettings:** `reload_cq`, `add_script_dir_to_path`, `change_working_dir`,
+`reload_imported_modules` (booleans, see [Preferences](../user-guide/preferences.md#execution)).
+
+**SceneSettings:** `linear_tolerance`, `angular_tolerance` (display mesh),
+`merge_assemblies`.
+
+## Messages
+
+| `type` | Fields | Meaning |
+| --- | --- | --- |
+| `ready` | `protocol`, `python`, `cadquery`, `executable`, `completion`, `pid` | Worker is ready |
+| `fatal` | `message`, `detail`, `executable` | Worker cannot start |
+| `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
+| `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `objects`, `variables`, `error`, `duration` | End of a run. `objects` is null when a failed plain run should keep the current scene |
+| `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
+| `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
+| `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
+| `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
+| `scene_add` | `id`, `objects` | Objects shown from the console |
+| `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
+| `export_finished` | `id`, `path` | |
+| `upload_finished` | `id`, `status`, `body` | HTTP status and response body |
+| `updates` | `id`, `current`, `newer` | CadQuery release tags newer than `current` |
+| `imports` | `id`, `paths` | |
+| `error` | `id`, `message` | A request failed |
+
+`error` (in `run_finished`) is a ScriptError: `type_name`, `message`,
+`frames` (`file`, `line`, `function`, `code`), `line` (the last line of the
+script involved) and `text` (Python's formatted traceback). The editor
+buffer appears as the file `<cq-editor>`.
+
+## Scene nodes
+
+```json
+{
+  "key": "n4", "name": "bracket", "kind": "Workplane", "inspectable": true,
+  "color": [0.27, 0.51, 0.71], "alpha": null, "edge_color": null,
+  "parts": [{ "mesh": { … }, "transform": [16 floats, column-major], "color": null, "alpha": null }],
+  "children": []
+}
+```
+
+* `key` identifies the object in the worker's registry. It is used for
+  `export`, `inspect`, `upload` and `release`.
+* An assembly is a node whose `children` mirror the assembly tree. Each
+  child carries its own parts and placement.
+* Colors are sRGB floats in 0–1. `null` means "use the default".
+
+### Meshes
+
+A full mesh:
+
+| Field | Encoding |
+| --- | --- |
+| `id` | Content id: BLAKE2b of the shape's binary BREP and the tolerances |
+| `positions`, `normals` | base64 of little-endian `f32` triples |
+| `indices` | base64 of little-endian `u32`, three per triangle |
+| `edges` | base64 `f32` triples, two points per segment |
+| `points` | base64 `f32` triples (free vertices) |
+| `bbox` | `[[min x, y, z], [max x, y, z]]` |
+| `topology` | `face_positions`, `face_indices`, `triangle_faces` (OCCT face id per pick triangle), `segment_edges` (OCCT edge id per segment), `vertices` |
+
+A **reference** is just `{"id": "…"}`. The worker sends it instead of the
+arrays when the id is in the request's `known_geometry` or was already sent
+in the same response. The GUI resolves it from the meshes it holds.
+
+Binary arrays are decoded on the GUI's reader thread, so large models never
+stall the interface.
+
+## Debugging sessions
+
+```
+GUI                                   worker
+ │  run {debug: true, breakpoints}      │
+ │ ───────────────────────────────────► │ runs under sys.settrace
+ │            debug_paused {line: 9}    │ pauses, waits for a command
+ │ ◄─────────────────────────────────── │
+ │  complete / inspect / export …       │ served while paused
+ │ ───────────────────────────────────► │
+ │  debug {action: "step"}              │
+ │ ───────────────────────────────────► │ resumes
+ │            debug_paused {line: 10}   │
+ │ ◄─────────────────────────────────── │
+ │  debug {action: "continue"}          │
+ │ ───────────────────────────────────► │
+ │            run_finished              │
+ │ ◄─────────────────────────────────── │
+```
+
+While paused, only `complete`, `inspect`, `inspect_geometry`, `export`,
+`imports`, `release` and `check_updates` are served. Anything else is
+answered with an `error` (*Not available while debugging; continue or stop
+first*).
+
+## Stopping
+
+There is no "cancel" request: Python cannot interrupt arbitrary C++ code
+safely. **Stop** kills the worker process and starts a new one. Events from
+the old process are discarded by their generation number.

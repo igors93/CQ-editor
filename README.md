@@ -1,42 +1,125 @@
-# CQ-editor
+<h1 align="center">CQ-editor</h1>
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.3955112-blue.svg)](https://doi.org/10.5281/zenodo.3955112)
-[![Patreon](https://badgen.net/badge/icon/patreon?icon=patreon&label)](https://www.patreon.com/jmwright)
-[![Liberapay](https://badgen.net/badge/icon/liberapay?icon=liberapay&label)](https://liberapay.com/jmwright)
+<p align="center">
+  <strong>The code editor and 3D viewer for <a href="https://github.com/CadQuery/cadquery">CadQuery</a>.</strong><br>
+  Write Python, press <kbd>F5</kbd>, see your model. On Linux, Windows and macOS.
+</p>
 
-CadQuery script editor and 3D viewer for Linux, Windows and macOS.
+<p align="center">
+  <a href="https://github.com/CadQuery/CQ-editor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/CadQuery/CQ-editor/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.3955112"><img alt="DOI" src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.3955112-blue.svg"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <a href="https://www.patreon.com/jmwright"><img alt="Patreon" src="https://badgen.net/badge/icon/patreon?icon=patreon&label"></a>
+  <a href="https://liberapay.com/jmwright"><img alt="Liberapay" src="https://badgen.net/badge/icon/liberapay?icon=liberapay&label"></a>
+</p>
 
-![CQ-editor screenshot](https://github.com/CadQuery/CQ-editor/raw/master/screenshots/screenshot4.png)
-Additional screenshots are available in [the wiki](https://github.com/CadQuery/CQ-editor/wiki#screenshots).
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-window-dark.png">
+    <img alt="CQ-editor with a CadQuery script on the left and the rendered model on the right" src="docs/images/main-window-light.png" width="900">
+  </picture>
+</p>
+
+CadQuery models are Python programs: parametric, versionable and easy to
+share. CQ-editor is the IDE built around that idea. You get an editor for
+your script, a fast 3D view of the result, and the tools to understand how
+the model was built: a debugger, a stack inspector and an interactive
+console. Your code stays the single source of truth.
 
 ## Notable features
 
-* Automatic code reloading - you can use your favourite editor
-* GPU accelerated 3D view with anti-aliasing, smooth camera animations and
-  zoom at the mouse pointer
-* Navigation cube with rotation arrows
-  * Always shows the current camera orientation
-  * Click faces, edges or corners for one-click animated reorientation
-* Graphical debugger for CadQuery scripts
-  * Step through the script (over, in, out) and watch how your model changes
-* CadQuery object stack inspector
-  * Visual inspection of the current workplane and selected items
-  * Insight into the evolution of the model
-* Export to STEP (assemblies keep names and colors), STL and BREP
-* Python console sharing the variables of the last run
-* Light and dark themes, dockable panels that remember their layout
-* Atomic file saves, automatic crash recovery and a bounded local history
-* A long running or crashing script never freezes or takes down the editor:
-  press Stop (Ctrl+Shift+F5) to abort it
+* **Automatic code reloading**: keep using your favorite editor; CQ-editor
+  re-runs the script on every save, and never silently overwrites unsaved
+  edits.
+* **GPU-accelerated 3D view** with anti-aliasing, smooth camera animations,
+  zoom at the mouse pointer, and turntable or trackball orbiting.
+* **Navigation cube** with rotation arrows
+  * always shows the current camera orientation;
+  * click faces, edges or corners for one-click animated reorientation.
+* **Precise selection** of faces, edges and vertices, with stable topological
+  ids (*Selected Face 6 of bracket*).
+* **Graphical debugger** for CadQuery scripts
+  * step through the script (over, in, out) and watch the model change.
+* **CadQuery object stack inspector**
+  * visual inspection of the current workplane and selected items;
+  * insight into the evolution of the model.
+* **Export** to STEP (assemblies keep names and colors), STL and BREP.
+* **Python console** that shares the variables of the last run.
+* **Robust by design**: scripts run in a separate Python process, so a long
+  or crashing script never freezes or takes down the editor. Saves are
+  atomic, and unsaved work is recovered after a crash.
+* **Light and dark themes**, dockable panels that remember their layout.
+
+<table>
+  <tr>
+    <td width="33%"><img alt="Debugger paused at a breakpoint" src="docs/images/debugger.png"></td>
+    <td width="33%"><img alt="CQ Inspector overlaying a construction step" src="docs/images/inspector.png"></td>
+    <td width="33%"><img alt="A selected face and its id in the status bar" src="docs/images/topology-selection.png"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Step through a script</sub></td>
+    <td align="center"><sub>Inspect how a model was built</sub></td>
+    <td align="center"><sub>Select faces, edges and vertices</sub></td>
+  </tr>
+</table>
+
+## Quick start
+
+1. **Install CadQuery** in a Python environment (`jedi` is optional and
+   enables code completion):
+
+   ```sh
+   python -m venv .venv
+   .venv/bin/pip install cadquery jedi        # Windows: .venv\Scripts\pip
+   ```
+
+2. **Get CQ-editor.** Download the executable for your system from the
+   [releases page](https://github.com/CadQuery/CQ-editor/releases) (version
+   0.8 and later are single executables), or build it with Rust 1.88+:
+
+   ```sh
+   cargo build --release                      # → target/release/cq-editor
+   ```
+
+3. **Run it** from a terminal where the environment is active (or point it at
+   Python with `--python`):
+
+   ```sh
+   cq-editor my_part.py
+   ```
+
+4. **Press F5.** Scripts are plain CadQuery; `show_object` decides what is
+   displayed:
+
+   ```python
+   import cadquery as cq
+
+   result = cq.Workplane("XY").box(40, 30, 12).edges("|Z").fillet(3)
+   show_object(result, name="block", options={"color": "steelblue"})
+   ```
+
+New to CadQuery or CQ-editor? The [10-minute tour](docs/getting-started/first-model.md)
+models a bracket step by step, and **File > Examples** has eight commented
+scripts.
+
+## Documentation
+
+Everything is in the [`docs/`](docs/README.md) folder:
+
+* [Installation](docs/getting-started/installation.md): requirements, how Python is found, where files are stored
+* [Your first model](docs/getting-started/first-model.md): a guided tour
+* [User guide](docs/README.md#user-guide): [interface](docs/user-guide/interface.md), [writing scripts](docs/user-guide/scripting.md), [3D view](docs/user-guide/viewer.md), [editor](docs/user-guide/editor.md), [debugging](docs/user-guide/debugging.md), [console](docs/user-guide/console.md), [exporting](docs/user-guide/exporting.md), [preferences](docs/user-guide/preferences.md), [shortcuts](docs/user-guide/shortcuts.md), [troubleshooting](docs/user-guide/troubleshooting.md)
+* [Development](docs/README.md#development): [architecture](docs/development/architecture.md), [worker protocol](docs/development/protocol.md), [building](docs/development/building.md), [testing](docs/development/testing.md), [contributing](docs/development/contributing.md)
+* [Roadmap](docs/roadmap.md) and [changelog](docs/changelog.md)
 
 ## How it works
 
 The interface is a native Rust application built with
 [egui](https://github.com/emilk/egui) and [wgpu](https://wgpu.rs). CadQuery
-runs in a separate Python process, the *worker* (`worker/cq_worker`), which
-executes scripts, tessellates the shapes and sends the meshes to the
-interface. The worker sources are embedded in the executable, so all CQ-editor
-needs is a Python environment with CadQuery installed.
+runs in a separate Python process, the *worker*. The worker executes
+scripts, meshes the shapes and sends them to the interface. Its sources are
+embedded in the executable, so all CQ-editor needs is a Python environment
+with CadQuery.
 
 ```
 ┌──────────────────────────────┐   JSON lines    ┌─────────────────────────────┐
@@ -46,125 +129,45 @@ needs is a Python environment with CadQuery installed.
 └──────────────────────────────┘                 └─────────────────────────────┘
 ```
 
-## Installation
-
-1. Install CadQuery in a Python environment, for example:
-
-   ```sh
-   python -m venv .venv
-   .venv/bin/pip install cadquery jedi   # .venv\Scripts\pip on Windows
-   ```
-
-   `jedi` is optional and enables code completion.
-
-2. Build CQ-editor with a recent stable Rust toolchain:
-
-   ```sh
-   cargo build --release
-   ```
-
-   The executable is `target/release/cq-editor` (`cq-editor.exe` on Windows).
-
-3. Run it, optionally with a script to open:
-
-   ```sh
-   cq-editor my_part.py
-   ```
-
-CQ-editor finds Python in this order: the `--python PATH` option, the
-interpreter set in *Edit > Preferences > General*, the `CQ_EDITOR_PYTHON`
-environment variable, the active virtual or conda environment, a `.venv`
-folder next to the executable or in the working directory, and finally
-`python` (`python3`) on `PATH`.
-
-### Building on Windows with the GNU toolchain
-
-The `x86_64-pc-windows-gnu` toolchain does not need Visual Studio, but some
-dependencies need `as` and `dlltool` from MinGW-w64 binutils on `PATH`
-(for example from [WinLibs](https://winlibs.com) or MSYS2). With the MSVC
-toolchain nothing extra is needed.
-
-## Usage
-
-Scripts are regular CadQuery Python files. CQ-editor provides these names in
-the script namespace:
-
-| Name | Purpose |
-| --- | --- |
-| `show_object(obj, name=None, options=None, **options)` | Show `obj`. Options: `color`, `alpha` (opacity 0-1), `rgba`, `edgecolor`. Colors can be names (`"steelblue"`), `"#rrggbb"`, `cq.Color` or tuples. |
-| `debug(obj, name=None)` | Show `obj` as a translucent red overlay. |
-| `log(value)` | Write to the Log panel. |
-| `rand_color(alpha=1.0, cfloat=False)` | A random dark color for `show_object` options. |
-| `cq` | The `cadquery` module. |
-
-When a script never calls `show_object`, every CadQuery object bound to a
-variable is shown. `print` output goes to the Log panel.
-
-### Mouse
-
-| Action | Control |
-| --- | --- |
-| Orbit | Left drag (turntable or trackball, see Preferences) |
-| Pan | Middle drag or Ctrl + left drag |
-| Zoom | Mouse wheel (at the pointer), right drag or Shift + left drag |
-| Select | Click a face, edge or vertex; Ctrl + click adds to the selection |
-| Zoom to object | Double-click |
-
-### Keyboard
-
-| Command | Shortcut |
-| --- | --- |
-| Render | F5 |
-| Debug / stop debugging | Ctrl+F5 |
-| Step, step in, step out, continue | Ctrl+F10, Ctrl+F11, Ctrl+Shift+F11, Ctrl+F12 |
-| Stop a running script | Ctrl+Shift+F5 |
-| Fit, Iso, Top, Bottom, Front, Back, Left, Right | Shift+F1 … Shift+F8 |
-| Wireframe, Shaded | Shift+F9, Shift+F10 |
-| Toggle comment | Ctrl+/ |
-| Auto-complete | Ctrl+Space or Alt+/ |
-| Search, next, previous | Ctrl+F, F3, Alt+F3 |
-| New, open, save, save as | Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S |
-| Preferences | Ctrl+, |
-
-Click the line numbers to toggle breakpoints.
-
-## Development
-
-```
-src/            the Rust application
-  app.rs        application state, frame loop and actions
-  editor/       code editor: highlighting, text operations
-  viewer/       3D view: camera, wgpu renderer, picking, navigation cube
-  panels/       objects, variables, inspector, console, traceback, log
-  dialogs/      preferences, upload and message windows
-  ui/           menu bar, toolbar, status bar
-  worker/       worker process management and protocol types
-worker/         the Python worker package (cq_worker)
-tests/rust/      Rust tests, grouped by application area
-tests/worker/    Python worker tests, grouped by execution, geometry and protocol
-examples/       example scripts (File > Examples)
-```
-
-* `cargo run -- examples/01_hello_box.py` starts a debug build; debug builds
-  load the worker straight from `worker/`, so Python changes apply on restart.
-* `cargo test` runs the Rust tests, `pytest tests/worker` (with `worker` on
-  `PYTHONPATH` and CadQuery installed) the worker tests.
-* `CQ_EDITOR_WORKER_DIR` points any build at another worker directory.
+Scripts written for the original PyQt CQ-editor keep working: same
+`show_object` options, same script namespace, same execution settings. See
+[Architecture](docs/development/architecture.md) for the details.
 
 ## Getting Help
 
-For general questions and discussion about CQ-editor, please create a [GitHub Discussion](https://github.com/CadQuery/CQ-editor/discussions).
+For general questions and discussion about CQ-editor, please create a
+[GitHub Discussion](https://github.com/CadQuery/CQ-editor/discussions). For
+CadQuery itself, see the [CadQuery documentation](https://cadquery.readthedocs.io/en/latest/).
 
 ## Reporting a Bug
 
-If you believe that you have found a bug in CQ-editor, please ensure the following.
+If you believe that you have found a bug in CQ-editor, please make sure that:
 
-* You are not running a CQ-editor fork, as these are not always synchronized with the latest updates in this project.
-* You have searched the [issue tracker](https://github.com/CadQuery/CQ-editor/issues) to make sure that the bug is not already known.
+* you are not running a CQ-editor fork, as forks are not always synchronized
+  with the latest updates in this project;
+* you have searched the [issue tracker](https://github.com/CadQuery/CQ-editor/issues)
+  and the [roadmap](docs/roadmap.md#1-bugs-and-problems) to make sure the bug
+  is not already known.
 
-If you have already checked those things, please file a [new issue](https://github.com/CadQuery/CQ-editor/issues/new) with the following information.
+Then file a [new issue](https://github.com/CadQuery/CQ-editor/issues/new)
+with:
 
-* Operating System (type, version, etc) - If running Linux, please include the distribution and the version.
-* How CQ-editor was installed.
-* Python and CadQuery versions (shown in the status bar and in Help > About).
-* Steps to reproduce the bug.
+* the operating system and its version (on Linux, the distribution and its
+  version);
+* how CQ-editor was installed (release download or built from source, and
+  which commit);
+* the Python and CadQuery versions (shown in the status bar and in *Help >
+  About*);
+* the steps to reproduce the bug, ideally with a small script;
+* the relevant lines from the Log panel.
+
+## Contributing
+
+Contributions are welcome. Start with [Contributing](docs/development/contributing.md)
+and pick something from the [roadmap](docs/roadmap.md).
+
+## License
+
+CQ-editor is licensed under the [Apache License 2.0](LICENSE). The bundled
+Inter and JetBrains Mono fonts are under the SIL Open Font License 1.1 (see
+[`assets/fonts`](assets/fonts/README.md)).
