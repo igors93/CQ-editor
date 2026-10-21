@@ -93,6 +93,15 @@ enum DragMode {
     Zoom,
 }
 
+impl DragMode {
+    fn cursor(self) -> egui::CursorIcon {
+        match self {
+            Self::Orbit | Self::Pan => egui::CursorIcon::Grabbing,
+            Self::Zoom => egui::CursorIcon::ResizeVertical,
+        }
+    }
+}
+
 struct Drag {
     mode: DragMode,
     start: Pos2,
@@ -362,16 +371,10 @@ impl Viewer {
                     i.pointer.button_down(egui::PointerButton::Secondary),
                 )
             });
-            let mode = if over_zoom_controls(start) {
+            let mode = if over_zoom_controls(start) || over_cube(start) {
                 None
-            } else if middle || (primary && modifiers.command) {
-                Some(DragMode::Pan)
-            } else if secondary || (primary && modifiers.shift) {
-                Some(DragMode::Zoom)
-            } else if primary && !over_cube(start) {
-                Some(DragMode::Orbit)
             } else {
-                None
+                requested_drag_mode(modifiers, primary, middle, secondary)
             };
             self.drag = mode.map(|mode| Drag {
                 mode,
@@ -459,6 +462,27 @@ impl Viewer {
                 self.hovered = hovered;
                 ui.ctx().request_repaint();
             }
+        }
+
+        // Give immediate feedback on mouse-down, before the movement is large
+        // enough for egui to classify it as a drag. Once dragging starts, keep
+        // the cursor even if the pointer leaves the viewport.
+        let cursor_mode = self.drag.as_ref().map(|drag| drag.mode).or_else(|| {
+            let (origin, modifiers, primary, middle, secondary) = ui.input(|i| {
+                (
+                    i.pointer.press_origin(),
+                    i.modifiers,
+                    i.pointer.button_down(egui::PointerButton::Primary),
+                    i.pointer.button_down(egui::PointerButton::Middle),
+                    i.pointer.button_down(egui::PointerButton::Secondary),
+                )
+            });
+            origin
+                .filter(|p| rect.contains(*p) && !over_cube(*p) && !over_zoom_controls(*p))
+                .and_then(|_| requested_drag_mode(modifiers, primary, middle, secondary))
+        });
+        if let Some(mode) = cursor_mode {
+            ui.ctx().set_cursor_icon(mode.cursor());
         }
         events
     }
@@ -809,6 +833,23 @@ impl Viewer {
                 colors.overlay_text.gamma_multiply(0.75),
             );
         }
+    }
+}
+
+fn requested_drag_mode(
+    modifiers: egui::Modifiers,
+    primary: bool,
+    middle: bool,
+    secondary: bool,
+) -> Option<DragMode> {
+    if middle || (primary && modifiers.command) {
+        Some(DragMode::Pan)
+    } else if secondary || (primary && modifiers.shift) {
+        Some(DragMode::Zoom)
+    } else if primary {
+        Some(DragMode::Orbit)
+    } else {
+        None
     }
 }
 

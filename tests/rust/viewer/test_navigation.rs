@@ -99,3 +99,77 @@ fn zoom_overlay_buttons_are_interactive_over_the_viewer() {
     assert!((viewer.zoom_percent() - 80.0).abs() < 1e-4);
     assert!((viewer.camera.extent - 25.0).abs() < 1e-4);
 }
+
+#[test]
+fn pressing_the_view_uses_a_closed_hand_cursor_for_navigation() {
+    fn frame(
+        ctx: &egui::Context,
+        viewer: &mut Viewer,
+        events: Vec<egui::Event>,
+    ) -> egui::CursorIcon {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+            events,
+            ..Default::default()
+        };
+        let scene = Scene::default();
+        let settings = crate::settings::Viewer::default();
+        let colors = crate::theme::Palette::DARK.viewer();
+        let mut output = ctx.run_ui(input, |ui| {
+            let rect = ui.available_rect_before_wrap();
+            let response = ui.allocate_rect(rect, Sense::click_and_drag());
+            viewer.handle_input(
+                ui,
+                &response,
+                rect,
+                zoom_controls_rect(rect),
+                &ViewInput {
+                    scene: &scene,
+                    settings: &settings,
+                    colors: &colors,
+                    busy: None,
+                    empty_hint: None,
+                },
+                0.0,
+            );
+        });
+        output.textures_delta.clear();
+        output.platform_output.cursor_icon
+    }
+
+    let ctx = egui::Context::default();
+    let mut viewer = Viewer::default();
+    frame(&ctx, &mut viewer, Vec::new());
+    let position = Pos2::new(400.0, 300.0);
+    let cursor = frame(
+        &ctx,
+        &mut viewer,
+        vec![
+            egui::Event::PointerMoved(position),
+            egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+
+    assert_eq!(cursor, egui::CursorIcon::Grabbing);
+    assert_eq!(
+        requested_drag_mode(egui::Modifiers::NONE, false, false, true).map(DragMode::cursor),
+        Some(egui::CursorIcon::ResizeVertical)
+    );
+}
+
+#[test]
+fn orbit_changes_only_the_view_direction() {
+    let mut camera = Camera::default();
+    let before = camera.pose();
+
+    camera.orbit_turntable(GVec2::new(24.0, -12.0));
+
+    assert_eq!(camera.target, before.target);
+    assert_eq!(camera.extent, before.extent);
+    assert_ne!(camera.rotation, before.rotation);
+}

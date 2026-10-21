@@ -16,6 +16,10 @@ navigation cube and the View menu.
 | Clear the selection | Click on empty space |
 | Zoom to an object | Double-click it |
 
+While the view is being orbited or panned, the pointer becomes a closed hand
+to make it clear that the camera is being held and moved. A click without a
+drag still selects the object under the pointer.
+
 The floating zoom controls in the top-left corner offer precise adjustments
 without a mouse wheel. Use the magnifying-glass buttons for small steps or drag
 the logarithmic slider to a specific percentage. **100%** is the framing set by
