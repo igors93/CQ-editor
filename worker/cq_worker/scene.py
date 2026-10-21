@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import itertools
 import logging
+import time
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import cadquery as cq
@@ -238,6 +239,28 @@ class Registry:
         return shapes
 
 
+@dataclass
+class SceneStats:
+    """Where building the scenes of one request spent its time (seconds)."""
+
+    #: Content ids: hashing each shape's BREP.
+    identify: float = 0.0
+    #: Topology indices and meshing of geometry not sent as a reference.
+    tessellate: float = 0.0
+    #: Base64 encoding of the mesh arrays.
+    encode: float = 0.0
+    #: Meshes triangulated now, served from the worker's cache, or sent as
+    #: bare references to geometry the GUI holds.
+    meshed: int = 0
+    cached: int = 0
+    referenced: int = 0
+    #: Raw array bytes of the meshes sent in full.
+    mesh_bytes: int = 0
+
+    def to_message(self) -> dict:
+        return asdict(self)
+
+
 class SceneBuilder:
     def __init__(
         self,
@@ -257,6 +280,7 @@ class SceneBuilder:
         # Tessellation mutates OCCT's polygonal cache. Remember the signature
         # by source object so reuse within one run is unaffected by that.
         self._source_geometry: dict[int, str] = {}
+        self.stats = SceneStats()
 
     def build(self, objects: Mapping[str, ShownObject]) -> list[dict]:
         nodes = []
@@ -394,23 +418,37 @@ class SceneBuilder:
         location: cq.Location,
         source: Any,
     ) -> dict | None:
+        stats = self.stats
         source_id = id(source)
         geometry_id = self._source_geometry.get(source_id)
         if geometry_id is None:
+            started = time.perf_counter()
             geometry_id = self.geometry_cache.identifier(shape.wrapped, self.tolerance)
             geometry_id = self.geometry_cache.canonical_id(geometry_id)
             self._source_geometry[source_id] = geometry_id
+            stats.identify += time.perf_counter() - started
 
         if geometry_id in self.known_geometry:
             mesh_message = {"id": geometry_id}
+            stats.referenced += 1
         else:
+            started = time.perf_counter()
+            cached = self.geometry_cache.get(geometry_id) is not None
             topology = topology or TopologyIndex.build(shape.wrapped)
             _, mesh = self.geometry_cache.tessellate(
                 shape.wrapped, self.tolerance, topology, geometry_id
             )
+            stats.tessellate += time.perf_counter() - started
             if mesh is None:
                 return None
+            started = time.perf_counter()
             mesh_message = mesh.to_message(geometry_id)
+            stats.encode += time.perf_counter() - started
+            if cached:
+                stats.cached += 1
+            else:
+                stats.meshed += 1
+            stats.mesh_bytes += mesh.byte_size()
             self.known_geometry.add(geometry_id)
         return {
             "mesh": mesh_message,

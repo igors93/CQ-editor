@@ -5,6 +5,8 @@
 //! little-endian binary and are decoded on the reader thread, off the UI
 //! thread.
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -24,8 +26,8 @@ pub enum Request {
         breakpoints: Vec<usize>,
         settings: RunSettings,
         scene: SceneSettings,
-        /// Content-addressed meshes currently retained by the scene. The
-        /// worker may answer with lightweight references to these ids.
+        /// Content-addressed meshes the GUI holds and pins for this request.
+        /// The worker may answer with lightweight references to these ids.
         known_geometry: Vec<String>,
     },
     /// Only valid while a debugging session is paused.
@@ -178,7 +180,7 @@ pub enum Message {
         source: String,
         message: String,
     },
-    RunFinished(RunFinished),
+    RunFinished(Box<RunFinished>),
     DebugPaused {
         id: RequestId,
         line: usize,
@@ -262,6 +264,67 @@ pub struct RunFinished {
     pub variables: Option<Vec<Variable>>,
     pub error: Option<ScriptError>,
     pub duration: f64,
+    #[serde(default)]
+    pub timings: Option<RunTimings>,
+    /// Filled in by the reader thread, not sent by the worker.
+    #[serde(skip)]
+    pub receipt: Receipt,
+}
+
+/// Where the worker spent a run's time, in seconds, and what it sent.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct RunTimings {
+    pub script: f64,
+    /// Content ids: hashing each shape's BREP.
+    pub identify: f64,
+    pub tessellate: f64,
+    /// Base64 encoding of the mesh arrays.
+    pub encode: f64,
+    pub meshed: usize,
+    pub cached: usize,
+    pub referenced: usize,
+    pub mesh_bytes: usize,
+    /// Worker wall clock (seconds since the Unix epoch) just before sending.
+    pub sent_at: f64,
+}
+
+/// When the GUI read a message and how long parsing it took.
+#[derive(Debug, Clone, Default)]
+pub struct Receipt {
+    pub received_at: Option<SystemTime>,
+    pub parse: Duration,
+}
+
+impl RunTimings {
+    /// Time from the worker finishing the reply until the GUI read it:
+    /// serialization and the pipe. `None` if the clocks disagree.
+    pub fn transfer(&self, receipt: &Receipt) -> Option<Duration> {
+        let sent = UNIX_EPOCH.checked_add(Duration::try_from_secs_f64(self.sent_at).ok()?)?;
+        receipt.received_at?.duration_since(sent).ok()
+    }
+
+    /// One log line covering every stage of a run.
+    pub fn report(&self, receipt: &Receipt, decode: Duration) -> String {
+        let transfer = self
+            .transfer(receipt)
+            .map_or_else(|| "?".to_owned(), |d| format!("{:.3}", d.as_secs_f64()));
+        format!(
+            "Run timings (s): script {:.3}, content ids {:.3}, meshing {:.3}, encoding {:.3}, \
+             transfer {transfer}, parsing {:.3}, scene {:.3}; meshes: {} meshed, {} cached, \
+             {} reused by reference, {:.2} MB sent",
+            self.script,
+            self.identify,
+            self.tessellate,
+            self.encode,
+            receipt.parse.as_secs_f64(),
+            decode.as_secs_f64(),
+            self.meshed,
+            self.cached,
+            self.referenced,
+            self.mesh_bytes as f64 / 1e6,
+        )
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]

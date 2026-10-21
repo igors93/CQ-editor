@@ -84,6 +84,13 @@ produce many triangles (the Objects panel shows the count). Raise
 *Deviation* and *Angular deviation* in *Preferences > 3D View*, or hide
 objects you do not need. Turn off *Show edges* for very large assemblies.
 
+**Rendering takes long.** After each run the Log panel shows a *Run
+timings* line: how long the script itself took, the meshing, encoding and
+transfer of the geometry, and how many meshes were meshed, taken from the
+cache or reused unchanged. If *script* dominates, the time is spent in
+CadQuery; if *meshing* does, raise the deviations as above. Parts that did
+not change since the last run are reused, not meshed or sent again.
+
 **Curved surfaces look faceted.** Lower *Deviation* (for example to 0.0005)
 and *Angular deviation*, then render again.
 

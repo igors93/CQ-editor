@@ -196,6 +196,13 @@ class Server:
             "variables": variables,
             "error": execution.error,
             "duration": duration,
+            "timings": {
+                "script": duration,
+                **builder.stats.to_message(),
+                # Wall clock, so the GUI can tell how long the reply took
+                # to serialize and arrive.
+                "sent_at": time.time(),
+            },
         }
 
     def _pause(

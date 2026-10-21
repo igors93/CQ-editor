@@ -1,5 +1,7 @@
 """End-to-end tests of the request/response protocol."""
 
+import time
+
 import cadquery as cq
 import pytest
 
@@ -230,3 +232,82 @@ def test_stack_descriptions_are_readable():
     assert describe(box.edges().val()).startswith("line, length 2")
     assert describe(cq.Location(cq.Vector(1, 0, 0))) == "at (1, 0, 0)"
     assert "object at 0x" not in describe(box.val())
+
+
+ASSEMBLY_SCRIPT = """\
+assy = cq.Assembly()
+assy.add(cq.Workplane().box(1, 1, 1), name="a")
+assy.add(cq.Workplane().sphere({radius}), name="b", loc=cq.Location((5, 0, 0)))
+assy.add(cq.Workplane().cylinder(2, 0.5), name="c", loc=cq.Location((-5, 0, 0)))
+show_object(assy)
+"""
+
+
+def _meshes(nodes: list[dict]) -> dict[str, dict]:
+    """Mesh messages by node name, through the assembly tree."""
+
+    found = {}
+    for node in nodes:
+        for part in node["parts"]:
+            found[node["name"]] = part["mesh"]
+        found.update(_meshes(node["children"]))
+    return found
+
+
+def _assembly_run(request_id: int, radius: float, known=()) -> dict:
+    return {
+        "cmd": "run",
+        "id": request_id,
+        "script": ASSEMBLY_SCRIPT.format(radius=radius),
+        "known_geometry": list(known),
+    }
+
+
+def test_run_reports_where_the_time_went(conversation):
+    talk = conversation({"cmd": "run", "id": 1, "script": BOX_SCRIPT})
+    talk.serve()
+
+    (finished,) = talk.of_type("run_finished")
+    timings = finished["timings"]
+    assert timings["script"] == finished["duration"]
+    assert timings["meshed"] == 1
+    assert timings["cached"] == timings["referenced"] == 0
+    assert timings["mesh_bytes"] > 0
+    assert timings["tessellate"] > 0 and timings["identify"] > 0
+    assert timings["encode"] > 0
+    assert abs(timings["sent_at"] - time.time()) < 60
+
+
+def test_editing_one_assembly_part_meshes_and_sends_only_that_part(conversation):
+    first = conversation(_assembly_run(1, radius=1))
+    first.serve()
+    (finished,) = first.of_type("run_finished")
+    before = _meshes(finished["objects"])
+    assert all("bbox" in mesh for mesh in before.values())
+    assert finished["timings"]["meshed"] == 3
+
+    # The GUI advertises what it holds; only the edited sphere is new.
+    known = [mesh["id"] for mesh in before.values()]
+    edited = conversation(_assembly_run(2, radius=2, known=known))
+    edited.serve()
+    (finished,) = edited.of_type("run_finished")
+    after = _meshes(finished["objects"])
+    assert after["a"] == {"id": before["a"]["id"]}
+    assert after["c"] == {"id": before["c"]["id"]}
+    assert "bbox" in after["b"] and after["b"]["id"] != before["b"]["id"]
+    timings = finished["timings"]
+    assert (timings["meshed"], timings["cached"], timings["referenced"]) == (1, 0, 2)
+
+
+def test_a_worker_remeshes_only_edited_parts_even_without_gui_geometry(
+    conversation,
+):
+    # A GUI that holds nothing (e.g. after a restart) still saves meshing
+    # time through the worker's cache.
+    talk = conversation(_assembly_run(1, radius=1), _assembly_run(2, radius=2))
+    talk.serve()
+
+    first, second = talk.of_type("run_finished")
+    assert first["timings"]["meshed"] == 3
+    timings = second["timings"]
+    assert (timings["meshed"], timings["cached"], timings["referenced"]) == (1, 2, 0)

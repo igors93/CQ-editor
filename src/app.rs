@@ -913,7 +913,7 @@ impl AppState {
             } => {
                 logging::push(Level::from_python(&level), &source, &message);
             }
-            Message::RunFinished(result) => self.finish_run(result),
+            Message::RunFinished(result) => self.finish_run(*result),
             Message::DebugPaused {
                 id,
                 line,
@@ -1173,9 +1173,13 @@ impl AppState {
                 .preserve_properties
                 .then(|| self.scene.snapshot_properties());
             let was_empty = self.scene.is_empty();
+            let decoding = Instant::now();
             let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) else {
                 return;
             };
+            if let Some(timings) = &result.timings {
+                log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
+            }
             let count = nodes.len();
             if self.settings.objects.clear_before_run || result.debug {
                 let removed = self.scene.replace(nodes, preserved.as_ref());

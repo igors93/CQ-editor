@@ -216,6 +216,74 @@ fn scene_additions_name_their_request() {
     assert_eq!(added(r#"{"type":"scene_add","objects":[]}"#), (None, 0));
 }
 
+fn run_finished(extra: &str) -> RunFinished {
+    let text = format!(
+        r#"{{"type":"run_finished","id":4,"ok":true,"debug":false,"stopped":false,
+            "objects":[],"variables":[],"error":null,"duration":1.5{extra}}}"#
+    );
+    match serde_json::from_str::<Message>(&text) {
+        Ok(Message::RunFinished(result)) => *result,
+        other => panic!("not a run result: {other:?}"),
+    }
+}
+
+#[test]
+fn run_results_carry_stage_timings() {
+    let result = run_finished(
+        r#","timings":{"script":1.5,"identify":0.01,"tessellate":0.25,"encode":0.02,
+            "meshed":1,"cached":2,"referenced":3,"mesh_bytes":2500000,"sent_at":1000.0}"#,
+    );
+    let timings = result.timings.unwrap();
+    assert_eq!(
+        (timings.meshed, timings.cached, timings.referenced),
+        (1, 2, 3)
+    );
+
+    let receipt = Receipt {
+        received_at: Some(UNIX_EPOCH + Duration::from_millis(1_000_040)),
+        parse: Duration::from_millis(6),
+    };
+    let transfer = timings.transfer(&receipt).unwrap();
+    assert!((transfer.as_secs_f64() - 0.04).abs() < 1e-6);
+
+    let report = timings.report(&receipt, Duration::from_millis(2));
+    for part in [
+        "script 1.500",
+        "meshing 0.250",
+        "encoding 0.020",
+        "transfer 0.040",
+        "parsing 0.006",
+        "scene 0.002",
+        "1 meshed, 2 cached, 3 reused by reference, 2.50 MB sent",
+    ] {
+        assert!(report.contains(part), "{part:?} missing from {report:?}");
+    }
+}
+
+#[test]
+fn transfer_time_is_unknown_when_the_clocks_disagree() {
+    let timings = RunTimings {
+        sent_at: 2000.0,
+        ..RunTimings::default()
+    };
+    let early = Receipt {
+        received_at: Some(UNIX_EPOCH + Duration::from_secs(1000)),
+        parse: Duration::ZERO,
+    };
+    assert_eq!(timings.transfer(&early), None);
+    assert_eq!(timings.transfer(&Receipt::default()), None);
+    assert!(
+        timings
+            .report(&early, Duration::ZERO)
+            .contains("transfer ?")
+    );
+}
+
+#[test]
+fn run_results_without_timings_still_decode() {
+    assert_eq!(run_finished("").timings, None);
+}
+
 #[test]
 fn unknown_worker_message_is_rejected() {
     assert!(serde_json::from_str::<Message>(r#"{"type":"unknown"}"#).is_err());

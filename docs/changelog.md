@@ -60,6 +60,9 @@ tracked in the compatibility matrix instead of being assumed.
   the next pauses and the final result fail with "Cannot update the 3D
   scene" once the object reappeared; meshes now stay available for the
   whole session
+* New: after each run the Log panel reports the time spent in the script,
+  meshing, encoding, transfer and decoding, and how many meshes were reused;
+  GPU uploads are logged at the debug level
 * New: faster meshing for selection; the display triangles carry their OCCT
   face ids instead of a second set of pick triangles, so detailed parts mesh
   up to 3x faster and their messages are about a third smaller

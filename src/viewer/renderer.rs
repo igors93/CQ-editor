@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::{Arc, Weak};
+use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::{self, wgpu};
@@ -239,11 +240,22 @@ impl SceneRenderer {
         let texture_id = self.ensure_target(egui_renderer, size);
 
         self.meshes.retain(|_, mesh| mesh.source.strong_count() > 0);
+        let uploading = Instant::now();
+        let (mut uploaded, mut bytes) = (0, 0);
         for item in input.items {
             if !self.meshes.contains_key(&item.mesh.id) {
                 let gpu = upload(&self.device, &item.mesh);
                 self.meshes.insert(item.mesh.id, gpu);
+                uploaded += 1;
+                bytes += item.mesh.byte_size();
             }
+        }
+        if uploaded > 0 {
+            log::debug!(
+                "Uploaded {uploaded} mesh(es) to the GPU ({:.2} MB of mesh data) in {:.1} ms",
+                bytes as f64 / 1e6,
+                uploading.elapsed().as_secs_f64() * 1e3
+            );
         }
 
         self.write_camera(input, size);

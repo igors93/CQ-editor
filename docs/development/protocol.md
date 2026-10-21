@@ -93,7 +93,7 @@ The worker handles one request at a time, in arrival order.
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `objects`, `variables`, `error`, `duration` | End of a run. `objects` is null when a failed plain run should keep the current scene |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed plain run should keep the current scene. `timings` is described below |
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
 | `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
@@ -161,7 +161,20 @@ up to 128 MB of recently used ones, so a render after Clear or a debugging
 session can also receive references.
 
 Binary arrays are decoded on the GUI's reader thread, so large models never
-stall the interface.
+stall the interface. Base64 inside JSON is kept on purpose: for a message
+with 5 MB of mesh arrays, encoding and serializing take about 35 ms in the
+worker and parsing about 6 ms in the GUI, against more than a second of
+meshing. Unchanged geometry is not sent at all (see references above).
+
+`timings` in `run_finished` reports where the time went, in seconds for the
+whole request (a debugging session included): `script` (equal to
+`duration`), `identify` (content ids), `tessellate` (meshing of geometry not
+sent as a reference), `encode` (base64), the mesh counts `meshed`, `cached`
+(served from the worker's cache) and `referenced`, `mesh_bytes` (raw arrays
+sent in full) and `sent_at` (worker wall clock, seconds since the Unix
+epoch). The GUI adds the transfer time, its own parsing and scene decoding,
+and writes one *Run timings* line to the Log panel; GPU uploads are logged
+at the debug level.
 
 ### Topology identity and measurements
 

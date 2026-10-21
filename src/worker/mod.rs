@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::{Instant, SystemTime};
 
 use protocol::{Message, ReadyInfo, Request, RequestId};
 
@@ -249,8 +250,16 @@ impl Worker {
                     if line.trim().is_empty() {
                         continue;
                     }
+                    let received_at = SystemTime::now();
+                    let started = Instant::now();
                     match serde_json::from_str::<Message>(&line) {
-                        Ok(message) => {
+                        Ok(mut message) => {
+                            if let Message::RunFinished(result) = &mut message {
+                                result.receipt = protocol::Receipt {
+                                    received_at: Some(received_at),
+                                    parse: started.elapsed(),
+                                };
+                            }
                             let _ = tx.send((generation, Event::Message(message)));
                         }
                         Err(err) => log::warn!(
