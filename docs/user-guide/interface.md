@@ -52,7 +52,10 @@ between sessions.
 * The property sheet below the tree edits the selected object: visibility,
   **Color** (with **Reset** to go back to the script's colors), **Opacity**,
   and shows its **Size** and **Triangles**. When a face, edge or vertex is
-  selected, its id is shown too (for example *Face 6 · part 1*).
+  selected, its id is shown too (for example *Face 6 · part 1*) with its
+  exact measurements: the surface or curve type, the **Area** of a face,
+  the **Length** of an edge, a **Radius** when there is one, and the
+  **Center** (the **Position** of a vertex).
 
 Colors and visibility changed here last until the next run. Turn on
 *Preferences > Objects > Preserve properties on reload* to keep them across

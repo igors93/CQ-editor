@@ -58,3 +58,12 @@ fn a_very_short_pane_keeps_most_of_its_height_for_the_tree() {
     );
     assert!(tree.height() >= pane.height() * 0.6 - 0.5, "tree {tree:?}");
 }
+
+#[test]
+fn the_property_sheet_shows_short_numbers_without_rounding_noise() {
+    assert_eq!(compact(100.0), "100");
+    assert_eq!(compact(2.5), "2.5");
+    assert_eq!(compact(-6.938_893_9e-18), "0");
+    assert_eq!(compact(std::f64::consts::PI), "3.1416");
+    assert_eq!(compact(-12.25), "-12.25");
+}

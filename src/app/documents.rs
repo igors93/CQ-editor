@@ -161,11 +161,13 @@ impl AppState {
     /// its result would look like the output of the new script.
     fn set_document(&mut self, document: Document, keep_scene: bool) {
         self.clear_recovery_session();
+        self.remember_breakpoints();
         self.document = document;
         self.dialogs.external_change = None;
         self.dialogs.history = None;
         self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
         self.editor.reset();
+        self.restore_breakpoints();
         self.traceback = None;
         if keep_scene {
             return;
@@ -326,7 +328,25 @@ impl AppState {
         }
     }
 
+    /// Shows the breakpoints the document had when it was last open.
+    pub(super) fn restore_breakpoints(&mut self) {
+        if let Some(path) = self.document.path() {
+            let saved = self.settings.breakpoints_of(path).to_vec();
+            self.editor.restore_breakpoints(&self.document.text, &saved);
+        }
+    }
+
+    /// Keeps the breakpoints of the document for the next time it opens.
+    pub(super) fn remember_breakpoints(&mut self) {
+        if let Some(path) = self.document.path().map(Path::to_path_buf) {
+            let saved = self.editor.saved_breakpoints(&self.document.text);
+            self.settings.remember_breakpoints(&path, saved);
+        }
+    }
+
     fn after_save(&mut self) {
+        // Under the new name after a Save As.
+        self.remember_breakpoints();
         if let Err(error) = self.recovery.archive(&self.document) {
             log::warn!("Cannot add the saved document to local history: {error}");
         }

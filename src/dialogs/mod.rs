@@ -13,6 +13,7 @@ use crate::app::AppState;
 use crate::commands::Action;
 use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
+use crate::worker::Problem;
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -88,6 +89,8 @@ pub struct Dialogs {
     /// Windows-1252.
     pub legacy_encoding: Option<PathBuf>,
     pub message: Option<Message>,
+    /// Interpreters found on this computer, looked for once Python failed.
+    pub python_candidates: Option<Vec<PathBuf>>,
 }
 
 impl Dialogs {
@@ -593,31 +596,120 @@ fn message_box(ctx: &egui::Context, message: &Message) -> bool {
     dismissed || response.should_close()
 }
 
-/// Floating hint shown while the worker could not start, with ways out.
-pub fn python_problem(ctx: &egui::Context, reason: &str, python: &str, actions: &mut Vec<Action>) {
+/// Why Python is not available, for [`python_problem`].
+pub struct PythonProblem {
+    pub problem: Option<Problem>,
+    pub reason: String,
+    /// The interpreter that failed.
+    pub python: Option<PathBuf>,
+}
+
+impl PythonProblem {
+    /// Title and advice.
+    pub fn explanation(&self) -> (&'static str, &'static str) {
+        match self.problem {
+            Some(Problem::NoPython) => (
+                "Python was not found",
+                "CQ-editor runs your scripts with a Python that has CadQuery. Install one \
+                 (see the installation guide), or choose an interpreter.",
+            ),
+            Some(Problem::NoCadQuery) => (
+                "CadQuery is not available",
+                "Install CadQuery in that environment (python -m pip install cadquery), \
+                 or choose another interpreter.",
+            ),
+            Some(Problem::Exited) | None => (
+                "Python stopped before it was ready",
+                "The Log panel shows what it printed. Choose another interpreter, or retry.",
+            ),
+        }
+    }
+}
+
+/// Most detected interpreters listed at once.
+const MAX_LISTED_INTERPRETERS: usize = 8;
+
+/// Floating hint shown while the worker could not start, with ways out:
+/// interpreters found on this computer, picking one, the installation
+/// guide, the preferences and a retry.
+pub fn python_problem(
+    ctx: &egui::Context,
+    problem: &PythonProblem,
+    candidates: &[PathBuf],
+    actions: &mut Vec<Action>,
+) {
+    let (title, advice) = problem.explanation();
+    let others: Vec<&PathBuf> = candidates
+        .iter()
+        .filter(|path| Some(*path) != problem.python.as_ref())
+        .take(MAX_LISTED_INTERPRETERS)
+        .collect();
     egui::Area::new(egui::Id::new("python_problem"))
         .anchor(Align2::CENTER_BOTTOM, [0.0, -40.0])
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
-                ui.set_max_width(520.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(icon::WARNING_OCTAGON).size(22.0).color(ui.visuals().error_fg_color));
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("CadQuery is not available").strong());
-                        ui.label(reason);
-                        ui.weak(format!("Interpreter: {python}"));
-                        ui.weak("Install CadQuery in that environment (pip install cadquery) or choose another interpreter.");
+            egui::Frame::popup(ui.style())
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_max_width(560.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(icon::WARNING_OCTAGON)
+                                .size(22.0)
+                                .color(ui.visuals().error_fg_color),
+                        );
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(title).strong());
+                            ui.label(&problem.reason);
+                            if let Some(python) = &problem.python {
+                                ui.weak(format!("Interpreter: {}", python.display()));
+                            }
+                            ui.weak(advice);
+                        });
+                    });
+                    if !others.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label("Interpreters found on this computer:");
+                        for path in others {
+                            if ui
+                                .link(format!("{}  {}", icon::FILE_PY, path.display()))
+                                .on_hover_text("Restart Python with this interpreter")
+                                .clicked()
+                            {
+                                actions.push(Action::UsePython(path.clone()));
+                            }
+                        }
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui
+                            .button(format!("{} Choose interpreter…", icon::FOLDER_OPEN))
+                            .clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .set_title("Python interpreter with CadQuery")
+                                .pick_file()
+                        {
+                            actions.push(Action::UsePython(path));
+                        }
+                        if ui
+                            .button(format!("{} Installation guide", icon::BOOK_OPEN_TEXT))
+                            .clicked()
+                        {
+                            actions.push(Action::InstallationGuide);
+                        }
+                        if ui
+                            .button(format!("{} Preferences…", icon::GEAR_SIX))
+                            .clicked()
+                        {
+                            actions.push(Action::Preferences);
+                        }
+                        if ui
+                            .button(format!("{} Retry", icon::ARROW_CLOCKWISE))
+                            .clicked()
+                        {
+                            actions.push(Action::RestartPython);
+                        }
                     });
                 });
-                ui.horizontal(|ui| {
-                    if ui.button(format!("{} Preferences…", icon::GEAR_SIX)).clicked() {
-                        actions.push(Action::Preferences);
-                    }
-                    if ui.button(format!("{} Retry", icon::ARROW_CLOCKWISE)).clicked() {
-                        actions.push(Action::RestartPython);
-                    }
-                });
-            });
         });
 }

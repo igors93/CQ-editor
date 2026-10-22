@@ -25,11 +25,16 @@ pub enum Action {
     ToggleAutoreload,
     Quit,
     // Edit
+    Undo,
+    Redo,
     ToggleComment,
     Autocomplete,
     Find,
     FindNext,
     FindPrevious,
+    Replace,
+    /// Opens the *Go to line* bar.
+    GoToLinePrompt,
     Preferences,
     // Run
     Render,
@@ -41,6 +46,9 @@ pub enum Action {
     ClearConsole,
     ClearLog,
     RestartPython,
+    /// Restarts Python with this interpreter and keeps it in the
+    /// preferences.
+    UsePython(PathBuf),
     // View
     Fit,
     FitSelection,
@@ -57,6 +65,7 @@ pub enum Action {
     Upload,
     // Help
     Documentation,
+    InstallationGuide,
     CadQueryDocumentation,
     About,
     CheckUpdates,
@@ -112,8 +121,16 @@ const fn ctrl_shift(key: Key) -> KeyboardShortcut {
 pub fn shortcut(action: &Action) -> Option<KeyboardShortcut> {
     shortcuts()
         .into_iter()
+        .chain(editor_shortcuts())
         .find(|(a, _)| a == action)
         .map(|(_, shortcut)| shortcut)
+}
+
+/// Shortcuts the code editor handles itself, only while it has the
+/// keyboard focus: the console and the search fields keep their own undo.
+/// Ctrl+Shift+Z also redoes.
+pub fn editor_shortcuts() -> Vec<(Action, KeyboardShortcut)> {
+    vec![(Action::Undo, ctrl(Key::Z)), (Action::Redo, ctrl(Key::Y))]
 }
 
 /// All global shortcuts, most specific first: egui ignores extra Shift/Alt
@@ -129,6 +146,8 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::Autocomplete, ctrl(Key::Space)),
         (Action::Autocomplete, alt(Key::Slash)),
         (Action::Find, ctrl(Key::F)),
+        (Action::Replace, ctrl(Key::H)),
+        (Action::GoToLinePrompt, ctrl(Key::G)),
         (Action::FindPrevious, alt(Key::F3)),
         (Action::FindNext, key(Key::F3)),
         (Action::Preferences, ctrl(Key::Comma)),

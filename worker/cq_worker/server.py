@@ -126,6 +126,7 @@ class Server:
             "run": self.run,
             "release": self.release,
             "complete": self.complete,
+            "describe": self.describe,
             "inspect": self.inspect,
             "inspect_geometry": self.inspect_geometry,
             "measure": self.measure,
@@ -308,7 +309,7 @@ class Server:
         if request.get("target") == "console":
             namespace = self.console.namespace
         else:
-            namespace = {**script_api(ShownObjects()), "__name__": "__cq_main__"}
+            namespace = self._script_namespace()
         result = completion.complete(
             request.get("source", ""),
             int(request.get("line", 1)),
@@ -317,6 +318,22 @@ class Server:
             namespace,
         )
         return {"type": "completions", **result}
+
+    def describe(self, request: Message) -> Message:
+        """Documentation of the name under the editor's pointer."""
+
+        result = completion.describe(
+            request.get("source", ""),
+            int(request.get("line", 1)),
+            int(request.get("column", 0)),
+            request.get("path"),
+            self._script_namespace(),
+        )
+        return {"type": "description", **result}
+
+    @staticmethod
+    def _script_namespace() -> dict:
+        return {**script_api(ShownObjects()), "__name__": "__cq_main__"}
 
     def imports(self, request: Message) -> Message:
         """Local modules imported by a script, so the GUI can watch them too."""

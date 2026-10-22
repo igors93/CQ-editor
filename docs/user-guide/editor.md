@@ -1,8 +1,8 @@
 # Code editor
 
 The editor is built for short CadQuery scripts: Python highlighting, smart
-indentation, completion, search and breakpoints. It also takes care that
-your work is never lost.
+indentation, completion, documentation on hover, search and replace, and
+breakpoints. It also takes care that your work is never lost.
 
 ## Editing
 
@@ -14,14 +14,18 @@ your work is never lost.
 | Indent / unindent | Tab / Shift+Tab. With several lines selected, Tab indents them all. Indentation is 4 spaces |
 | Auto-indent | Enter keeps the indentation, indents after a line ending with `:` and dedents after `return`, `pass`, `break`, `continue` or `raise` |
 | Toggle comment | Ctrl+/ comments or uncomments the selected lines |
+| Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z), also in the **Edit** menu. Typing is undone a burst at a time: a pause, a new line or a click elsewhere starts the next step. An indent, a comment, an accepted completion, a *Replace all* and a reload from disk are each one step. The history belongs to the open document |
+| Go to line | Ctrl+G opens a bar above the editor: type a line, or `line:column`, and press Enter |
 | Line wrap | Off by default (*Preferences > Editor*) |
 | Font size | 13 by default (8–28) |
 
 ## Completion and call signatures
 
 Completion opens by itself after you type `.` (for example `cq.` or
-`result.`). Press **Ctrl+Space** (or **Alt+/**) to complete the name under
-the cursor at any other time:
+`result.`), and once you have typed the first three characters of a name
+(*Preferences > Editor > Complete names after*; 0 turns that off). Press
+**Ctrl+Space** (or **Alt+/**) to complete the name under the cursor at any
+other time:
 
 * a popup lists matching names (up to 200) and filters as you keep typing;
 * **↑/↓** choose, **Enter** or **Tab** accept, **Esc** closes;
@@ -33,23 +37,43 @@ It knows the script API (`show_object`, `cq`, …) and anything importable from
 the selected environment. Install `jedi` in that environment to enable it.
 Without jedi, the command does nothing.
 
+## Documentation on hover
+
+Rest the mouse pointer on a name for a moment to see its documentation in a
+tooltip: the call signature and docstring of a function or class (for
+example `Workplane.box`), the docstring of a module, or the type a variable
+holds (`box: Workplane`). It also comes from jedi, and appears only while
+no script is running.
+
 ## Search
 
 **Ctrl+F** opens the search bar above the editor:
 
 * matches are highlighted as you type, and the bar shows *N of M* (or *No
   matches*);
-* **Enter** / **Shift+Enter** go to the next / previous match. From the
-  editor, use **F3** / **Alt+F3**;
-* **Aa** toggles *Match case*;
+* **Enter** / **Shift+Enter** go to the next / previous match after the
+  cursor. From the editor, use **F3** / **Alt+F3**;
+* **Aa** toggles *Match case*, and **ab** *Whole word*, which skips the
+  term inside longer names (`box` but not `boxes`);
 * **Esc** closes the bar.
+
+**Ctrl+H** (or the ⇄ button of the bar) shows the replace row. **Replace**
+(or Enter in its field) replaces the selected match and selects the next
+one; when no match is selected it first selects the next one, so nothing is
+replaced unseen. **Replace all** replaces every match at once, as a single
+step to undo.
 
 ## Breakpoints and markers
 
 Click a line number to toggle a **breakpoint** (red dot). Breakpoints stay
 on their statements while you edit: adding or removing lines above one moves
-it along, and deleting its line removes it. The gutter and line backgrounds
-also show:
+it along, and deleting its line removes it.
+
+Breakpoints are **remembered per file** across sessions (for the last 100
+files). Each is saved with the text of its line, so if the file changed in
+another editor meanwhile, it returns to the line with that text, or is
+dropped when no line has it any more. The gutter and line backgrounds also
+show:
 
 * the **current debug line** (yellow) while a debugging session is paused;
 * the **error line** (red) after a failed run.

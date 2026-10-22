@@ -68,6 +68,7 @@ The worker handles one request at a time, in arrival order.
 | `debug` | `action` (`continue`, `step`, `step_in`, `step_out`, `stop`), `breakpoints` | Only while paused. Resumes the session |
 | `release` | `keys` | None. Frees registry entries |
 | `complete` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path`, `target` (`editor` or `console`) | `completions` |
+| `describe` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path` | `description` |
 | `inspect` | `id`, `key` | `inspection` |
 | `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
 | `measure` | `id`, one or two `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
@@ -96,6 +97,7 @@ The worker handles one request at a time, in arrival order.
 | `run_finished` | `id`, `ok`, `debug`, `stopped`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed plain run should keep the current scene. `timings` is described below |
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
+| `description` | `id`, `available`, `signatures` (call signatures, or `name: type` for a variable), `text` (the docstring, cut to 14 lines / 1200 characters); both empty when there is nothing to show | |
 | `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
 | `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
 | `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties and optional two-entity relationship calculated by OCCT |

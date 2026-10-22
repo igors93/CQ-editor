@@ -50,6 +50,41 @@ fn serializes_requests_with_command_tags() {
 }
 
 #[test]
+fn hover_documentation_travels_as_describe_and_description() {
+    let request = Request::Describe {
+        id: 4,
+        source: "len(x)".into(),
+        line: 1,
+        column: 0,
+        path: None,
+    };
+    assert_eq!(
+        serde_json::to_string(&request).unwrap(),
+        r#"{"cmd":"describe","id":4,"source":"len(x)","line":1,"column":0,"path":null}"#
+    );
+
+    let message: Message = serde_json::from_str(
+        r#"{"type":"description","id":4,"available":true,
+            "signatures":["len(obj: Sized, /) -> int"],"text":"Return the length."}"#,
+    )
+    .unwrap();
+    let Message::Description { id, documentation } = message else {
+        panic!("not a description: {message:?}");
+    };
+    assert_eq!(id, 4);
+    assert_eq!(documentation.signatures, ["len(obj: Sized, /) -> int"]);
+    assert_eq!(documentation.text, "Return the length.");
+
+    // Nothing to say about the name.
+    let empty: Message =
+        serde_json::from_str(r#"{"type":"description","id":5,"available":false}"#).unwrap();
+    assert!(matches!(
+        empty,
+        Message::Description { id: 5, documentation } if documentation == Documentation::default()
+    ));
+}
+
+#[test]
 fn measurement_request_and_exact_response_share_topology_references() {
     let request = Request::Measure {
         id: 12,

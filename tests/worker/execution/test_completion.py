@@ -64,3 +64,58 @@ def test_call_arguments_return_signatures_instead_of_names(monkeypatch):
         "items": [],
         "signatures": ["make(size)"],
     }
+
+
+def test_documentation_reports_unavailable_without_jedi(monkeypatch):
+    monkeypatch.setattr(completion, "jedi", None)
+    assert completion.describe("len", 1, 0, None, {}) == {
+        "available": False,
+        "signatures": [],
+        "text": "",
+    }
+
+
+@pytest.mark.skipif(not completion.is_available(), reason="jedi is optional")
+def test_documentation_gives_signatures_and_docstrings():
+    import cadquery as cq
+
+    source = "box = cq.Workplane().box(1, 2, 3)\nlen(box)\n"
+    namespace = {"cq": cq}
+
+    method = completion.describe(source, 1, source.index("box(") + 1, None, namespace)
+    assert method["available"]
+    assert method["signatures"][0].startswith("box(length: float")
+    assert "box" in method["text"].lower()
+
+    builtin = completion.describe(source, 2, 0, None, namespace)
+    assert builtin["signatures"] == ["len(obj: Sized, /) -> int"]
+    assert builtin["text"] == "Return the number of items in a container."
+
+
+@pytest.mark.skipif(not completion.is_available(), reason="jedi is optional")
+def test_documentation_of_a_variable_is_its_type():
+    import cadquery as cq
+
+    source = "box = cq.Workplane().box(1, 2, 3)\nlen(box)\n"
+    result = completion.describe(source, 2, 4, None, {"cq": cq})
+    assert result == {
+        "available": True,
+        "signatures": ["box: Workplane"],
+        "text": "",
+    }
+
+
+@pytest.mark.skipif(not completion.is_available(), reason="jedi is optional")
+def test_documentation_skips_keywords_and_blank_space():
+    empty = {"available": True, "signatures": [], "text": ""}
+    assert completion.describe("import math\n", 1, 0, None, {}) == empty
+    assert completion.describe("x = 1\n\n", 2, 0, None, {}) == empty
+
+
+def test_long_documentation_is_cut():
+    text = "\n".join(f"line {n}" for n in range(100))
+    cut = completion._cut(text)
+    assert cut.endswith(" …")
+    assert len(cut.splitlines()) == completion.MAX_DOCUMENTATION_LINES
+    assert completion._cut("short") == "short"
+    assert len(completion._cut("x" * 10_000)) <= completion.MAX_DOCUMENTATION_CHARS + 2

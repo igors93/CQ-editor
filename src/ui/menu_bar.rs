@@ -13,7 +13,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, open_panels: &[Tab]) {
     let mut actions = Vec::new();
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| file_menu(ui, state, &mut actions));
-        ui.menu_button("Edit", |ui| edit_menu(ui, &mut actions));
+        ui.menu_button("Edit", |ui| edit_menu(ui, state, &mut actions));
         ui.menu_button("Tools", |ui| tools_menu(ui, state, &mut actions));
         ui.menu_button("Run", |ui| run_menu(ui, state, &mut actions));
         ui.menu_button("View", |ui| view_menu(ui, state, open_panels, &mut actions));
@@ -130,7 +130,24 @@ fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     item(ui, actions, icon::SIGN_OUT, "Quit", Action::Quit);
 }
 
-fn edit_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_U_UP_LEFT,
+        "Undo",
+        Action::Undo,
+        state.editor.can_undo(),
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_U_UP_RIGHT,
+        "Redo",
+        Action::Redo,
+        state.editor.can_redo(),
+    );
+    ui.separator();
     item(
         ui,
         actions,
@@ -146,6 +163,14 @@ fn edit_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         Action::Autocomplete,
     );
     item(ui, actions, icon::MAGNIFYING_GLASS, "Search", Action::Find);
+    item(ui, actions, icon::SWAP, "Replace", Action::Replace);
+    item(
+        ui,
+        actions,
+        icon::LIST_NUMBERS,
+        "Go to Line…",
+        Action::GoToLinePrompt,
+    );
     ui.separator();
     item(
         ui,
@@ -318,6 +343,13 @@ fn help_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         icon::LIFEBUOY,
         "Documentation",
         Action::Documentation,
+    );
+    item(
+        ui,
+        actions,
+        icon::BOOK_OPEN_TEXT,
+        "Installation Guide",
+        Action::InstallationGuide,
     );
     item(
         ui,

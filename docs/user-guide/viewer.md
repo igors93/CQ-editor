@@ -89,7 +89,7 @@ When a topological mode is active, a click identifies the exact entity:
 * the entity is highlighted on its own;
 * the status bar reports it, for example *Selected Face 6 of bracket*;
 * the property sheet in the Objects panel shows the id and part, for example
-  *Face 6 · part 1*;
+  *Face 6 · part 1*, with the area, length, radius and center of the entity;
 * the Measurements panel reports exact geometric properties from OCCT.
 
 ![A selected face](../images/topology-selection.png)

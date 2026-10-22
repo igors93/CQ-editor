@@ -280,6 +280,26 @@ def test_completion(conversation):
     assert signatures["items"] == [] and signatures["signatures"]
 
 
+@pytest.mark.skipif(not completion.is_available(), reason="jedi is not installed")
+def test_description_of_the_name_under_the_pointer(conversation):
+    source = "result = cq.Workplane().box(1, 2, 3)"
+    talk = conversation(
+        {
+            "cmd": "describe",
+            "id": 1,
+            "source": source,
+            "line": 1,
+            "column": source.index("box"),
+        },
+    )
+    talk.serve()
+
+    (reply,) = talk.of_type("description")
+    assert reply["id"] == 1
+    assert reply["signatures"][0].startswith("box(")
+    assert reply["text"]
+
+
 def test_stack_descriptions_are_readable():
     from cq_worker.inspector import describe
 

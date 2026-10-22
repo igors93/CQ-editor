@@ -12,7 +12,11 @@ fn splits_multiline_messages() {
     push(Level::Info, "test", "one\ntwo\r\n");
     let lines: Vec<String> =
         with_entries(|e| e.iter().skip(before).map(|e| e.text.clone()).collect());
-    assert!(lines.ends_with(&["one".to_owned(), "two".to_owned()]));
+    // Other tests log concurrently into the same global log.
+    assert!(
+        lines.windows(2).any(|pair| pair == ["one", "two"]),
+        "{lines:?}"
+    );
 }
 
 fn temporary_directory(name: &str) -> PathBuf {

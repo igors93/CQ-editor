@@ -44,6 +44,14 @@ impl TopologyEntity {
             Self::Face(id) | Self::Edge(id) | Self::Vertex(id) => id,
         }
     }
+
+    pub fn topology_kind(self) -> protocol::TopologyKind {
+        match self {
+            Self::Face(_) => protocol::TopologyKind::Face,
+            Self::Edge(_) => protocol::TopologyKind::Edge,
+            Self::Vertex(_) => protocol::TopologyKind::Vertex,
+        }
+    }
 }
 
 /// The exact CAD entity selected in one displayed part of a scene node.

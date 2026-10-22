@@ -308,6 +308,18 @@ fn editor(ui: &mut egui::Ui, settings: &mut Settings) {
     );
     row(
         ui,
+        "Complete names after",
+        "Offer completions once this many characters of a name are typed (0: only after . and on Ctrl+Space)",
+        |ui| {
+            ui.add(
+                egui::DragValue::new(&mut editor.completion_min_chars)
+                    .range(0..=10)
+                    .suffix(" characters"),
+            );
+        },
+    );
+    row(
+        ui,
         "Autoreload",
         "Re-run the script whenever its file changes on disk",
         |ui| {

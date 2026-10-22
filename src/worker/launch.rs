@@ -65,6 +65,106 @@ pub fn find_python(explicit: Option<&str>) -> PathBuf {
     PathBuf::from(PATH_PYTHON)
 }
 
+/// Interpreters on this computer, for the user to choose from when the
+/// detected one has no CadQuery: the places [`find_python`] looks at, conda
+/// and mamba environments in the usual folders, Python installs from
+/// python.org (Windows) and `python` on `PATH`. Only existing files, each
+/// once; whether they have CadQuery is only known by starting them.
+pub fn candidates() -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut add = |path: PathBuf| {
+        if path.is_file() && !found.iter().any(|other| same_path(other, &path)) {
+            found.push(path);
+        }
+    };
+
+    if let Some(path) = std::env::var_os("CQ_EDITOR_PYTHON") {
+        add(PathBuf::from(path));
+    }
+    for (variable, relative) in [("VIRTUAL_ENV", VENV_PYTHON), ("CONDA_PREFIX", CONDA_PYTHON)] {
+        if let Some(root) = std::env::var_os(variable) {
+            add(relative
+                .iter()
+                .fold(PathBuf::from(root), |p, part| p.join(part)));
+        }
+    }
+    for root in [std::env::current_dir().ok(), std::env::current_exe().ok()]
+        .into_iter()
+        .flatten()
+    {
+        for directory in root.ancestors().take(2) {
+            add(VENV_PYTHON
+                .iter()
+                .fold(directory.join(".venv"), |p, part| p.join(part)));
+        }
+    }
+
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    if let Some(home) = home.map(PathBuf::from) {
+        for distribution in [
+            "miniforge3",
+            "mambaforge",
+            "miniconda3",
+            "anaconda3",
+            "micromamba",
+        ] {
+            environments_in(&home.join(distribution))
+                .into_iter()
+                .for_each(&mut add);
+        }
+    }
+    if cfg!(windows)
+        && let Some(programs) = std::env::var_os("LOCALAPPDATA")
+        && let Ok(entries) =
+            std::fs::read_dir(PathBuf::from(programs).join("Programs").join("Python"))
+    {
+        let mut installs: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+        installs.sort();
+        // The newest first.
+        for install in installs.into_iter().rev() {
+            add(install.join("python.exe"));
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path) {
+            // The Microsoft Store placeholder is not an interpreter.
+            if directory.ends_with("WindowsApps") {
+                continue;
+            }
+            add(directory.join(if cfg!(windows) {
+                "python.exe"
+            } else {
+                PATH_PYTHON
+            }));
+        }
+    }
+    found
+}
+
+/// Whether two paths name the same file; Windows paths ignore case, so a
+/// working directory with a lowercase drive letter adds nothing new.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    } else {
+        a == b
+    }
+}
+
+/// The base interpreter of a conda-like distribution at `root` and those of
+/// its environments, sorted by name.
+fn environments_in(root: &Path) -> Vec<PathBuf> {
+    let interpreter = |environment: &Path| existing(environment, CONDA_PYTHON);
+    let mut environments: Vec<PathBuf> = std::fs::read_dir(root.join("envs"))
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    environments.sort();
+    std::iter::once(root.to_path_buf())
+        .chain(environments)
+        .filter_map(|environment| interpreter(&environment))
+        .collect()
+}
+
 fn existing(root: &Path, relative: &[&str]) -> Option<PathBuf> {
     let path = relative
         .iter()

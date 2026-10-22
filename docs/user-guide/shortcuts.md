@@ -13,9 +13,13 @@ On macOS, **Ctrl** means **Cmd**.
 | Save | Ctrl+S |
 | Save As… | Ctrl+Shift+S |
 | Quit | Ctrl+Q |
+| Undo (in the editor) | Ctrl+Z |
+| Redo (in the editor) | Ctrl+Y or Ctrl+Shift+Z |
 | Toggle Comment | Ctrl+/ |
 | Auto-Complete | Ctrl+Space or Alt+/ |
 | Search | Ctrl+F |
+| Replace | Ctrl+H |
+| Go to Line… | Ctrl+G |
 | Next / previous match | F3 / Alt+F3 |
 | Preferences… | Ctrl+, |
 | Zoom the interface | Ctrl + plus / Ctrl + minus |
@@ -59,6 +63,11 @@ starts as soon as the current one ends.
 | Click on a line number | Toggle a breakpoint |
 | In the completion popup: ↑ ↓, Enter or Tab, Esc | Choose, accept, close |
 | In the search bar: Enter / Shift+Enter, Esc | Next / previous match, close |
+| In the replace field: Enter | Replace the selected match and select the next one |
+| In the *Go to line* bar: Enter, Esc | Go, close |
+
+Undo and redo act on the editor only while it has the keyboard focus; the
+console input and the search fields keep their own undo.
 
 ## Console
 

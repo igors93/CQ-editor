@@ -47,6 +47,7 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Maximum line length | 79 | Column of the vertical ruler. 0 hides it |
 | Highlight current line | on | |
 | Auto-indent | on | Keep and extend indentation on Enter |
+| Complete names after | 3 characters | 0–10. Offer completions once this many characters of a name are typed; 0 offers them only after `.` and on Ctrl+Space |
 | Autoreload | off | Re-run the script whenever its file changes on disk (same as *File > Automatic Reload and Preview*) |
 | Autoreload delay | 50 ms | 0–5000. Wait after a change before reloading |
 | Autoreload: watch imported modules | off | Also re-run when local modules imported by the script change |

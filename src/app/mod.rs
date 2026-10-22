@@ -58,6 +58,11 @@ const LOGO_ICO: &[u8] = include_bytes!("../../assets/icons/cadquery_logo_dark.ic
 /// The documentation of this editor, not the wiki of the PyQt one.
 pub const DOCUMENTATION_URL: &str =
     concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/master/docs/README.md");
+/// How to set up Python with CadQuery for the editor.
+pub const INSTALLATION_URL: &str = concat!(
+    env!("CARGO_PKG_REPOSITORY"),
+    "/blob/master/docs/getting-started/installation.md"
+);
 
 /// Command-line options.
 #[derive(Debug, Default)]
@@ -238,11 +243,15 @@ impl AppState {
             ruler: self.settings.editor.max_line_length,
             highlight_current_line: self.settings.editor.highlight_current_line,
             auto_indent: self.settings.editor.auto_indent,
+            completion_min_chars: self.settings.editor.completion_min_chars,
             colors: &colors,
         };
         let output = self.editor.ui(ui, &mut self.document, &options);
         if let Some(request) = output.completion_request {
             self.request_completion(request);
+        }
+        if let Some(request) = output.hover_request {
+            self.request_description(request);
         }
     }
 
@@ -325,9 +334,13 @@ impl AppState {
             }
             Action::Quit => self.guard_unsaved(Intent::Quit),
 
+            Action::Undo => self.editor.undo(&mut self.document),
+            Action::Redo => self.editor.redo(&mut self.document),
             Action::ToggleComment => self.editor.toggle_comment(&mut self.document),
             Action::Autocomplete => self.editor.request_completion(),
             Action::Find => self.editor.open_search(&self.document),
+            Action::Replace => self.editor.open_replace(&self.document),
+            Action::GoToLinePrompt => self.editor.open_go_to_line(),
             Action::FindNext | Action::FindPrevious => {
                 if self.editor.search_is_open() {
                     self.editor
@@ -351,6 +364,12 @@ impl AppState {
             Action::ClearConsole => self.console.clear(),
             Action::ClearLog => logging::clear(),
             Action::RestartPython => self.start_worker(),
+            Action::UsePython(path) => {
+                self.settings.general.python = path.display().to_string();
+                // A --python from the command line would win otherwise.
+                self.python_override = None;
+                self.start_worker();
+            }
 
             Action::Fit => self.viewer.fit(&self.scene, animate, now),
             Action::FitSelection => self.viewer.fit_selection(&self.scene, animate, now),
@@ -374,6 +393,7 @@ impl AppState {
             }
 
             Action::Documentation => open_url(DOCUMENTATION_URL),
+            Action::InstallationGuide => open_url(INSTALLATION_URL),
             Action::CadQueryDocumentation => open_url("https://cadquery.readthedocs.io/en/latest/"),
             Action::About => self.dialogs.about = true,
             Action::CheckUpdates => {
@@ -562,6 +582,7 @@ impl CqEditorApp {
             state.settings.add_recent_file(&path);
             state.settings.last_file = Some(path);
         }
+        state.restore_breakpoints();
         state.start_worker();
         Self { dock, state }
     }
@@ -628,15 +649,19 @@ impl eframe::App for CqEditorApp {
 
         dialogs::show(&ctx, &mut self.state);
         if let worker::Status::Failed(reason) = self.state.worker.status() {
-            let reason = reason.clone();
-            let python = self
+            let problem = dialogs::PythonProblem {
+                problem: self.state.worker.problem(),
+                reason: reason.clone(),
+                python: self.state.worker.config().map(|c| c.python.clone()),
+            };
+            // Looked for once, not on every frame.
+            let candidates = self
                 .state
-                .worker
-                .config()
-                .map(|c| c.python.display().to_string())
-                .unwrap_or_default();
+                .dialogs
+                .python_candidates
+                .get_or_insert_with(worker::launch::candidates);
             let mut actions = Vec::new();
-            dialogs::python_problem(&ctx, &reason, &python, &mut actions);
+            dialogs::python_problem(&ctx, &problem, candidates, &mut actions);
             self.state.queue(actions);
         }
 
@@ -652,6 +677,7 @@ impl eframe::App for CqEditorApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.state.checkpoint_recovery();
+        self.state.remember_breakpoints();
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
         eframe::set_value(storage, LAYOUT_KEY, &self.dock);
     }

@@ -1,6 +1,7 @@
 use egui_phosphor::regular as icon;
 
 use crate::app::AppState;
+use crate::scene::TopologySelection;
 use crate::worker::protocol::{EntityMeasurement, Measurement, PairMeasurement, TopologyKind};
 
 #[derive(Default)]
@@ -63,6 +64,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             "Topology IDs belong to this render only. Rebuilding or remodeling the object may change them.",
         );
     });
+}
+
+/// The measurement of `selection` in `result`.
+pub fn measurement_of<'a>(
+    result: &'a Measurement,
+    selection: &TopologySelection,
+) -> Option<&'a EntityMeasurement> {
+    result.entities.iter().find(|entity| {
+        entity.key == selection.node
+            && entity.part == selection.part
+            && entity.kind == selection.entity.topology_kind()
+            && entity.identifier == selection.entity.identifier()
+    })
 }
 
 fn entity_ui(ui: &mut egui::Ui, state: &AppState, entity: &EntityMeasurement, number: usize) {
@@ -135,7 +149,7 @@ fn kind_label(kind: TopologyKind) -> &'static str {
     }
 }
 
-fn title_case(value: &str) -> String {
+pub fn title_case(value: &str) -> String {
     let mut chars = value.chars();
     chars
         .next()
@@ -143,7 +157,7 @@ fn title_case(value: &str) -> String {
         .unwrap_or_default()
 }
 
-fn format_point(point: [f64; 3]) -> String {
+pub fn format_point(point: [f64; 3]) -> String {
     format!(
         "({}, {}, {})",
         format_number(point[0]),
@@ -152,7 +166,7 @@ fn format_point(point: [f64; 3]) -> String {
     )
 }
 
-fn format_number(value: f64) -> String {
+pub fn format_number(value: f64) -> String {
     let absolute = value.abs();
     if absolute != 0.0 && !(1e-5..1e9).contains(&absolute) {
         return format!("{value:.8e}");
@@ -163,7 +177,45 @@ fn format_number(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_number;
+    use super::{format_number, measurement_of};
+    use crate::scene::{TopologyEntity, TopologySelection};
+    use crate::worker::protocol::{EntityMeasurement, Measurement, TopologyIdentity, TopologyKind};
+
+    #[test]
+    fn the_property_sheet_finds_the_measurement_of_its_selection() {
+        let entity = |kind, identifier| EntityMeasurement {
+            key: "s1-n1".into(),
+            part: 0,
+            kind,
+            identifier,
+            geometry_type: "plane".into(),
+            center: [0.0; 3],
+            position: None,
+            length: None,
+            area: Some(4.0),
+            radius: None,
+            diameter: None,
+        };
+        let result = Measurement {
+            id: 1,
+            identity: TopologyIdentity {
+                scope: "render".into(),
+                persistent: false,
+            },
+            entities: vec![entity(TopologyKind::Face, 6), entity(TopologyKind::Edge, 6)],
+            pair: None,
+        };
+        let selection = |entity| TopologySelection {
+            node: "s1-n1".into(),
+            part: 0,
+            entity,
+            position: Default::default(),
+        };
+
+        let edge = measurement_of(&result, &selection(TopologyEntity::Edge(6)));
+        assert_eq!(edge.map(|e| e.kind), Some(TopologyKind::Edge));
+        assert!(measurement_of(&result, &selection(TopologyEntity::Face(7))).is_none());
+    }
 
     #[test]
     fn numeric_display_keeps_precision_without_noise() {

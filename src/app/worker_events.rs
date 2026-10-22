@@ -33,6 +33,9 @@ impl AppState {
         };
         self.worker.start(LaunchConfig { python, worker_dir });
         self.worker_was_ready = false;
+        // Look for interpreters again if this one fails too: one may have
+        // been installed meanwhile.
+        self.dialogs.python_candidates = None;
         self.reset_execution_state();
         // The new process knows nothing about the old one's inspections.
         self.inspector.clear();
@@ -189,17 +192,33 @@ impl AppState {
                 items,
                 signatures,
             } => {
-                if let Some(Pending::ConsoleCompletion) = self.execution.answer(id) {
-                    let inserts: Vec<(String, String)> =
-                        items.into_iter().map(|i| (i.name, i.insert)).collect();
-                    self.console.complete(&inserts, &signatures);
-                } else if !available {
-                    self.set_status(
+                match self.execution.answer(id) {
+                    Some(Pending::ConsoleCompletion) => {
+                        let inserts: Vec<(String, String)> =
+                            items.into_iter().map(|i| (i.name, i.insert)).collect();
+                        self.console.complete(&inserts, &signatures);
+                    }
+                    // Offered while typing a name: names only, and silence
+                    // when there are none.
+                    Some(Pending::Completion { automatic: true }) => {
+                        if !items.is_empty() {
+                            self.editor.show_completions(items, Vec::new());
+                        }
+                    }
+                    _ if !available => self.set_status(
                         StatusKind::Info,
                         "Code completion needs jedi: pip install jedi",
-                    );
-                } else if !self.editor.show_completions(items, signatures) {
-                    self.set_status(StatusKind::Info, "No completions available");
+                    ),
+                    _ => {
+                        if !self.editor.show_completions(items, signatures) {
+                            self.set_status(StatusKind::Info, "No completions available");
+                        }
+                    }
+                }
+            }
+            Message::Description { id, documentation } => {
+                if matches!(self.execution.answer(id), Some(Pending::Describe)) {
+                    self.editor.show_documentation(documentation);
                 }
             }
             Message::Inspection { id, key, frames } => {
@@ -339,7 +358,14 @@ impl AppState {
                 self.measurements.request_id = None;
             }
             Some((_, Pending::Measure)) => {}
-            Some((_, Pending::Completion | Pending::ConsoleCompletion | Pending::Imports(_)))
+            // Hovering over a name the worker cannot describe is not news.
+            Some((_, Pending::Describe | Pending::Completion { automatic: true })) => {
+                log::debug!("{message}");
+            }
+            Some((
+                _,
+                Pending::Completion { .. } | Pending::ConsoleCompletion | Pending::Imports(_),
+            ))
             | None => {
                 log::warn!("{message}");
                 self.set_status(StatusKind::Warning, message);

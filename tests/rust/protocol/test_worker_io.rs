@@ -74,3 +74,23 @@ fn a_large_unknown_or_malformed_message_keeps_the_control_limit() {
         MAX_CONTROL_MESSAGE_BYTES
     );
 }
+
+#[test]
+fn a_failed_start_says_whether_python_or_cadquery_is_missing() {
+    // The Microsoft Store placeholder for python.exe exits with 9009.
+    let expected = if cfg!(windows) {
+        Problem::NoPython
+    } else {
+        Problem::Exited
+    };
+    assert_eq!(exit_problem(Some(9009)), expected);
+    assert_eq!(exit_problem(Some(1)), Problem::Exited);
+    assert_eq!(exit_problem(None), Problem::Exited);
+
+    // Only a failed worker has a problem.
+    let mut worker = Worker::new(egui::Context::default());
+    worker.problem = Some(Problem::NoCadQuery);
+    assert_eq!(worker.problem(), None);
+    worker.status = Status::Failed("Cannot load CadQuery".into());
+    assert_eq!(worker.problem(), Some(Problem::NoCadQuery));
+}

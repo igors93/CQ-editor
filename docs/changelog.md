@@ -34,6 +34,21 @@ tracked in the compatibility matrix instead of being assumed.
   newest 20 versions per document
 * New: automatic reload never discards unsaved edits; a dialog offers to
   keep them, reload, save a copy or compare
+* New: Edit > Undo and Redo (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z) with an
+  editor history of its own: typing is undone a burst at a time, and an
+  indent, a comment, an accepted completion, a Replace all or a reload is
+  one step; undo no longer brings back the text of a previous document
+* New: Replace (Ctrl+H), whole-word search and Go to Line (Ctrl+G)
+* New: completions are offered after the first characters of a name
+  (three by default, configurable), and resting the pointer on a name
+  shows its signature and docstring, or the type of a variable
+* New: breakpoints are remembered per file across sessions and follow
+  the text of their lines when the file changed meanwhile
+* New: the Objects property sheet shows the type, area or length, radius
+  and center of a selected face, edge or vertex
+* New: when Python or CadQuery is missing, the dialog lists the
+  interpreters found on the computer, and offers to choose one or to open
+  the installation guide (also in the Help menu)
 * New: content-addressed mesh cache and assembly instancing; unchanged
   meshes are not sent or uploaded again
 * New: hover and click selection stay fast on large assemblies; a retained
@@ -61,6 +76,8 @@ tracked in the compatibility matrix instead of being assumed.
   version instead of `unknown`
 * Fixed: the CQ inspector could draw the geometry of a previously
   selected step or workplane when its reply arrived late
+* Fixed: the first Enter or F3 after typing a search skipped the first
+  match
 * Fixed: OCP 8 moved generated collection types and removed the `_s` suffix
   from `TopoDS` downcasts, preventing the worker from importing with current
   CadQuery `master`; one compatibility shim now supports both OCP 7 and 8

@@ -44,11 +44,11 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `scene.rs` | What the view shows: nodes, parts, meshes, visibility, colors, selection, topology selection, inspector overlay |
 | `spatial.rs` | Bounding-volume hierarchies for picking: triangles, and generic boxes for scene parts, edge segments and vertices |
 | `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator) |
-| `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent) |
+| `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent, replace, names, *Go to line*, breakpoint relocation), `history.rs` (the undo history: typing grouped into steps, one step per command or reload) |
 | `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
 | `dialogs/` | Preferences, Upload, About, unsaved changes, external change, recovery, local history, messages |
 | `ui/` | Menu bar, toolbar, status bar |
-| `worker/` | Child process management (`mod.rs`), interpreter discovery (`launch.rs`), protocol types (`protocol.rs`) |
+| `worker/` | Child process management and the reason a start failed (`mod.rs`), interpreter discovery and the interpreters offered when it fails (`launch.rs`), protocol types (`protocol.rs`) |
 | `embedded.rs` | Access to the files embedded by `build.rs` |
 | `logging.rs` | The bounded, application-wide log behind the Log panel |
 | `theme.rs` | Light/dark visuals, fonts, editor and viewer colors |
@@ -159,7 +159,7 @@ measured scene makes the CPU path the bottleneck again.
 | `tessellation.py` | Meshing, the content-addressed `GeometryCache`, `TopologyIndex` |
 | `inspector.py` | Workplane stack description and per-step geometry |
 | `console.py` | The persistent interactive console |
-| `completion.py` | jedi completions and call signatures |
+| `completion.py` | jedi completions, call signatures and the documentation shown on hover |
 | `exporting.py` | STEP / STL / BREP export |
 | `network.py` | Model upload and CadQuery release checks, standard library only |
 

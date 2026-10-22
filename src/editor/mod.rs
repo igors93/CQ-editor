@@ -3,9 +3,11 @@
 //! Built on egui's `TextEdit` with a custom layouter for syntax highlighting.
 //! Around it the editor adds a gutter (line numbers, breakpoints, the debug
 //! position), current/error/debug line backgrounds, a line-length ruler, a
-//! search bar and the completion popup.
+//! search and replace bar, a *Go to line* bar, the completion popup, hover
+//! documentation and its own undo history.
 
 pub mod highlight;
+pub mod history;
 pub mod text_ops;
 
 use std::collections::BTreeSet;
@@ -21,13 +23,19 @@ use egui::{
 
 use crate::commands::{self, Action};
 use crate::document::Document;
-use crate::worker::protocol::CompletionItem;
+use crate::settings::SavedBreakpoint;
+use crate::worker::protocol::{CompletionItem, Documentation};
 use highlight::SyntaxColors;
+use history::{EditKind, History};
 use text_ops::Selection;
 
 /// Most search matches highlighted at once.
 const MAX_HIGHLIGHTED_MATCHES: usize = 2000;
 const COMPLETION_ROWS: usize = 10;
+/// Seconds the pointer rests on a name before its documentation is asked for.
+const HOVER_DELAY: f64 = 0.6;
+/// Width of the documentation tooltip, in points.
+const HOVER_WIDTH: f32 = 520.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditorColors {
@@ -52,6 +60,9 @@ pub struct EditorOptions<'a> {
     pub ruler: usize,
     pub highlight_current_line: bool,
     pub auto_indent: bool,
+    /// Offer completions after this many characters of a name; 0 only
+    /// after `.` and on request.
+    pub completion_min_chars: usize,
     pub colors: &'a EditorColors,
 }
 
@@ -62,12 +73,25 @@ pub struct CompletionRequest {
     pub line: usize,
     /// 0-based, in characters.
     pub column: usize,
+    /// Offered while typing a name, not asked for: an empty answer is
+    /// not worth a message.
+    pub automatic: bool,
+}
+
+/// Where the editor wants the documentation of the name under the pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HoverRequest {
+    /// 1-based.
+    pub line: usize,
+    /// 0-based, in characters.
+    pub column: usize,
 }
 
 #[derive(Default)]
 pub struct EditorOutput {
     pub changed: bool,
     pub completion_request: Option<CompletionRequest>,
+    pub hover_request: Option<HoverRequest>,
 }
 
 #[derive(Default)]
@@ -75,10 +99,45 @@ struct Search {
     open: bool,
     query: String,
     match_case: bool,
+    whole_word: bool,
     matches: Vec<Range<usize>>,
     current: usize,
     focus_query: bool,
     computed_for: u64,
+    /// The match the bar selected last, while the text and the query are
+    /// those of `computed_for`. An unfocused `TextEdit` collapses its
+    /// selection to the caret, so while the replace field has the keyboard
+    /// the editor's selection cannot tell which match is selected.
+    visited: Option<(Range<usize>, u64)>,
+    /// The replace row is shown.
+    replacing: bool,
+    replacement: String,
+    focus_replacement: bool,
+}
+
+/// What the replace row was asked to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Replace {
+    Current,
+    All,
+}
+
+/// The *Go to line* bar.
+#[derive(Default)]
+struct GoToLine {
+    input: String,
+    focus: bool,
+}
+
+/// Documentation of the name under the pointer.
+#[derive(Default)]
+struct Hover {
+    /// The name under the pointer and when the pointer arrived on it.
+    target: Option<(Range<usize>, f64)>,
+    /// The name whose documentation was asked for.
+    requested: Option<Range<usize>>,
+    /// Documentation of the `requested` name, once it arrived.
+    text: Option<Documentation>,
 }
 
 #[derive(Default)]
@@ -122,6 +181,11 @@ pub struct CodeEditor {
     completion: Completion,
     calltip: Option<String>,
     search: Search,
+    go_to: Option<GoToLine>,
+    hover: Hover,
+    history: History,
+    /// Time of the current frame, in seconds; groups typing into steps.
+    now: f64,
     layout: LayoutCache,
 }
 
@@ -142,6 +206,10 @@ impl Default for CodeEditor {
             completion: Completion::default(),
             calltip: None,
             search: Search::default(),
+            go_to: None,
+            hover: Hover::default(),
+            history: History::default(),
+            now: 0.0,
             layout: LayoutCache::default(),
         }
     }
@@ -161,8 +229,78 @@ impl CodeEditor {
         self.error_line = None;
         self.marked_text = None;
         self.close_popups();
+        self.hover = Hover::default();
+        self.history.clear();
         self.pending_selection = Some(Selection::caret(0));
         self.pending_scroll_line = Some(1);
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    /// Reverts the last edit step (typing, a command or a reload).
+    pub fn undo(&mut self, document: &mut Document) {
+        self.record_outside_edits(document);
+        if let Some((text, selection)) = self.history.undo(&document.text) {
+            self.restore(document, text, selection);
+        }
+    }
+
+    pub fn redo(&mut self, document: &mut Document) {
+        self.record_outside_edits(document);
+        if let Some((text, selection)) = self.history.redo(&document.text) {
+            self.restore(document, text, selection);
+        }
+    }
+
+    fn restore(&mut self, document: &mut Document, text: String, selection: Selection) {
+        document.text = text;
+        self.close_popups();
+        self.selection = selection.clone();
+        self.pending_scroll_line = Some(text_ops::line_of(&document.text, selection.cursor) + 1);
+        self.pending_selection = Some(selection);
+        self.pending_focus = true;
+    }
+
+    /// Makes a change made outside the editor, such as a reload from disk,
+    /// a step of its own.
+    fn record_outside_edits(&mut self, document: &Document) {
+        let selection = self.clamped_selection(&document.text);
+        self.history.record(
+            &document.text,
+            &selection,
+            &selection,
+            EditKind::Command,
+            self.now,
+        );
+    }
+
+    /// The breakpoints with the text of their lines, to find them again
+    /// in a later session even if lines were added above them meanwhile.
+    pub fn saved_breakpoints(&mut self, text: &str) -> Vec<SavedBreakpoint> {
+        self.sync_markers(text);
+        self.breakpoints
+            .iter()
+            .map(|&line| SavedBreakpoint {
+                line,
+                text: text[text_ops::line_range(text, line - 1)].trim().to_owned(),
+            })
+            .collect()
+    }
+
+    /// Restores breakpoints of an earlier session; see [`text_ops::relocate_lines`].
+    pub fn restore_breakpoints(&mut self, text: &str, saved: &[SavedBreakpoint]) {
+        let saved: Vec<(usize, String)> = saved
+            .iter()
+            .map(|breakpoint| (breakpoint.line, breakpoint.text.clone()))
+            .collect();
+        self.breakpoints = text_ops::relocate_lines(text, &saved);
+        self.marked_text = Some(text.to_owned());
     }
 
     pub fn go_to_line(&mut self, text: &str, line: usize) {
@@ -222,24 +360,51 @@ impl CodeEditor {
         self.search.open = true;
         self.search.focus_query = true;
         self.search.computed_for = 0;
+        self.go_to = None;
+    }
+
+    /// Opens the search bar with its replace row.
+    pub fn open_replace(&mut self, document: &Document) {
+        let had_query = !self.search.query.is_empty();
+        self.open_search(document);
+        self.search.replacing = true;
+        // With the query already filled in, the replacement is next.
+        if had_query || !self.search.query.is_empty() {
+            self.search.focus_query = false;
+            self.search.focus_replacement = true;
+        }
+    }
+
+    pub fn open_go_to_line(&mut self) {
+        self.go_to = Some(GoToLine {
+            input: String::new(),
+            focus: true,
+        });
+        self.search.open = false;
+    }
+
+    /// Documentation for the name the editor asked about; empty when there
+    /// is none.
+    pub fn show_documentation(&mut self, documentation: Documentation) {
+        let current = self.hover.target.as_ref().map(|(range, _)| range);
+        if current.is_some() && current == self.hover.requested.as_ref() {
+            self.hover.text = Some(documentation);
+        }
     }
 
     pub fn search_is_open(&self) -> bool {
         self.search.open
     }
 
+    /// Selects the match after the selection (or before it), wrapping
+    /// around: from where the caret is, not from the last match visited.
     pub fn find_next(&mut self, document: &Document, forward: bool) {
         self.update_matches(&document.text);
-        let count = self.search.matches.len();
-        if count == 0 {
-            return;
+        let selection = self.clamped_selection(&document.text).range();
+        if let Some(index) = next_match(&self.search.matches, &selection, forward) {
+            self.search.current = index;
+            self.select_current_match(&document.text);
         }
-        self.search.current = if forward {
-            (self.search.current + 1) % count
-        } else {
-            (self.search.current + count - 1) % count
-        };
-        self.select_current_match(&document.text);
     }
 
     /// Asks for completions at the cursor on the next frame.
@@ -286,9 +451,19 @@ impl CodeEditor {
         }
     }
 
+    /// Applies an editor command as one undo step.
     fn apply(&mut self, document: &mut Document, edited: text_ops::Edited) {
         if edited.text != document.text {
+            self.record_outside_edits(document);
+            let before = self.clamped_selection(&document.text);
             document.text = edited.text;
+            self.history.record(
+                &document.text,
+                &before,
+                &edited.selection,
+                EditKind::Command,
+                self.now,
+            );
         }
         self.selection = edited.selection.clone();
         self.pending_selection = Some(edited.selection);
@@ -302,22 +477,32 @@ impl CodeEditor {
         options: &EditorOptions<'_>,
     ) -> EditorOutput {
         let mut output = EditorOutput::default();
+        self.now = ui.input(|i| i.time);
+        self.selection = self.read_selection(ui.ctx(), &document.text);
+        // A reload since the last frame is an undo step of its own.
+        self.record_outside_edits(document);
         if self.search.open {
             self.search_bar(ui, document);
+        }
+        if self.go_to.is_some() {
+            self.go_to_bar(ui, document);
         }
 
         let font = FontId::monospace(options.font_size);
         let (row_height, char_width) =
             ui.fonts_mut(|f| (f.row_height(&font), f.glyph_width(&font, 'M')));
 
-        // Keys the editor handles itself must be taken before TextEdit sees them.
-        self.selection = self.read_selection(ui.ctx(), &document.text);
+        // Keys the editor handles itself must be taken before TextEdit sees
+        // them; that includes undo and redo, so `TextEdit`'s own history,
+        // which does not know the editor commands, is never used.
         if ui.memory(|m| m.has_focus(self.text_id)) {
             output.changed |= self.handle_keys(ui, document, options);
         }
         if let Some(selection) = self.pending_selection.take() {
             self.write_selection(ui.ctx(), &document.text, &selection);
+            self.selection = selection;
         }
+        let before_typing = self.clamped_selection(&document.text);
         if std::mem::take(&mut self.pending_focus) {
             ui.memory_mut(|m| m.request_focus(self.text_id));
         }
@@ -394,28 +579,50 @@ impl CodeEditor {
                     };
                 }
                 if text_changed {
+                    self.history.record(
+                        &document.text,
+                        &before_typing,
+                        &self.selection,
+                        EditKind::Typing,
+                        self.now,
+                    );
                     self.close_popups_if_left(&document.text);
+                    self.hover = Hover::default();
                 }
                 // Before the line backgrounds and the gutter are drawn.
                 self.sync_markers(&document.text);
 
-                // Typing "." asks for member completions.
-                let typed_dot = text_changed
-                    && ui.input(|i| {
-                        i.events
-                            .iter()
-                            .any(|e| matches!(e, egui::Event::Text(t) if t == "."))
-                    });
+                // Typing "." asks for member completions, and typing the
+                // first characters of a name for names.
+                let typed = |test: fn(&str) -> bool| {
+                    text_changed
+                        && ui.input(|i| {
+                            i.events.iter().any(
+                                |e| matches!(e, egui::Event::Text(t) if !t.is_empty() && test(t)),
+                            )
+                        })
+                };
+                let typed_dot = typed(|t| t == ".");
+                let typed_name = !self.completion.open
+                    && typed(|t| t.chars().all(text_ops::is_word_char))
+                    && completes_name(
+                        &document.text,
+                        self.selection.cursor,
+                        options.completion_min_chars,
+                    );
                 let wanted = std::mem::take(&mut self.completion_wanted);
-                if typed_dot || wanted {
-                    let (line, column) =
-                        text_ops::line_column(&document.text, self.selection.cursor);
-                    self.completion_anchor = self.selection.cursor;
+                if typed_dot || typed_name || wanted {
+                    let cursor = self.selection.cursor.min(document.text.len());
+                    let (line, column) = text_ops::line_column(&document.text, cursor);
+                    self.completion_anchor = cursor;
                     output.completion_request = Some(CompletionRequest {
                         line: line + 1,
                         column,
+                        automatic: typed_name && !typed_dot && !wanted,
                     });
                 }
+
+                output.hover_request = self.hover(ui, &edit, &document.text);
 
                 let geometry = Geometry::new(&edit.galley, edit.galley_pos);
                 let text_left = edit.response.response.rect.left();
@@ -486,6 +693,17 @@ impl CodeEditor {
         options: &EditorOptions<'_>,
     ) -> bool {
         let consume = |modifiers, key| ui.input_mut(|i| i.consume_key(modifiers, key));
+        // egui ignores an extra Shift when matching, so Ctrl+Shift+Z first.
+        if consume(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::Z)
+            || consume(Modifiers::COMMAND, Key::Y)
+        {
+            self.redo(document);
+            return true;
+        }
+        if consume(Modifiers::COMMAND, Key::Z) {
+            self.undo(document);
+            return true;
+        }
         let selection = self.clamped_selection(&document.text);
 
         if self.completion.open {
@@ -574,15 +792,92 @@ impl CodeEditor {
             return;
         }
         let typed = typed_text(text, self.completion.anchor, self.selection.cursor);
-        if typed.is_none_or(|t| !t.chars().all(|c| c == '_' || c.is_alphanumeric())) {
+        if typed.is_none_or(|t| !t.chars().all(text_ops::is_word_char)) {
             self.completion.open = false;
         }
     }
 
-    fn search_bar(&mut self, ui: &mut egui::Ui, document: &Document) {
+    /// Follows the name under the pointer. Once the pointer has rested on
+    /// it, asks for its documentation; once that arrived, shows it.
+    fn hover(
+        &mut self,
+        ui: &egui::Ui,
+        edit: &egui::text_edit::TextEditOutput,
+        text: &str,
+    ) -> Option<HoverRequest> {
+        let pointer = edit
+            .response
+            .response
+            .hover_pos()
+            .filter(|_| !self.completion.open && self.calltip.is_none());
+        let name = pointer.and_then(|pos| name_at(&edit.galley, edit.galley_pos, text, pos));
+        if self.hover.target.as_ref().map(|(range, _)| range) != name.as_ref() {
+            self.hover = Hover {
+                target: name.map(|range| (range, self.now)),
+                ..Hover::default()
+            };
+        }
+        let (range, since) = self.hover.target.clone()?;
+
+        if self.hover.requested.as_ref() != Some(&range) {
+            let waited = self.now - since;
+            if waited < HOVER_DELAY {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(
+                        HOVER_DELAY - waited,
+                    ));
+                return None;
+            }
+            self.hover.requested = Some(range.clone());
+            let (line, column) = text_ops::line_column(text, range.start);
+            return Some(HoverRequest {
+                line: line + 1,
+                column,
+            });
+        }
+
+        if let (Some(pos), Some(documentation)) = (pointer, &self.hover.text)
+            && !(documentation.signatures.is_empty() && documentation.text.is_empty())
+        {
+            // Below the pointer, or above it in the lower half of the
+            // screen, so it never covers the name it describes.
+            let below = pos.y < ui.ctx().content_rect().center().y;
+            let (pivot, offset) = if below {
+                (Align2::LEFT_TOP, Vec2::new(12.0, 18.0))
+            } else {
+                (Align2::LEFT_BOTTOM, Vec2::new(12.0, -12.0))
+            };
+            egui::Area::new(self.text_id.with("documentation"))
+                .order(egui::Order::Tooltip)
+                .pivot(pivot)
+                .fixed_pos(pos + offset)
+                .interactable(false)
+                .constrain(true)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(HOVER_WIDTH);
+                        for signature in &documentation.signatures {
+                            ui.label(egui::RichText::new(signature).monospace().strong());
+                        }
+                        if !documentation.text.is_empty() {
+                            if !documentation.signatures.is_empty() {
+                                ui.separator();
+                            }
+                            ui.label(&documentation.text);
+                        }
+                    });
+                });
+        }
+        None
+    }
+
+    fn search_bar(&mut self, ui: &mut egui::Ui, document: &mut Document) {
+        use egui_phosphor::regular as icon;
+
         self.update_matches(&document.text);
         let mut navigate: Option<bool> = None;
         let mut close = false;
+        let mut replace: Option<Replace> = None;
         let shortcut_hint = |label: &str, action: Action| {
             commands::shortcut(&action).map_or_else(
                 || label.to_owned(),
@@ -591,12 +886,14 @@ impl CodeEditor {
         };
         let previous_hint = shortcut_hint("Previous match", Action::FindPrevious);
         let next_hint = shortcut_hint("Next match", Action::FindNext);
+        let replace_hint = shortcut_hint("Replace", Action::Replace);
+        let field_width = bar_field_width(ui);
         ui.horizontal(|ui| {
             ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
             let response = ui.add(
                 TextEdit::singleline(&mut self.search.query)
                     .hint_text("Search")
-                    .desired_width(220.0),
+                    .desired_width(field_width),
             );
             if std::mem::take(&mut self.search.focus_query) {
                 response.request_focus();
@@ -606,13 +903,7 @@ impl CodeEditor {
                 self.search.current = 0;
             }
             if response.has_focus() || response.lost_focus() {
-                let (enter, shift, escape) = ui.input(|i| {
-                    (
-                        i.key_pressed(Key::Enter),
-                        i.modifiers.shift,
-                        i.key_pressed(Key::Escape),
-                    )
-                });
+                let (enter, shift, escape) = take_bar_keys(ui);
                 if enter {
                     navigate = Some(!shift);
                     response.request_focus();
@@ -647,6 +938,17 @@ impl CodeEditor {
                 self.search.match_case = !self.search.match_case;
                 self.search.computed_for = 0;
             }
+            if ui
+                .selectable_label(
+                    self.search.whole_word,
+                    egui::RichText::new("ab").underline(),
+                )
+                .on_hover_text("Whole word")
+                .clicked()
+            {
+                self.search.whole_word = !self.search.whole_word;
+                self.search.computed_for = 0;
+            }
             let count = self.search.matches.len();
             ui.weak(match count {
                 0 if self.search.query.is_empty() => String::new(),
@@ -654,17 +956,62 @@ impl CodeEditor {
                 _ => format!("{} of {count}", self.search.current.min(count - 1) + 1),
             });
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                if ui.button(icon::X).on_hover_text("Close (Esc)").clicked() {
+                    close = true;
+                }
                 if ui
-                    .button(egui_phosphor::regular::X)
-                    .on_hover_text("Close (Esc)")
+                    .selectable_label(self.search.replacing, icon::SWAP)
+                    .on_hover_text(replace_hint)
                     .clicked()
                 {
-                    close = true;
+                    self.search.replacing = !self.search.replacing;
+                    self.search.focus_replacement = self.search.replacing;
                 }
             });
         });
+        if self.search.replacing {
+            ui.horizontal(|ui| {
+                ui.label(icon::SWAP);
+                let response = ui.add(
+                    TextEdit::singleline(&mut self.search.replacement)
+                        .hint_text("Replace with")
+                        .desired_width(field_width),
+                );
+                if std::mem::take(&mut self.search.focus_replacement) {
+                    response.request_focus();
+                }
+                if response.has_focus() || response.lost_focus() {
+                    let (enter, _, escape) = take_bar_keys(ui);
+                    if enter {
+                        replace = Some(Replace::Current);
+                        response.request_focus();
+                    }
+                    close |= escape;
+                }
+                let found = !self.search.matches.is_empty();
+                if ui
+                    .add_enabled(found, egui::Button::new("Replace"))
+                    .on_hover_text("Replace this match and go to the next one (Enter)")
+                    .clicked()
+                {
+                    replace = Some(Replace::Current);
+                }
+                if ui
+                    .add_enabled(found, egui::Button::new("Replace all"))
+                    .on_hover_text("Replace every match, as one step to undo")
+                    .clicked()
+                {
+                    replace = Some(Replace::All);
+                }
+            });
+        }
         ui.separator();
 
+        match replace {
+            Some(Replace::Current) => self.replace_current(document),
+            Some(Replace::All) => self.replace_all(document),
+            None => {}
+        }
         if let Some(forward) = navigate {
             self.find_next(document, forward);
         }
@@ -674,15 +1021,130 @@ impl CodeEditor {
         }
     }
 
+    /// Replaces the selected match and moves on to the next one. Without a
+    /// selected match, selects the next one first, so nothing is replaced
+    /// unseen.
+    fn replace_current(&mut self, document: &mut Document) {
+        self.update_matches(&document.text);
+        let selected = self.clamped_selection(&document.text).range();
+        let visited = self
+            .search
+            .visited
+            .clone()
+            .filter(|(_, key)| *key == self.search.computed_for)
+            .map(|(range, _)| range);
+        let index = self
+            .search
+            .matches
+            .iter()
+            .position(|m| *m == selected || Some(m) == visited.as_ref());
+        let Some(index) = index else {
+            self.find_next(document, true);
+            return;
+        };
+        let range = self.search.matches[index].clone();
+        let replacement = self.search.replacement.clone();
+        let edited = text_ops::replace_ranges(
+            &document.text,
+            &Selection::caret(range.start),
+            std::slice::from_ref(&range),
+            &replacement,
+        );
+        self.apply(document, edited);
+        // The replace field keeps the keyboard for the next Enter.
+        self.pending_focus = false;
+        self.update_matches(&document.text);
+        let after = range.start + replacement.len();
+        let next = self.search.matches.iter().position(|m| m.start >= after);
+        if let Some(next) = next.or((!self.search.matches.is_empty()).then_some(0)) {
+            self.search.current = next;
+            self.select_current_match(&document.text);
+        }
+    }
+
+    fn replace_all(&mut self, document: &mut Document) {
+        self.update_matches(&document.text);
+        if self.search.matches.is_empty() {
+            return;
+        }
+        let selection = self.clamped_selection(&document.text);
+        let edited = text_ops::replace_ranges(
+            &document.text,
+            &selection,
+            &self.search.matches,
+            &self.search.replacement,
+        );
+        self.apply(document, edited);
+        self.pending_focus = false;
+    }
+
+    fn go_to_bar(&mut self, ui: &mut egui::Ui, document: &Document) {
+        use egui_phosphor::regular as icon;
+
+        let Some(go_to) = &mut self.go_to else {
+            return;
+        };
+        let lines = document.text.matches('\n').count() + 1;
+        let target = text_ops::go_to_target(&document.text, &go_to.input);
+        let mut jump = false;
+        let mut close = false;
+        let field_width = bar_field_width(ui);
+        ui.horizontal(|ui| {
+            ui.label(icon::LIST_NUMBERS);
+            let response = ui.add(
+                TextEdit::singleline(&mut go_to.input)
+                    .hint_text(format!("Line (1–{lines}), or line:column"))
+                    .desired_width(field_width),
+            );
+            if std::mem::take(&mut go_to.focus) {
+                response.request_focus();
+            }
+            if response.has_focus() || response.lost_focus() {
+                let (enter, _, escape) = take_bar_keys(ui);
+                jump |= enter;
+                close |= escape;
+            }
+            if ui
+                .add_enabled(target.is_some(), egui::Button::new("Go"))
+                .clicked()
+            {
+                jump = true;
+            }
+            if !go_to.input.trim().is_empty() && target.is_none() {
+                ui.weak("Not a line number");
+            }
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                close |= ui.button(icon::X).on_hover_text("Close (Esc)").clicked();
+            });
+        });
+        ui.separator();
+
+        if jump && let Some((line, offset)) = target {
+            self.pending_selection = Some(Selection::caret(offset));
+            self.pending_scroll_line = Some(line + 1);
+            close = true;
+        }
+        if close {
+            self.go_to = None;
+            self.pending_focus = true;
+        }
+    }
+
     fn update_matches(&mut self, text: &str) {
         let mut hasher = DefaultHasher::new();
-        (text, &self.search.query, self.search.match_case).hash(&mut hasher);
+        let search = &self.search;
+        (text, &search.query, search.match_case, search.whole_word).hash(&mut hasher);
         let key = hasher.finish() | 1;
         if self.search.computed_for == key {
             return;
         }
         self.search.computed_for = key;
-        self.search.matches = find_all(text, &self.search.query, self.search.match_case);
+        self.search.matches = find_all(
+            text,
+            &self.search.query,
+            self.search.match_case,
+            self.search.whole_word,
+        );
         if self.search.current >= self.search.matches.len() {
             self.search.current = 0;
         }
@@ -690,6 +1152,7 @@ impl CodeEditor {
 
     fn select_current_match(&mut self, text: &str) {
         if let Some(range) = self.search.matches.get(self.search.current).cloned() {
+            self.search.visited = Some((range.clone(), self.search.computed_for));
             self.pending_selection = Some(Selection {
                 anchor: range.start,
                 cursor: range.end,
@@ -884,6 +1347,62 @@ impl CodeEditor {
     }
 }
 
+/// Width of the text field of the search, replace and *Go to line* bars:
+/// as wide as the buttons next to it leave room for in a narrow editor.
+fn bar_field_width(ui: &egui::Ui) -> f32 {
+    (ui.available_width() - 320.0).clamp(100.0, 220.0)
+}
+
+/// Takes Enter and Escape from this frame's input: a bar's text field acts
+/// on them, and the editor, which may get the keyboard back in this frame,
+/// must not see them too (Enter would replace its selection with a new
+/// line). Returns whether Enter was pressed, with Shift held, and Escape.
+fn take_bar_keys(ui: &egui::Ui) -> (bool, bool, bool) {
+    ui.input_mut(|i| {
+        let shift = i.modifiers.shift;
+        let enter = i.consume_key(Modifiers::NONE, Key::Enter);
+        let escape = i.consume_key(Modifiers::NONE, Key::Escape);
+        (enter, shift, escape)
+    })
+}
+
+/// Whether typing has just reached `min_chars` characters of a name at
+/// `cursor`, the moment to offer completions. Names never start with a
+/// digit, and words in comments and strings are not names; 0 turns this
+/// off.
+fn completes_name(text: &str, cursor: usize, min_chars: usize) -> bool {
+    let name = text_ops::name_before(text, cursor);
+    min_chars > 0
+        && name.chars().count() == min_chars
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && highlight::in_code(text, cursor)
+}
+
+/// The name whose characters are under the pointer at `pos`.
+fn name_at(galley: &Galley, origin: Pos2, text: &str, pos: Pos2) -> Option<Range<usize>> {
+    let caret = galley.cursor_from_pos(pos - origin);
+    let byte = text_ops::char_to_byte(text, caret.index.0);
+    // The caret is between two characters: the pointer is on the one after
+    // it when it is to the right of the caret.
+    let caret_x = galley.pos_from_cursor(caret).left() + origin.x;
+    let on = if pos.x >= caret_x {
+        byte
+    } else {
+        text[..byte].char_indices().next_back()?.0
+    };
+    let name = text_ops::word_at(text, on)?;
+    let rect = |byte: usize| {
+        galley
+            .pos_from_cursor(CCursor::new(text_ops::byte_to_char(text, byte)))
+            .translate(origin.to_vec2())
+    };
+    let (start, end) = (rect(name.start), rect(name.end));
+    let inside = (start.top() - end.top()).abs() < 1.0
+        && (start.left()..=end.left()).contains(&pos.x)
+        && start.y_range().contains(pos.y);
+    inside.then_some(name)
+}
+
 /// Text typed between `anchor` and `cursor` (empty if the cursor moved back).
 fn typed_since(text: &str, anchor: usize, cursor: usize) -> &str {
     typed_text(text, anchor, cursor).unwrap_or_default()
@@ -923,8 +1442,43 @@ fn floor_char_boundary(text: &str, mut index: usize) -> usize {
     index
 }
 
-/// Byte ranges of every occurrence of `query`.
-fn find_all(text: &str, query: &str, match_case: bool) -> Vec<Range<usize>> {
+/// The match to go to from `selection`: the first one after it going
+/// forward, the last one before it going back, wrapping around.
+fn next_match(matches: &[Range<usize>], selection: &Range<usize>, forward: bool) -> Option<usize> {
+    if matches.is_empty() {
+        return None;
+    }
+    Some(if forward {
+        matches
+            .iter()
+            .position(|m| m.start >= selection.end && m != selection)
+            .unwrap_or(0)
+    } else {
+        matches
+            .iter()
+            .rposition(|m| m.end <= selection.start && m != selection)
+            .unwrap_or(matches.len() - 1)
+    })
+}
+
+/// Whether `range` is a whole word: no name character touches either end.
+fn is_whole_word(text: &str, range: &Range<usize>) -> bool {
+    let before = text[..range.start].chars().next_back();
+    let after = text[range.end..].chars().next();
+    !before.is_some_and(text_ops::is_word_char) && !after.is_some_and(text_ops::is_word_char)
+}
+
+/// Byte ranges of every occurrence of `query`, optionally only where it is
+/// a whole word.
+fn find_all(text: &str, query: &str, match_case: bool, whole_word: bool) -> Vec<Range<usize>> {
+    let mut matches = find_occurrences(text, query, match_case);
+    if whole_word {
+        matches.retain(|range| is_whole_word(text, range));
+    }
+    matches
+}
+
+fn find_occurrences(text: &str, query: &str, match_case: bool) -> Vec<Range<usize>> {
     if query.is_empty() {
         return Vec::new();
     }

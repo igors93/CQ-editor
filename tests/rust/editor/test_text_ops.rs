@@ -192,3 +192,57 @@ fn line_map_keeps_positions_when_a_block_is_indented() {
         [Some(1), Some(2), Some(3), Some(4)]
     );
 }
+
+#[test]
+fn names_are_found_around_any_of_their_characters() {
+    let text = "r = cq.Workplane().box(1)";
+    assert_eq!(word_at(text, 7), Some(7..16));
+    assert_eq!(word_at(text, 15), Some(7..16));
+    assert_eq!(word_at(text, 6), None, "the dot");
+    assert_eq!(word_at(text, text.len()), None);
+    assert_eq!(word_at("área = 1", 2), Some(0..5), "accents are letters");
+}
+
+#[test]
+fn the_name_before_the_caret_counts_only_at_its_end() {
+    assert_eq!(name_before("x = cq.Wor", 10), "Wor");
+    assert_eq!(name_before("x = cq.Workplane", 9), "", "inside the name");
+    assert_eq!(name_before("x = ", 4), "");
+    assert_eq!(name_before("éé", 1), "", "not a character boundary");
+}
+
+#[test]
+fn go_to_line_accepts_a_line_and_an_optional_column() {
+    let text = "first\nsecond line\nthird";
+    assert_eq!(go_to_target(text, "2"), Some((1, 6)));
+    assert_eq!(go_to_target(text, " 2:8 "), Some((1, 13)));
+    assert_eq!(go_to_target(text, "2:99"), Some((1, 17)), "end of the line");
+    assert_eq!(go_to_target(text, "40"), Some((2, 18)), "the last line");
+    assert_eq!(go_to_target(text, "0"), None);
+    assert_eq!(go_to_target(text, "two"), None);
+    assert_eq!(go_to_target(text, ""), None);
+}
+
+#[test]
+fn replacing_ranges_keeps_the_selection_on_the_same_text() {
+    let edited = replace_ranges("a b a", &sel(4, 5), &[0..1, 4..5], "xyz");
+    assert_eq!(edited.text, "xyz b xyz");
+    assert_eq!(
+        edited.selection,
+        sel(6, 9),
+        "the replacement of the selection"
+    );
+}
+
+#[test]
+fn breakpoints_are_relocated_by_the_text_of_their_line() {
+    let text = "a = 1\nb = 2\n\nb = 2\nc = 3";
+    let saved = |line: usize, content: &str| (line, content.to_owned());
+    // Unchanged line.
+    assert_eq!(relocate_lines(text, &[saved(5, "c = 3")]), [5].into());
+    // Moved: the nearest line with that text wins.
+    assert_eq!(relocate_lines(text, &[saved(5, "b = 2")]), [4].into());
+    assert_eq!(relocate_lines(text, &[saved(1, "b = 2")]), [2].into());
+    // Gone, or a blank line.
+    assert!(relocate_lines(text, &[saved(1, "d = 4"), saved(3, "")]).is_empty());
+}

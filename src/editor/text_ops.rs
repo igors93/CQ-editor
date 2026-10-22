@@ -300,6 +300,113 @@ pub fn newline_with_indent(text: &str, cursor: usize) -> String {
     format!("\n{new_indent}")
 }
 
+/// Replaces every one of the non-overlapping, sorted `ranges` with
+/// `replacement` in one edit.
+pub fn replace_ranges(
+    text: &str,
+    selection: &Selection,
+    ranges: &[Range<usize>],
+    replacement: &str,
+) -> Edited {
+    let edits: Vec<(Range<usize>, String)> = ranges
+        .iter()
+        .map(|range| (range.clone(), replacement.to_owned()))
+        .collect();
+    apply(text, selection, &edits)
+}
+
+/// Characters of a Python name.
+pub fn is_word_char(c: char) -> bool {
+    c == '_' || c.is_alphanumeric()
+}
+
+/// Byte range of the name containing the character at `byte`, if that
+/// character is part of a name.
+pub fn word_at(text: &str, byte: usize) -> Option<Range<usize>> {
+    let c = text.get(byte..)?.chars().next()?;
+    if !is_word_char(c) {
+        return None;
+    }
+    let start = text[..byte]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| is_word_char(*c))
+        .last()
+        .map_or(byte, |(i, _)| i);
+    let end = text[byte..]
+        .char_indices()
+        .find(|(_, c)| !is_word_char(*c))
+        .map_or(text.len(), |(i, _)| byte + i);
+    Some(start..end)
+}
+
+/// The part of a name typed just before `cursor`, when the cursor is at
+/// the end of that name.
+pub fn name_before(text: &str, cursor: usize) -> &str {
+    let Some(before) = text.get(..cursor) else {
+        return "";
+    };
+    if text[cursor..].chars().next().is_some_and(is_word_char) {
+        return "";
+    }
+    let start = before
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| is_word_char(*c))
+        .last()
+        .map_or(cursor, |(i, _)| i);
+    &text[start..cursor]
+}
+
+/// Parses *Go to line* input: `line` or `line:column`, both 1-based.
+/// Returns the 0-based line and the byte offset to jump to, clamped to the
+/// text.
+pub fn go_to_target(text: &str, input: &str) -> Option<(usize, usize)> {
+    let (line, column) = match input.trim().split_once(':') {
+        Some((line, column)) => (line.trim(), Some(column.trim())),
+        None => (input.trim(), None),
+    };
+    let line: usize = line.parse().ok().filter(|&l| l > 0)?;
+    let column: usize = match column {
+        Some(column) => column.parse().ok().filter(|&c| c > 0)?,
+        None => 1,
+    };
+    let last_line = text.matches('\n').count();
+    let line = (line - 1).min(last_line);
+    let range = line_range(text, line);
+    let offset = text[range.clone()]
+        .char_indices()
+        .nth(column - 1)
+        .map_or(range.end, |(i, _)| range.start + i);
+    Some((line, offset))
+}
+
+/// Places breakpoints saved with the text of their lines (1-based line,
+/// line text) in `text`: on the same line when its text is unchanged,
+/// otherwise on the nearest line with that text, otherwise nowhere.
+pub fn relocate_lines(text: &str, saved: &[(usize, String)]) -> std::collections::BTreeSet<usize> {
+    let lines: Vec<&str> = text.split('\n').map(str::trim).collect();
+    saved
+        .iter()
+        .filter_map(|(line, content)| {
+            let content = content.trim();
+            if content.is_empty() {
+                return None;
+            }
+            let index = line.checked_sub(1)?;
+            if lines.get(index) == Some(&content) {
+                return Some(*line);
+            }
+            lines
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| **candidate == content)
+                .min_by_key(|(candidate, _)| candidate.abs_diff(index))
+                .map(|(candidate, _)| candidate + 1)
+        })
+        .collect()
+}
+
 /// The line without a trailing `#` comment (ignoring `#` inside strings).
 fn strip_comment(line: &str) -> &str {
     let mut quote: Option<char> = None;

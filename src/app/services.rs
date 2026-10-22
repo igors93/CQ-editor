@@ -5,12 +5,10 @@ use std::path::Path;
 
 use super::execution::Pending;
 use super::{AppState, StatusKind};
-use crate::editor::CompletionRequest;
+use crate::editor::{CompletionRequest, HoverRequest};
 use crate::panels::EntryKind;
-use crate::scene::{NodeKey, Overlay, TopologyEntity, TopologySelection};
-use crate::worker::protocol::{
-    CompletionTarget, ExportFormat, Request, TopologyKind, TopologyReference,
-};
+use crate::scene::{NodeKey, Overlay, TopologySelection};
+use crate::worker::protocol::{CompletionTarget, ExportFormat, Request, TopologyReference};
 
 impl AppState {
     // -- editor services ----------------------------------------------------------
@@ -21,13 +19,30 @@ impl AppState {
         }
         let source = self.document.text.clone();
         let path = self.document.path().map(|p| p.display().to_string());
-        self.send_tracked(Pending::Completion, |id| Request::Complete {
+        let automatic = request.automatic;
+        self.send_tracked(Pending::Completion { automatic }, |id| Request::Complete {
             id,
             source,
             line: request.line,
             column: request.column,
             path,
             target: CompletionTarget::Editor,
+        });
+    }
+
+    /// Asks for the documentation of the name under the editor's pointer.
+    pub(super) fn request_description(&mut self, request: HoverRequest) {
+        if !self.worker.is_ready() || self.is_busy() {
+            return;
+        }
+        let source = self.document.text.clone();
+        let path = self.document.path().map(|p| p.display().to_string());
+        self.send_tracked(Pending::Describe, |id| Request::Describe {
+            id,
+            source,
+            line: request.line,
+            column: request.column,
+            path,
         });
     }
 
@@ -94,11 +109,7 @@ impl AppState {
             .map(|selection| TopologyReference {
                 key: selection.node.clone(),
                 part: selection.part,
-                kind: match selection.entity {
-                    TopologyEntity::Face(_) => TopologyKind::Face,
-                    TopologyEntity::Edge(_) => TopologyKind::Edge,
-                    TopologyEntity::Vertex(_) => TopologyKind::Vertex,
-                },
+                kind: selection.entity.topology_kind(),
                 identifier: selection.entity.identifier(),
             })
             .collect();

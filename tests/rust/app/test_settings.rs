@@ -75,6 +75,38 @@ fn execution_and_scene_settings_are_sent_to_worker() {
 }
 
 #[test]
+fn breakpoints_are_remembered_per_file_and_bounded() {
+    let mut settings = Settings::default();
+    let breakpoint = |line: usize| SavedBreakpoint {
+        line,
+        text: format!("line {line}"),
+    };
+    settings.remember_breakpoints(Path::new("a.py"), vec![breakpoint(3)]);
+    settings.remember_breakpoints(Path::new("b.py"), vec![breakpoint(7), breakpoint(9)]);
+    assert_eq!(settings.breakpoints_of(Path::new("a.py")), [breakpoint(3)]);
+    assert_eq!(
+        settings.breakpoints[0].path,
+        Path::new("b.py"),
+        "the latest first"
+    );
+
+    // Clearing every breakpoint forgets the file.
+    settings.remember_breakpoints(Path::new("a.py"), Vec::new());
+    assert!(settings.breakpoints_of(Path::new("a.py")).is_empty());
+    assert_eq!(settings.breakpoints.len(), 1);
+
+    for file in 0..MAX_BREAKPOINT_FILES + 5 {
+        let path = format!("{file}.py");
+        settings.remember_breakpoints(Path::new(&path), vec![breakpoint(1)]);
+    }
+    assert_eq!(settings.breakpoints.len(), MAX_BREAKPOINT_FILES);
+
+    let json = serde_json::to_string(&settings).unwrap();
+    let loaded: Settings = serde_json::from_str(&json).unwrap();
+    assert_eq!(loaded.breakpoints, settings.breakpoints);
+}
+
+#[test]
 fn reopening_a_recent_file_moves_it_to_the_front() {
     let mut settings = Settings::default();
     settings.add_recent_file(Path::new("first.py"));

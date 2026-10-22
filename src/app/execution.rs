@@ -28,8 +28,14 @@ pub enum Phase {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
     Run,
-    Completion,
+    /// Completions for the editor; `automatic` ones were offered while
+    /// typing a name, not asked for.
+    Completion {
+        automatic: bool,
+    },
     ConsoleCompletion,
+    /// Documentation of the name under the pointer.
+    Describe,
     Inspect,
     /// The construction geometry of one inspector entry: the workplane and
     /// its selected (frame, item).

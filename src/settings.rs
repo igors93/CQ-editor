@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::worker::protocol::{RunSettings, SceneSettings};
 
 const MAX_RECENT_FILES: usize = 10;
+/// Files whose breakpoints are remembered, most recently used first.
+const MAX_BREAKPOINT_FILES: usize = 100;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -22,6 +24,25 @@ pub struct Settings {
     pub recent_files: Vec<PathBuf>,
     /// File reopened on startup.
     pub last_file: Option<PathBuf>,
+    /// Breakpoints of recently edited files, most recent first.
+    pub breakpoints: Vec<FileBreakpoints>,
+}
+
+/// The breakpoints of one file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FileBreakpoints {
+    pub path: PathBuf,
+    pub lines: Vec<SavedBreakpoint>,
+}
+
+/// A breakpoint as remembered between sessions: its 1-based line and the
+/// trimmed text of that line, to find it again if the file changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SavedBreakpoint {
+    pub line: usize,
+    pub text: String,
 }
 
 impl Settings {
@@ -29,6 +50,36 @@ impl Settings {
         self.recent_files.retain(|p| p != path);
         self.recent_files.insert(0, path.to_path_buf());
         self.recent_files.truncate(MAX_RECENT_FILES);
+    }
+
+    pub fn breakpoints_of(&self, path: &Path) -> &[SavedBreakpoint] {
+        self.breakpoints
+            .iter()
+            .find(|file| file.path == path)
+            .map_or(&[], |file| &file.lines)
+    }
+
+    /// Remembers the breakpoints of `path`; none forgets the file.
+    pub fn remember_breakpoints(&mut self, path: &Path, lines: Vec<SavedBreakpoint>) {
+        if self.breakpoints_of(path) == lines.as_slice()
+            && self
+                .breakpoints
+                .first()
+                .is_some_and(|file| file.path == path)
+        {
+            return;
+        }
+        self.breakpoints.retain(|file| file.path != path);
+        if !lines.is_empty() {
+            self.breakpoints.insert(
+                0,
+                FileBreakpoints {
+                    path: path.to_path_buf(),
+                    lines,
+                },
+            );
+            self.breakpoints.truncate(MAX_BREAKPOINT_FILES);
+        }
     }
 
     pub fn run_settings(&self) -> RunSettings {
@@ -190,6 +241,9 @@ pub struct Editor {
     pub max_line_length: usize,
     pub highlight_current_line: bool,
     pub auto_indent: bool,
+    /// Offer completions after this many characters of a name; 0 offers
+    /// them only after `.` and on Ctrl+Space.
+    pub completion_min_chars: usize,
 }
 
 impl Default for Editor {
@@ -203,6 +257,7 @@ impl Default for Editor {
             max_line_length: 79,
             highlight_current_line: true,
             auto_indent: true,
+            completion_min_chars: 3,
         }
     }
 }

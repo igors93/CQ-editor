@@ -6,8 +6,9 @@ use egui_phosphor::regular as icon;
 
 use crate::app::AppState;
 use crate::commands::Action;
+use crate::panels::measurements;
 use crate::scene::{Rgb, SceneNode};
-use crate::worker::protocol::ExportFormat;
+use crate::worker::protocol::{EntityMeasurement, ExportFormat};
 
 /// Height the object tree keeps while the property sheet is open.
 const TREE_MIN_HEIGHT: f32 = 80.0;
@@ -259,24 +260,44 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
         .scene
         .current_topology()
         .filter(|selection| selection.node == key)
-        .map(|selection| (selection.entity, selection.part));
+        .cloned();
+    let measured = topology.as_ref().and_then(|selection| {
+        state
+            .measurements
+            .result
+            .as_ref()
+            .and_then(|result| measurements::measurement_of(result, selection))
+            .cloned()
+    });
+    let measuring = state.measurements.loading;
     let Some(node) = state.scene.find_mut(&key) else {
         return;
     };
 
     ui.strong(&node.name);
-    if let Some((entity, part)) = topology {
+    if let Some(selection) = &topology {
         ui.label(format!(
             "{} {} · part {}",
-            entity.kind(),
-            entity.identifier(),
-            part + 1
+            selection.entity.kind(),
+            selection.entity.identifier(),
+            selection.part + 1
         ));
     }
     egui::Grid::new("object_properties_grid")
         .num_columns(2)
         .spacing([12.0, 6.0])
         .show(ui, |ui| {
+            if let Some(entity) = &measured {
+                measured_rows(ui, entity);
+            } else if topology.is_some() && measuring {
+                ui.label("Geometry");
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.weak("Measuring…");
+                });
+                ui.end_row();
+            }
+
             ui.label("Type");
             ui.weak(&node.kind);
             ui.end_row();
@@ -351,6 +372,39 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
             icon::STACK
         ));
     }
+}
+
+/// The exact size and position of the selected face, edge or vertex.
+fn measured_rows(ui: &mut egui::Ui, entity: &EntityMeasurement) {
+    let mut row = |label: &str, value: String| {
+        ui.label(label);
+        ui.monospace(value);
+        ui.end_row();
+    };
+    row("Geometry", measurements::title_case(&entity.geometry_type));
+    if let Some(area) = entity.area {
+        row("Area", compact(area));
+    }
+    if let Some(length) = entity.length {
+        row("Length", compact(length));
+    }
+    if let Some(radius) = entity.radius {
+        row("Radius", compact(radius));
+    }
+    let point = |[x, y, z]: [f64; 3]| format!("({}, {}, {})", compact(x), compact(y), compact(z));
+    match entity.position {
+        Some(position) => row("Position", point(position)),
+        None => row("Center", point(entity.center)),
+    }
+}
+
+/// A short number for the narrow property sheet: four decimals, without
+/// the rounding noise of exact geometry (`-6.9e-18` is 0). The
+/// Measurements panel keeps the full precision.
+fn compact(value: f64) -> String {
+    let text = format!("{value:.4}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" { "0" } else { text }.to_owned()
 }
 
 /// Compact number formatting for sizes.

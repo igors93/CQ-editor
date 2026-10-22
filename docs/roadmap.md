@@ -403,13 +403,13 @@ Small, concrete improvements to what already exists:
 
 | Status | Improvement |
 | :---: | --- |
-| | **Undo/Redo in the Edit menu.** The text field keeps its own undo history, but there are no menu entries and no documented shortcuts. Check that indent, comment and completion edits are undone as one step |
-| | **Completion while typing names.** The popup already opens after `.` and on Ctrl+Space; also offer it after a few letters of a name (configurable) |
-| | **Go to line** (Ctrl+G), **Replace** (Ctrl+H) and **whole word** search |
-| | **Hover documentation:** CadQuery docstrings and signatures in a tooltip (jedi already provides them) |
-| | **Remember breakpoints** per file across sessions |
-| | **Object property sheet:** show the selected face's area or edge's length and center, not just its id |
-| | **Better first-run experience:** when Python or CadQuery is missing, offer to pick an interpreter or open the installation guide from the dialog |
+| ✅ | **Undo/Redo in the Edit menu.** Done: Edit > Undo/Redo with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z. The editor keeps its own history (`src/editor/history.rs`): `TextEdit`'s grouped by time, counted caret moves and outlived the document, so undo after opening another file brought back the previous file's text. Typing is grouped while it continues at the caret; indent, comment, completion, *Replace all* and a reload are one step each. Tests: `indent_comment_and_completion_are_undone_as_one_step_each`, `undo_never_brings_back_another_document`, `tests/rust/editor/test_history.rs` |
+| ✅ | **Completion while typing names.** Done: after 3 characters of a name by default (*Preferences > Editor > Complete names after*, 0 turns it off); these automatic requests never put a message in the status bar. Test: `completion_is_offered_once_a_name_reaches_the_threshold` |
+| ✅ | **Go to line** (Ctrl+G, `line` or `line:column`), **Replace** (Ctrl+H; *Replace* and *Replace all*, one undo step) and **whole word** search. Done; the first Enter or F3 after typing a query also skipped the first match, and now goes to the first match after the caret. Tests: `whole_word_search_skips_parts_of_longer_names`, `the_first_search_step_goes_to_the_first_match_after_the_caret`, `replace_takes_the_selected_match_and_replace_all_is_one_step`, `go_to_line_accepts_a_line_and_an_optional_column` |
+| ✅ | **Hover documentation.** Done: resting the pointer on a name shows its signatures and docstring, or the type of a variable (`describe` request, jedi `help`/`infer`). Tests: `test_documentation_gives_signatures_and_docstrings`, `test_description_of_the_name_under_the_pointer`, `documentation_is_shown_only_for_the_name_still_under_the_pointer` |
+| ✅ | **Remember breakpoints** per file across sessions. Done for the last 100 files; each breakpoint keeps the text of its line and returns to it if the file changed meanwhile. Tests: `breakpoints_are_found_again_by_their_line_text`, `breakpoints_are_relocated_by_the_text_of_their_line`, `breakpoints_are_remembered_per_file_and_bounded` |
+| ✅ | **Object property sheet.** Done: a selected face, edge or vertex shows its geometry type, area or length, radius and center (position for a vertex) from the exact measurement. Test: `the_property_sheet_finds_the_measurement_of_its_selection` |
+| ✅ | **Better first-run experience.** Done: the dialog tells *Python was not found* (including the Windows Store placeholder) from *CadQuery is not available*, lists the interpreters found on this computer, and offers **Choose interpreter…** and **Installation guide** (also in the Help menu). Tests: `a_failed_start_says_whether_python_or_cadquery_is_missing`, `conda_environments_are_listed_after_the_base_interpreter` |
 
 ---
 

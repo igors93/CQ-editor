@@ -205,6 +205,15 @@ pub fn tokenize(text: &str) -> Vec<(Range<usize>, TokenKind)> {
     tokens
 }
 
+/// Whether the text just before `cursor` is code, not a comment or a
+/// string (closed or still being typed).
+pub fn in_code(text: &str, cursor: usize) -> bool {
+    let before = text.get(..cursor).unwrap_or(text);
+    !tokenize(before).last().is_some_and(|(range, kind)| {
+        range.end == before.len() && matches!(kind, TokenKind::Comment | TokenKind::String)
+    })
+}
+
 /// Builds the layout job for the editor: highlighted, monospace, wrapping
 /// at `wrap_width` (infinite to disable wrapping).
 pub fn layout_job(text: &str, font: FontId, colors: &SyntaxColors, wrap_width: f32) -> LayoutJob {

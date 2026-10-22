@@ -13,11 +13,17 @@ leave it empty to auto-detect. [How CQ-editor finds
 Python](../getting-started/installation.md#how-cq-editor-finds-python) lists
 the search order.
 
-**A *CadQuery is not available* dialog appears.** The interpreter starts but
-cannot import CadQuery. The dialog shows the interpreter path. Install
-CadQuery into that environment (`python -m pip install cadquery`), or choose
-the interpreter of the environment that has it, then click **Restart Python
-with this interpreter**.
+**A *Python was not found* or *CadQuery is not available* dialog appears.**
+Either no interpreter could be started (on Windows, `python` may only be
+the Microsoft Store placeholder), or it starts but cannot import CadQuery.
+The dialog shows the interpreter it tried and lists the other interpreters
+found on this computer (virtual and conda environments, python.org installs
+and `python` on `PATH`): click one to restart Python with it. **Choose
+interpreter…** picks any other one, and **Installation guide** opens
+[Installation](../getting-started/installation.md). The interpreter you
+choose is kept in *Preferences > General*. Alternatively, install CadQuery
+into the environment it tried (`python -m pip install cadquery`) and click
+**Retry**.
 
 **The wrong environment is used.** Start CQ-editor from a terminal in which
 the right environment is activated, set `CQ_EDITOR_PYTHON`, or pass

@@ -45,6 +45,31 @@ pub enum Status {
     Failed(String),
 }
 
+/// Why the worker is not available, so the first-run dialog can say what
+/// to do about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// The interpreter could not be started at all.
+    NoPython,
+    /// Python started but could not import CadQuery.
+    NoCadQuery,
+    /// The worker exited before it was ready.
+    Exited,
+}
+
+/// Windows' `python.exe` placeholder (an App Execution Alias) only offers
+/// to install Python from the Microsoft Store and exits with this code.
+const STORE_PLACEHOLDER_EXIT_CODE: i32 = 9009;
+
+/// What an exit before the worker was ready means.
+pub fn exit_problem(code: Option<i32>) -> Problem {
+    if cfg!(windows) && code == Some(STORE_PLACEHOLDER_EXIT_CODE) {
+        Problem::NoPython
+    } else {
+        Problem::Exited
+    }
+}
+
 /// Something that happened in the worker process.
 #[derive(Debug)]
 pub enum Event {
@@ -60,6 +85,8 @@ pub struct Worker {
     config: Option<LaunchConfig>,
     process: Option<Process>,
     status: Status,
+    /// Set together with [`Status::Failed`].
+    problem: Option<Problem>,
     next_id: RequestId,
     /// Distinguishes events of the current process from those of killed ones.
     generation: u64,
@@ -80,6 +107,7 @@ impl Worker {
             config: None,
             process: None,
             status: Status::NotStarted,
+            problem: None,
             next_id: 1,
             generation: 0,
             events_tx,
@@ -100,6 +128,12 @@ impl Worker {
 
     pub fn is_ready(&self) -> bool {
         matches!(self.status, Status::Ready(_))
+    }
+
+    /// Why the worker failed, while it is [`Status::Failed`].
+    pub fn problem(&self) -> Option<Problem> {
+        self.problem
+            .filter(|_| matches!(self.status, Status::Failed(_)))
     }
 
     pub fn config(&self) -> Option<&LaunchConfig> {
@@ -127,6 +161,7 @@ impl Worker {
                 );
                 log::error!("{reason}");
                 self.status = Status::Failed(reason);
+                self.problem = Some(Problem::NoPython);
             }
         }
     }
@@ -172,6 +207,7 @@ impl Worker {
                 }
                 Event::Message(Message::Fatal { message, .. }) => {
                     self.status = Status::Failed(message.clone());
+                    self.problem = Some(Problem::NoCadQuery);
                 }
                 Event::Exited => {
                     let code = self
@@ -180,6 +216,7 @@ impl Worker {
                         .and_then(|mut p| p.child.wait().ok())
                         .and_then(|status| status.code());
                     if !matches!(self.status, Status::Failed(_)) {
+                        self.problem = Some(exit_problem(code));
                         self.status = Status::Failed(match code {
                             Some(code) => format!("The Python worker exited (code {code})"),
                             None => "The Python worker stopped unexpectedly".to_owned(),

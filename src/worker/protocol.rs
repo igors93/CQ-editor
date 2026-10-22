@@ -49,6 +49,16 @@ pub enum Request {
         path: Option<String>,
         target: CompletionTarget,
     },
+    /// Documentation of the name at a position of the editor's script.
+    Describe {
+        id: RequestId,
+        source: String,
+        /// 1-based.
+        line: usize,
+        /// 0-based, in characters.
+        column: usize,
+        path: Option<String>,
+    },
     Inspect {
         id: RequestId,
         key: String,
@@ -192,6 +202,11 @@ pub enum Message {
         available: bool,
         items: Vec<CompletionItem>,
         signatures: Vec<String>,
+    },
+    Description {
+        id: RequestId,
+        #[serde(flatten)]
+        documentation: Documentation,
     },
     Inspection {
         id: RequestId,
@@ -362,6 +377,18 @@ pub struct TracebackFrame {
 
 /// Pseudo file name of the editor buffer in worker tracebacks.
 pub const SCRIPT_FILENAME: &str = "<cq-editor>";
+
+/// Documentation of a name, for the editor's hover tooltip. Both parts are
+/// empty when there is nothing to show.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct Documentation {
+    /// Call signatures, or `name: type` for a variable.
+    #[serde(default)]
+    pub signatures: Vec<String>,
+    /// The docstring, cut to a tooltip's length.
+    #[serde(default)]
+    pub text: String,
+}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct CompletionItem {
