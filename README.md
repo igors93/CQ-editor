@@ -163,7 +163,9 @@ with:
 * the Python and CadQuery versions (shown in the status bar and in *Help >
   About*);
 * the steps to reproduce the bug, ideally with a small script;
-* the relevant lines from the Log panel.
+* the relevant lines from the Log panel or, after a crash, from the log file
+  `logs/cq-editor.log` in the [application data
+  folder](docs/getting-started/installation.md#where-cq-editor-keeps-its-files).
 
 ## Contributing
 

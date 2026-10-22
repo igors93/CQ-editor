@@ -33,16 +33,26 @@ const USAGE: &str = "Usage: cq-editor [--python PATH] [FILE]
   FILE            CadQuery script to open
   --python PATH   Python interpreter with CadQuery (overrides the preferences)";
 
+/// Name of the data folder (settings, recovery, logs) and of the app.
+pub const APP_ID: &str = "cq-editor";
+
 fn main() -> eframe::Result {
     logging::init();
 
     let options = match parse_args(std::env::args().skip(1)) {
         Ok(options) => options,
         Err(message) => {
-            eprintln!("{message}\n\n{USAGE}");
+            show_cli_message(&format!("{message}\n\n{USAGE}"), true);
             std::process::exit(2);
         }
     };
+
+    if let Some(data) = eframe::storage_dir(APP_ID) {
+        match logging::init_file(&data.join("logs")) {
+            Ok(path) => log::debug!("Writing the log to {}", path.display()),
+            Err(error) => log::warn!("Cannot write a log file: {error}"),
+        }
+    }
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -56,11 +66,74 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    eframe::run_native(
-        "cq-editor",
+    let result = eframe::run_native(
+        APP_ID,
         native_options,
         Box::new(move |cc| Ok(Box::new(CqEditorApp::new(cc, options)))),
-    )
+    );
+    logging::flush();
+    result
+}
+
+/// Shows command-line output: usage and argument errors.
+fn show_cli_message(message: &str, is_error: bool) {
+    #[cfg(all(windows, not(debug_assertions)))]
+    if windows_console::show(message, is_error) {
+        return;
+    }
+    if is_error {
+        eprintln!("{message}");
+    } else {
+        println!("{message}");
+    }
+}
+
+/// Release builds on Windows are GUI programs without a console of their
+/// own, so standard output goes nowhere unless a shell redirected it.
+#[cfg(all(windows, not(debug_assertions)))]
+mod windows_console {
+    use std::io::Write as _;
+
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+
+    /// Writes `message` to the console of the shell that started the
+    /// program, or shows it in a message box when there is none (for
+    /// example when started from Explorer). Returns `false` when standard
+    /// output is redirected, so plain printing works.
+    pub fn show(message: &str, is_error: bool) -> bool {
+        let stream = if is_error {
+            STD_ERROR_HANDLE
+        } else {
+            STD_OUTPUT_HANDLE
+        };
+        // SAFETY: plain Win32 calls without pointer arguments.
+        let handle = unsafe { GetStdHandle(stream) };
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            return false;
+        }
+        // SAFETY: as above.
+        if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0
+            && let Ok(mut console) = std::fs::OpenOptions::new().write(true).open("CONOUT$")
+        {
+            // The shell has already printed its next prompt.
+            let text = message.replace('\n', "\r\n");
+            let _ = write!(console, "\r\n{text}\r\n");
+            return true;
+        }
+        rfd::MessageDialog::new()
+            .set_title("CQ-editor")
+            .set_description(message)
+            .set_level(if is_error {
+                rfd::MessageLevel::Error
+            } else {
+                rfd::MessageLevel::Info
+            })
+            .show();
+        true
+    }
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<StartupOptions, String> {
@@ -69,7 +142,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<StartupOptions, Stri
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                println!("{USAGE}");
+                show_cli_message(USAGE, false);
                 std::process::exit(0);
             }
             "--python" => {

@@ -38,6 +38,7 @@ impl FileWatcher {
         !self.files.is_empty()
     }
 
+    #[cfg(test)]
     pub fn watched(&self) -> impl Iterator<Item = &PathBuf> {
         self.files.iter().map(|(path, _)| path)
     }

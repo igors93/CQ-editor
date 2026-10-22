@@ -32,7 +32,7 @@ class ConsoleSession:
                 "cq": cq,
                 "show_object": self._show_object,
                 "show": self._show_object,
-                "debug": self.shown.debug,
+                "debug": self._debug,
                 "rand_color": rand_color,
                 "log": lambda value: script_log.info(str(value)),
             }
@@ -58,8 +58,13 @@ class ConsoleSession:
 
     def take_shown(self) -> ShownObjects:
         shown, self.shown = self.shown, ShownObjects()
-        self.namespace["debug"] = self.shown.debug
         return shown
+
+    # Both wrappers put exactly one frame between the console line and
+    # ShownObjects, which looks two frames up for the variable name.
 
     def _show_object(self, obj, name=None, options=None, **kwargs) -> None:
         self.shown.show(obj, name, options, **kwargs)
+
+    def _debug(self, obj, name=None) -> None:
+        self.shown.debug(obj, name)

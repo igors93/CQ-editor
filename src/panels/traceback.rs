@@ -67,21 +67,25 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 } else {
                     frame.file.as_str()
                 };
+                // Not selectable: a selectable label takes the clicks on
+                // its text away from the row, which jumps to the line.
+                let cell = |text: RichText| egui::Label::new(text).selectable(false);
                 row.col(|ui| {
                     if in_script {
-                        ui.label(RichText::new(file).strong());
+                        ui.add(cell(RichText::new(file).strong()));
                     } else {
-                        ui.weak(file).on_hover_text(&frame.file);
+                        ui.add(cell(RichText::new(file).weak()))
+                            .on_hover_text(&frame.file);
                     }
                 });
                 row.col(|ui| {
-                    ui.label(frame.line.to_string());
+                    ui.add(cell(RichText::new(frame.line.to_string())));
                 });
                 row.col(|ui| {
-                    ui.weak(&frame.function);
+                    ui.add(cell(RichText::new(&frame.function).weak()));
                 });
                 row.col(|ui| {
-                    ui.add(egui::Label::new(RichText::new(&frame.code).monospace()).truncate());
+                    ui.add(cell(RichText::new(&frame.code).monospace()).truncate());
                 });
                 if in_script && row.response().clicked() {
                     actions.push(Action::GoToLine(frame.line));

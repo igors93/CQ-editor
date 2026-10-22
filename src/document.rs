@@ -1,8 +1,9 @@
 //! The script being edited.
 //!
 //! Text is kept with `\n` line endings internally; the file's original
-//! convention is remembered and restored on save. Files are read and written
-//! as UTF-8.
+//! convention is remembered and restored on save. Files are written as
+//! UTF-8. A file in another encoding is only opened when the user asks for
+//! Windows-1252 explicitly, and saving it converts it to UTF-8.
 
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -22,6 +23,51 @@ pub enum LineEnding {
     Cr,
 }
 
+/// How the bytes of a file on disk map to text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Encoding {
+    #[default]
+    Utf8,
+    /// Western European legacy encoding (a superset of printable Latin-1),
+    /// common for scripts written with older Windows editors.
+    Windows1252,
+}
+
+impl Encoding {
+    pub fn label(self) -> &'static str {
+        match self {
+            Encoding::Utf8 => "UTF-8",
+            Encoding::Windows1252 => "Windows-1252",
+        }
+    }
+}
+
+/// The error of reading a file that is not valid UTF-8; see [`is_not_utf8`].
+#[derive(Debug)]
+struct NotUtf8 {
+    path: PathBuf,
+    offset: usize,
+}
+
+impl std::fmt::Display for NotUtf8 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} is not valid UTF-8 (invalid data near byte {}); the file was not opened or modified",
+            self.path.display(),
+            self.offset
+        )
+    }
+}
+
+impl std::error::Error for NotUtf8 {}
+
+/// Whether opening a file failed only because it is not UTF-8, so it can be
+/// offered again as [`Encoding::Windows1252`].
+pub fn is_not_utf8(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<NotUtf8>())
+}
+
 /// A normalized snapshot read from the document's current path without
 /// modifying the editor buffer.
 #[derive(Clone, Debug)]
@@ -30,6 +76,7 @@ pub struct DiskVersion {
     path: PathBuf,
     line_ending: LineEnding,
     utf8_bom: bool,
+    encoding: Encoding,
 }
 
 /// Relationship between an on-disk snapshot and the editor's local state.
@@ -88,6 +135,8 @@ pub struct Document {
     path: Option<PathBuf>,
     line_ending: LineEnding,
     utf8_bom: bool,
+    /// Encoding of the file when it was opened; saving writes UTF-8.
+    encoding: Encoding,
     saved_hash: u64,
     /// Title of the bundled example this buffer was loaded from. Examples
     /// are read-only: saving one asks for a new location.
@@ -103,6 +152,7 @@ impl Document {
             path: None,
             line_ending: LineEnding::NATIVE,
             utf8_bom: false,
+            encoding: Encoding::Utf8,
             example: None,
         }
     }
@@ -115,15 +165,31 @@ impl Document {
     }
 
     pub fn open(path: &Path) -> io::Result<Self> {
-        let (text, line_ending, utf8_bom) = read(path)?;
+        Self::open_with(path, Encoding::Utf8)
+    }
+
+    /// Opens `path` decoded as `encoding`. Saving writes UTF-8 whatever the
+    /// encoding was.
+    pub fn open_with(path: &Path, encoding: Encoding) -> io::Result<Self> {
+        let (text, line_ending, utf8_bom) = read(path, encoding)?;
         Ok(Self {
             saved_hash: hash(&text),
             text,
             path: Some(path.to_path_buf()),
             line_ending,
             utf8_bom,
+            encoding,
             example: None,
         })
+    }
+
+    /// Opens `path` as UTF-8 or, when it is not, as Windows-1252. For
+    /// archiving existing contents, where asking the user is not possible.
+    pub fn open_any(path: &Path) -> io::Result<Self> {
+        match Self::open(path) {
+            Err(error) if is_not_utf8(&error) => Self::open_with(path, Encoding::Windows1252),
+            result => result,
+        }
     }
 
     /// Reconstructs a recovered buffer while using the current disk contents,
@@ -135,16 +201,19 @@ impl Document {
         utf8_bom: bool,
     ) -> Self {
         let text = normalize(&text);
-        let saved_hash = path
-            .as_deref()
-            .and_then(|path| read(path).ok())
-            .map_or_else(|| hash(&text) ^ u64::MAX, |(disk, _, _)| hash(&disk));
+        let disk = path.as_deref().and_then(|path| Self::open_any(path).ok());
+        let saved_hash = disk
+            .as_ref()
+            .map_or_else(|| hash(&text) ^ u64::MAX, |disk| disk.saved_hash);
         Self {
             saved_hash,
             text,
             path,
             line_ending,
             utf8_bom,
+            // Keeps reading the file the way it is encoded on disk, so the
+            // file watcher can compare it.
+            encoding: disk.map_or(Encoding::Utf8, |disk| disk.encoding),
             example: None,
         }
     }
@@ -159,6 +228,11 @@ impl Document {
 
     pub fn has_utf8_bom(&self) -> bool {
         self.utf8_bom
+    }
+
+    /// The encoding the file was opened with; the next save writes UTF-8.
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
     }
 
     pub fn example_title(&self) -> Option<&str> {
@@ -219,12 +293,13 @@ impl Document {
         let Some(path) = &self.path else {
             return Ok(None);
         };
-        let (text, line_ending, utf8_bom) = read(path)?;
+        let (text, line_ending, utf8_bom) = read(path, self.encoding)?;
         Ok(Some(DiskVersion {
             text,
             path: path.clone(),
             line_ending,
             utf8_bom,
+            encoding: self.encoding,
         }))
     }
 
@@ -258,6 +333,7 @@ impl Document {
         self.text = version.text;
         self.line_ending = version.line_ending;
         self.utf8_bom = version.utf8_bom;
+        self.encoding = version.encoding;
         Ok(changed)
     }
 
@@ -305,6 +381,7 @@ impl Document {
     fn write(&mut self, path: &Path) -> io::Result<()> {
         atomic_write(path, &self.encoded_bytes())?;
         self.saved_hash = hash(&self.text);
+        self.encoding = Encoding::Utf8;
         Ok(())
     }
 
@@ -323,24 +400,47 @@ impl Document {
     }
 }
 
-fn read(path: &Path) -> io::Result<(String, LineEnding, bool)> {
+fn read(path: &Path, encoding: Encoding) -> io::Result<(String, LineEnding, bool)> {
     let mut bytes = std::fs::read(path)?;
     let utf8_bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
     if utf8_bom {
         bytes.drain(..3);
     }
-    let raw = String::from_utf8(bytes).map_err(|error| {
-        let offset = error.utf8_error().valid_up_to() + usize::from(utf8_bom) * 3;
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "{} is not valid UTF-8 (invalid data near byte {offset}); the file was not opened or modified. Convert it to UTF-8 first",
-                path.display()
-            ),
-        )
-    })?;
+    let raw = match encoding {
+        Encoding::Utf8 => String::from_utf8(bytes).map_err(|error| {
+            let offset = error.utf8_error().valid_up_to() + usize::from(utf8_bom) * 3;
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                NotUtf8 {
+                    path: path.to_path_buf(),
+                    offset,
+                },
+            )
+        })?,
+        Encoding::Windows1252 => decode_windows_1252(&bytes),
+    };
     let line_ending = LineEnding::detect(&raw);
     Ok((normalize(&raw), line_ending, utf8_bom))
+}
+
+/// Decodes Windows-1252 as the WHATWG Encoding Standard does: every byte is
+/// a character, so decoding never fails. Bytes 0x80..=0x9F map to
+/// typographic characters; the five unassigned ones to C1 controls.
+pub fn decode_windows_1252(bytes: &[u8]) -> String {
+    const HIGH: [char; 32] = [
+        '\u{20AC}', '\u{0081}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}', '\u{2020}',
+        '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}', '\u{0152}', '\u{008D}',
+        '\u{017D}', '\u{008F}', '\u{0090}', '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}',
+        '\u{2022}', '\u{2013}', '\u{2014}', '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}',
+        '\u{0153}', '\u{009D}', '\u{017E}', '\u{0178}',
+    ];
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0x80..=0x9f => HIGH[usize::from(byte - 0x80)],
+            _ => char::from(byte),
+        })
+        .collect()
 }
 
 /// Writes and synchronizes a temporary file in the destination directory,

@@ -181,13 +181,11 @@ pub fn fonts() -> FontDefinitions {
             std::sync::Arc::new(FontData::from_static(bytes)),
         );
     }
-    let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
-    proportional.insert(0, "inter".to_owned());
-    let mut semibold = proportional.clone();
-    semibold.insert(0, "inter-semibold".to_owned());
     fonts
         .families
-        .insert(FontFamily::Name(SEMIBOLD.into()), semibold);
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, "inter".to_owned());
     fonts
         .families
         .entry(FontFamily::Monospace)
@@ -195,6 +193,12 @@ pub fn fonts() -> FontDefinitions {
         .insert(0, "jetbrains-mono".to_owned());
     // After the text fonts, so icons are found without shadowing letters.
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    // Cloned only now, so headings (window titles) have the icons too.
+    let mut semibold = fonts.families[&FontFamily::Proportional].clone();
+    semibold.insert(0, "inter-semibold".to_owned());
+    fonts
+        .families
+        .insert(FontFamily::Name(SEMIBOLD.into()), semibold);
     fonts
 }
 
@@ -378,3 +382,7 @@ pub fn dock_style(style: &egui::Style, p: &Palette) -> egui_dock::Style {
     dock.overlay.selection_color = p.accent.gamma_multiply(0.35);
     dock
 }
+
+#[cfg(test)]
+#[path = "../tests/rust/app/test_theme.rs"]
+mod tests;

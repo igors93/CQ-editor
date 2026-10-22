@@ -64,16 +64,18 @@ impl LogView {
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| self.shows(e.level))
-                .filter(|(_, e)| {
-                    needle.is_empty()
-                        || e.text.to_lowercase().contains(&needle)
-                        || e.source.contains(&needle)
-                })
+                .filter(|(_, e)| needle.is_empty() || matches_filter(e, &needle))
                 .map(|(i, _)| i)
                 .collect()
         });
         self.computed_for = Some(key);
     }
+}
+
+/// Whether the text or the source of `entry` contains `needle`, which is
+/// lowercase: the filter ignores case in both.
+fn matches_filter(entry: &logging::Entry, needle: &str) -> bool {
+    entry.text.to_lowercase().contains(needle) || entry.source.to_lowercase().contains(needle)
 }
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
@@ -167,4 +169,22 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             });
         });
     state.queue(actions);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_filter_ignores_case_in_sources_too() {
+        let entry = logging::Entry {
+            time: "12:00:00".to_owned(),
+            level: Level::Warn,
+            source: "OCP.BRepMesh".to_owned(),
+            text: "Mesh warning".to_owned(),
+        };
+        assert!(matches_filter(&entry, "brepmesh"));
+        assert!(matches_filter(&entry, "warning"));
+        assert!(!matches_filter(&entry, "python"));
+    }
 }

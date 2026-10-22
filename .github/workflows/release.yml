@@ -34,6 +34,9 @@ jobs:
 
       - name: Build
         run: cargo build --release
+        env:
+          # The Windows .exe must embed its icon and version information.
+          CQ_EDITOR_REQUIRE_RESOURCES: "1"
 
       - name: Rename the executable
         shell: bash

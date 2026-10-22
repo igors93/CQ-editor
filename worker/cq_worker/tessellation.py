@@ -13,13 +13,18 @@ Every array travels to the GUI as base64-encoded little-endian binary.
 
 from __future__ import annotations
 
+import atexit
 import base64
+import contextlib
 import hashlib
 import io
 import json
 import os
+import shutil
 import struct
 import tempfile
+import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -49,6 +54,11 @@ MIN_DEFLECTION = 1e-4
 # serialized arrays dominate the size and this limit is deliberately modest
 # compared with the memory normally available to OCCT itself.
 DEFAULT_CACHE_BYTES = 256 * 1024 * 1024
+# Scratch files of killed workers older than this are removed.
+STALE_SCRATCH_SECONDS = 24 * 3600
+
+_SCRATCH_PREFIX = "cq-editor-mesh-"
+_scratch_dir: str | None = None
 
 _GLB_MAGIC = 0x46546C67  # "glTF"
 _CHUNK_JSON = 0x4E4F534A
@@ -318,8 +328,7 @@ def _mesh_faces(
     document = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
     XCAFDoc_DocumentTool.ShapeTool_s(document.Main()).AddShape(shape, False)
 
-    fd, path = tempfile.mkstemp(prefix="cq-editor-", suffix=".glb")
-    os.close(fd)
+    path = _scratch_path()
     try:
         writer = RWGltf_CafWriter(TCollection_AsciiString(path), True)
         writer.SetMergeFaces(True)
@@ -331,9 +340,46 @@ def _mesh_faces(
         with open(path, "rb") as file:
             data = file.read()
     finally:
-        os.unlink(path)
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
 
     return read_glb(data)
+
+
+def _scratch_path() -> str:
+    """The file of this thread's glTF round trip.
+
+    OCCT's glTF writer only writes files, so every mesh passes through one
+    private directory per worker process. A worker killed while meshing (Run
+    > Stop) cannot clean up after itself, so the next worker removes such
+    leftovers once they are old enough to belong to no running process.
+    """
+
+    global _scratch_dir
+    if _scratch_dir is None or not os.path.isdir(_scratch_dir):
+        _remove_stale_scratch(tempfile.gettempdir())
+        _scratch_dir = tempfile.mkdtemp(prefix=_SCRATCH_PREFIX)
+        atexit.register(shutil.rmtree, _scratch_dir, True)
+    return os.path.join(_scratch_dir, f"mesh-{threading.get_ident()}.glb")
+
+
+def _remove_stale_scratch(directory: str, max_age: float = STALE_SCRATCH_SECONDS):
+    cutoff = time.time() - max_age
+    with contextlib.suppress(OSError), os.scandir(directory) as entries:
+        for entry in entries:
+            # Directories of this module, and the single files that releases
+            # before it created with the same prefix.
+            if not entry.name.startswith(_SCRATCH_PREFIX) and not (
+                entry.name.startswith("cq-editor-") and entry.name.endswith(".glb")
+            ):
+                continue
+            with contextlib.suppress(OSError):
+                if entry.stat().st_mtime >= cutoff:
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                else:
+                    os.unlink(entry.path)
 
 
 def read_glb(data: bytes) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

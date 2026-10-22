@@ -22,8 +22,12 @@ class Action(enum.Enum):
     STOP = "stop"
 
 
-class DebugStop(Exception):
-    """Raised inside the script to end a debugging session early."""
+class DebugStop(BaseException):
+    """Raised inside the script to end a debugging session early.
+
+    Like ``KeyboardInterrupt``, it is not an ``Exception``: a script's own
+    ``except Exception`` must not swallow the user's request to stop.
+    """
 
 
 class Debugger:

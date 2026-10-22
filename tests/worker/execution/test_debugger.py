@@ -58,3 +58,31 @@ def test_stop_aborts_the_script():
         pass
     else:
         raise AssertionError("DebugStop expected")
+
+
+def test_stop_is_not_swallowed_by_the_scripts_exception_handlers():
+    from cq_worker.debugger import DebugStop
+
+    source = textwrap.dedent("""\
+        reached = []
+        for attempt in range(3):
+            try:
+                reached.append(attempt)
+            except Exception:
+                pass
+        """)
+    namespace = {}
+    pauses = []
+
+    def on_pause(frame):
+        pauses.append(frame.f_lineno)
+        return Action.STOP
+
+    try:
+        Debugger(SCRIPT_FILENAME, {4}, on_pause).run(compile_script(source), namespace)
+    except DebugStop:
+        pass
+    else:
+        raise AssertionError("DebugStop expected")
+    assert pauses == [4]
+    assert namespace["reached"] == []

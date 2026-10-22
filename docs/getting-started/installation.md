@@ -124,7 +124,8 @@ Everything lives in one per-user folder:
 | --- | --- |
 | `app.ron` | Preferences, recent files, panel layout and window position |
 | `recovery/` | Crash-recovery session and local history (see [Code editor](../user-guide/editor.md#crash-recovery-and-local-history)) |
-| `worker-<hash>/` | The extracted copy of the embedded Python worker, one folder per version |
+| `logs/` | `cq-editor.log`, everything the Log panel shows, and the previous part `cq-editor.1.log` (see [Troubleshooting](../user-guide/troubleshooting.md#reporting-a-problem)) |
+| `worker-<hash>/` | The extracted copy of the embedded Python worker. A new version removes the folders of earlier ones |
 
 Deleting `app.ron` while the editor is closed restores all defaults.
 

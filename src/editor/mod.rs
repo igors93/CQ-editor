@@ -573,9 +573,7 @@ impl CodeEditor {
         if !self.completion.open {
             return;
         }
-        let (anchor, cursor) = (self.completion.anchor, self.selection.cursor);
-        let typed = (cursor >= anchor && cursor <= text.len())
-            .then(|| &text[anchor.min(text.len())..cursor]);
+        let typed = typed_text(text, self.completion.anchor, self.selection.cursor);
         if typed.is_none_or(|t| !t.chars().all(|c| c == '_' || c.is_alphanumeric())) {
             self.completion.open = false;
         }
@@ -888,15 +886,15 @@ impl CodeEditor {
 
 /// Text typed between `anchor` and `cursor` (empty if the cursor moved back).
 fn typed_since(text: &str, anchor: usize, cursor: usize) -> &str {
-    if cursor >= anchor
-        && cursor <= text.len()
-        && text.is_char_boundary(anchor)
-        && text.is_char_boundary(cursor)
-    {
-        &text[anchor..cursor]
-    } else {
-        ""
-    }
+    typed_text(text, anchor, cursor).unwrap_or_default()
+}
+
+/// Text between `anchor` and `cursor`, or `None` when the cursor moved back
+/// or an edit elsewhere left the anchor outside the text or inside a
+/// character, where slicing would panic.
+fn typed_text(text: &str, anchor: usize, cursor: usize) -> Option<&str> {
+    (anchor <= cursor && text.is_char_boundary(anchor) && text.is_char_boundary(cursor))
+        .then(|| &text[anchor..cursor])
 }
 
 fn kind_icon(kind: &str) -> &'static str {

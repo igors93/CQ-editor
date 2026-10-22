@@ -69,17 +69,18 @@ recovery, local history and conflict-safe autoreload; see the
 | ✅ | [BUG-02](#bug-02--objects-panel-the-property-sheet-overlaps-the-tree) | Objects panel: the property sheet overlaps the tree | P1 |
 | ✅ | [BUG-03](#bug-03--ci-format-check-fails) | CI format check fails | P1 |
 | ✅ | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
-| | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
-| | [BUG-06](#bug-06--icons-in-dialog-titles-show-as-empty-boxes) | Icons in dialog titles show as empty boxes | P2 |
+| ✅ | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
+| ✅ | [BUG-06](#bug-06--icons-in-dialog-titles-show-as-empty-boxes) | Icons in dialog titles show as empty boxes | P2 |
 | ✅ | [BUG-07](#bug-07--wrong-shortcut-in-the-search-bar-tooltip) | Wrong shortcut in the search bar tooltip | P2 |
-| | [BUG-08](#bug-08--help--documentation-opens-the-old-wiki) | Help > Documentation opens the old wiki | P2 |
-| | [BUG-09](#bug-09--imported-modules-are-watched-only-once) | Imported modules are watched only once | P2 |
-| | [BUG-10](#bug-10--variables-values-are-unreadable) | Variables: values are unreadable | P2 |
-| | [BUG-11](#bug-11--misleading-hints-after-a-failed-run) | Misleading hints after a failed run | P2 |
-| | [BUG-12](#bug-12--the-view-keeps-the-previous-files-objects) | The view keeps the previous file's objects | P2 |
-| | [BUG-13](#bug-13--debug-in-the-console-loses-the-variable-name) | `debug()` in the console loses the variable name | P2 |
-| | [BUG-14 … BUG-20](#p3-maintenance-and-polish) | Maintenance and polish | P3 |
-| | [PERF-01 … PERF-04](#performance) | Performance | |
+| ✅ | [BUG-08](#bug-08--help--documentation-opens-the-old-wiki) | Help > Documentation opens the old wiki | P2 |
+| ✅ | [BUG-09](#bug-09--imported-modules-are-watched-only-once) | Imported modules are watched only once | P2 |
+| ✅ | [BUG-10](#bug-10--variables-values-are-unreadable) | Variables: values are unreadable | P2 |
+| ✅ | [BUG-11](#bug-11--misleading-hints-after-a-failed-run) | Misleading hints after a failed run | P2 |
+| ✅ | [BUG-12](#bug-12--the-view-keeps-the-previous-files-objects) | The view keeps the previous file's objects | P2 |
+| ✅ | [BUG-13](#bug-13--debug-in-the-console-loses-the-variable-name) | `debug()` in the console loses the variable name | P2 |
+| ✅ | [BUG-14 … BUG-20](#p3-maintenance-and-polish) | Maintenance and polish | P3 |
+| ✅ | [BUG-21 … BUG-28](#found-in-the-october-2026-review) | Found in the October 2026 review | P1–P3 |
+| ✅ | [PERF-01 … PERF-04](#performance) | Performance | |
 
 ### P1: fix before the next release
 
@@ -186,33 +187,44 @@ edits, and a fresh document after a reset).
 
 #### BUG-05 · Worker events wait for the window to repaint
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code.*
 
-**Where:** `src/app.rs`, where `begin_frame` (called from `ui()`) runs
+**Where:** `src/app.rs`, where `begin_frame` (called from `ui()`) ran
 `process_worker_events`, `poll_watcher` and `poll_recovery`.
 
-All worker traffic, automatic reload and recovery checkpoints run as part
-of drawing a frame. When the window is minimized and the platform stops
-drawing it, runs appear to stall and replies pile up until it is restored.
+All worker traffic, automatic reload and recovery checkpoints ran as part
+of drawing a frame. When the window was minimized and the platform stopped
+drawing it, runs appeared to stall and replies piled up until it was
+restored.
 
-**Fix:** drain the event channel and the timers in a hook that runs without
-painting, or on a background thread that wakes the UI only for visible
-changes. Verify on Windows, Linux (X11/Wayland) and macOS.
+**Resolution:** these steps moved to `AppState::logic`, called from
+eframe's `App::logic` (eframe 0.36). eframe calls it before every frame and,
+while the window is minimized or hidden, whenever a repaint is requested,
+without running a UI pass. The worker's reader and stderr threads request a
+repaint for every message, and the watcher and recovery timers schedule
+theirs, so all of them keep running. Only theming and shortcuts stay in
+`begin_frame`. eframe throttles repaints of hidden windows to 100 ms, which
+bounds the latency. Checked in the app: a three-second script rendered and
+then minimized at once was finished, logged and shown at the time it ended,
+not when the window was restored.
 
 #### BUG-06 · Icons in dialog titles show as empty boxes
 
-*Evidence: seen*
+✅ **Resolved.** *Evidence: seen; regression test.*
 
-**Where:** `src/theme.rs:184-197`.
+**Where:** `src/theme.rs` (`fonts`).
 
-The semibold font family is cloned from the proportional family *before*
-the Phosphor icon font is added. Text in that family (window titles use the
-heading style) therefore has no icon glyphs. *Preferences* shows `□` before
-its title (see the Preferences screenshot). *Upload Model* uses the same
-code path.
+The semibold font family was cloned from the proportional family *before*
+the Phosphor icon font was added. Text in that family (window titles use the
+heading style) therefore had no icon glyphs: *Preferences* showed `□` before
+its title, and *Upload Model* used the same code path.
 
-**Fix:** call `egui_phosphor::add_to_fonts` before cloning, or append the
-Phosphor font to the semibold family.
+**Resolution:** the semibold family is built after
+`egui_phosphor::add_to_fonts`, so it has the icons while its letters still
+come from Inter SemiBold. `headings_render_icons_like_body_text`
+(`tests/rust/app/test_theme.rs`) loads the fonts into a headless context and
+checks that headings find the icon glyphs. Checked in the app: the
+Preferences title shows its gear icon.
 
 #### BUG-07 · Wrong shortcut in the search bar tooltip
 
@@ -230,105 +242,152 @@ command cannot drift independently.
 
 #### BUG-08 · Help > Documentation opens the old wiki
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code; regression test.*
 
-**Where:** `src/app.rs:367`.
+**Where:** `src/app.rs` (`Action::Documentation`).
 
-The menu opens `https://github.com/CadQuery/CQ-editor/wiki`, which describes
-the PyQt editor (installation with conda, PyQt preferences).
+The menu opened `https://github.com/CadQuery/CQ-editor/wiki`, which
+describes the PyQt editor (installation with conda, PyQt preferences).
 
-**Fix:** open these docs (`docs/README.md` on GitHub), and add a note on the
-wiki pointing here.
+**Resolution:** it opens `docs/README.md` in the repository
+(`DOCUMENTATION_URL`, built from `CARGO_PKG_REPOSITORY`), checked by
+`the_documentation_link_points_to_these_docs`. The wiki itself is outside
+the repository: a maintainer still needs to add a note there pointing to
+these docs.
 
 #### BUG-09 · Imported modules are watched only once
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code.*
 
 **Where:** `src/app.rs` (`sync_watcher`, handling of `Message::Imports`).
 
-With *Autoreload: watch imported modules*, the list of local imports is
-computed only when autoreload, that option or the file path changes. A
-module imported later is not watched until one of those changes. The merged
-list is also de-duplicated with `Vec::dedup` without sorting, so a path can
-be watched twice.
+With *Autoreload: watch imported modules*, the list of local imports was
+computed only when autoreload, that option or the file path changed. A
+module imported later was not watched until one of those changed. The
+merged list was also de-duplicated with `Vec::dedup` without sorting, so a
+path could be watched twice, and modules no longer imported stayed watched.
 
-**Fix:** refresh the import list after each successful run (or each save),
-and de-duplicate with a set.
+**Resolution:** `request_imports` asks the worker again after every save and
+every successful run, besides when watching starts. The answer is tagged
+with the script it is for (`Pending::Imports(path)`) and ignored if the
+document or the watch settings changed meanwhile. The watched set is then
+replaced by the script plus its current imports, collected in a `BTreeSet`.
 
 #### BUG-10 · Variables: values are unreadable
 
-*Evidence: seen*
+✅ **Resolved.** *Evidence: seen; regression test.*
 
 **Where:** `src/panels/variables.rs`.
 
-The *Value* column gets only the space left after *Name* and *Type*, so in
-the default layout every value shows as `…` (see the debugger screenshot).
+The *Value* column got only the space left after the fixed 120-point *Name*
+and 90-point *Type* columns, so in the default layout every value showed as
+`…`.
 
-**Fix:** let the value column take the remaining width, make columns
-resizable, and offer a detail view (or copy) for long values.
+**Resolution:** the name and type columns take a share of the panel width
+(`column_widths`), the value column keeps at least 80 points, and all
+columns stay resizable (under a new table id, so the widths remembered from
+the old layout do not apply). Clicking a row opens a resizable detail view
+below the table with the whole value, wrapped, selectable and with a copy
+button; × closes it, and a context menu copies a row's value or name. The
+worker now sends up to 2000 characters per value instead of 300. In a short
+pane the table and the detail view both scroll instead of growing over each
+other, and the cell labels are not selectable, so a click on their text
+selects the row (see BUG-28). Tests: `the_value_column_keeps_room_in_narrow_panes`,
+`clicking_the_text_of_a_row_selects_it` and
+`the_rows_stay_above_the_detail_view_in_a_short_pane`. Checked in the app with
+the default layout.
 
 #### BUG-11 · Misleading hints after a failed run
 
-*Evidence: seen*
+✅ **Resolved.** *Evidence: seen; regression test.*
 
-**Where:** `src/viewer/mod.rs` (empty-view hint), `src/panels/mod.rs:137`
+**Where:** `src/app.rs` (`empty_view_hint`), `src/panels/mod.rs`
 (`empty_state`).
 
-* After a failed run with nothing on screen, the view still says *Press F5
-  to render the script*, although F5 was just pressed. It should point to
-  the error, for example *The last run failed, see Traceback*.
-* Empty-state texts are laid out justified, so wrapped lines get uneven word
-  spacing (*Select  a  workplane  in  Objects…* in the CQ Inspector).
+* After a failed run with nothing on screen, the view said *Press F5 to
+  render the script*, although F5 had just been pressed. The view and the
+  Objects panel now say *The last run failed at line N; see the Traceback
+  panel*.
+* Empty-state texts were laid out justified, so wrapped lines got uneven
+  word spacing (*Select  a  workplane  in  Objects…*). They are now laid out
+  as centered rows of natural width;
+  `empty_state_rows_are_centered_with_natural_spacing` compares them with
+  plain and justified layouts. Both checked in the app.
 
 #### BUG-12 · The view keeps the previous file's objects
 
-*Evidence: seen*
+✅ **Resolved.** *Evidence: seen.*
 
 **Where:** `src/app.rs` (`set_document`).
 
-Opening another file resets the editor and the traceback, but the 3D view,
-Objects panel, selection and CQ Inspector still show the previous file's
+Opening another file reset the editor and the traceback, but the 3D view,
+Objects panel, selection and CQ Inspector still showed the previous file's
 model until the next successful run. With a failing new script, the stale
-model looks like the result of that script.
+model looked like the result of that script.
 
-**Fix:** clear the scene when the document changes (or grey it out with a
-"from previous file" notice), and consider rendering on open (an option).
+**Resolution:** New, Open, Open Recent, examples and a restored session now
+clear the scene (releasing its worker objects), measurements, the inspector
+and the variables. A run still going for the previous file is marked stale:
+its result is discarded and its objects released, and a paused or later
+pausing debugging session of that file is stopped. Restoring a local-history
+version of the *same* file keeps the model, like a reload. Rendering on open
+was not added: a script may be slow or have side effects, and F5 is one key
+away. Checked in the app: opening an example after rendering another file
+leaves an empty view, Objects tree and Variables panel.
 
 #### BUG-13 · `debug()` in the console loses the variable name
 
-*Evidence: code*
+✅ **Resolved.** *Evidence: code; regression test.*
 
-**Where:** `worker/cq_worker/console.py` (`"debug": self.shown.debug`),
-`worker/cq_worker/execution.py` (`ShownObjects.debug`).
+**Where:** `worker/cq_worker/console.py`.
 
 `ShownObjects.debug` finds the variable name two frames up, which is right
-for the script wrapper. The console binds the method directly, so the
-lookup lands in the interpreter's internals. The object gets a generic name
+for the script wrapper. The console bound the method directly, so the lookup
+landed in the interpreter's internals and the object got a generic name
 (*Workplane 1*) instead of its variable name.
 
-**Fix:** wrap it in the console the way `show_object` is wrapped, or pass the
-caller frame explicitly.
+**Resolution:** the console wraps it (`ConsoleSession._debug`) the way it
+wraps `show_object`, and no longer rebinds it after each command.
+`test_console_names_shown_and_debugged_objects_after_their_variables` fails
+with the former binding.
 
 ### P3: maintenance and polish
 
-| Status | Id | Problem | Where | Suggested fix |
+| Status | Id | Problem | Where | Resolution |
 | :---: | --- | --- | --- | --- |
-| | BUG-14 *(code)* | `--help` and command-line errors print nothing in Windows release builds, which have no console | `src/main.rs` | Attach to the parent console, or show a message box |
-| | BUG-15 *(code)* | Every worker version extracts a new `worker-<hash>/` folder in the data directory; old ones are never removed | `src/embedded.rs` | Delete other `worker-*` folders after a successful extraction |
-| | BUG-16 *(code)* | Each recovery checkpoint (every 5 s while modified) reads and parses **every** history file of **every** document. History of deleted or renamed files is never pruned, and all untitled buffers share one bucket | `src/recovery.rs` (`history_files`, `prune_history`) | One sub-folder per document (hash of the path) with a small index; prune by age and total size |
-| | BUG-17 *(code)* | Files that are not UTF-8 cannot be opened at all | `src/document.rs` | Offer to open as Windows-1252 / Latin-1 and convert to UTF-8 on save, with a clear notice |
-| | BUG-18 *(code)* | The Windows `.exe` has no embedded icon or version information, so Explorer shows a generic icon for the file (the window icon is set at run time) | `build.rs` | Compile a resource (for example with `winresource`). The GNU toolchain needs `windres` |
-| | BUG-19 *(code)* | Building with the Windows GNU toolchain needs MinGW binutils and a hand-made `libshlwapi.a` ([Building](development/building.md#gnu-no-visual-studio)) | dependency tree (`webbrowser` via `egui-winit`) | Investigate disabling the link-opening feature, since links already go through the `open` crate |
-| | BUG-20 *(code)* | The Log panel lives only in memory: after a GUI panic or crash, the messages that explain it are gone | `src/logging.rs` | Also write a rotating log file in the data folder, and mention it in bug reports |
+| ✅ | BUG-14 *(code)* | `--help` and command-line errors printed nothing in Windows release builds, which have no console | `src/main.rs` | `show_cli_message` writes to redirected output as before; otherwise it attaches to the console of the parent shell (`AttachConsole`) and writes to `CONOUT$`, or shows a message box when started without one. Checked with the release executable in a `cmd` console (usage and the error of an unknown option are printed) and started without a console (message box) |
+| ✅ | BUG-15 *(code)* | Every worker version extracted a new `worker-<hash>/` folder in the data directory; old ones were never removed | `src/embedded.rs` | After a successful extraction, the folders of other versions (and interrupted extractions) are removed. A running older instance loses nothing: its worker has imported all modules, and a restart extracts them again. Test: `extracting_a_new_worker_removes_the_other_versions` |
+| ✅ | BUG-16 *(code)* | Each recovery checkpoint (every 5 s while modified) read and parsed **every** history file of **every** document. History of deleted or renamed files was never pruned, and all untitled buffers shared one bucket | `src/recovery.rs` | One folder per document (stable FNV-1a hash of the path); version file names carry their timestamps, so a checkpoint lists one folder of at most 20 files and parses no JSON. Once per session, versions older than 90 days and the oldest beyond 64 MB are removed, and the flat history of earlier releases is migrated. Untitled buffers keep one shared folder on purpose: they have no identity across sessions, and their drafts stay findable. Tests in `tests/rust/editor/test_recovery.rs` |
+| ✅ | BUG-17 *(code)* | Files that are not UTF-8 could not be opened at all | `src/document.rs`, `src/dialogs/mod.rs` | A *Not a UTF-8 file* dialog offers **Open as Windows-1252** (WHATWG mapping, never fails); the file is untouched until saved, saving writes UTF-8, and the status bar shows *Windows-1252 → UTF-8* meanwhile. The file watcher keeps reading the file in its encoding. Tests: `windows_1252_files_open_on_request_and_are_saved_as_utf8` and others |
+| ✅ | BUG-18 *(code)* | The Windows `.exe` had no embedded icon or version information | `build.rs` | `winresource` compiles the icon and version strings with `rc.exe` (MSVC) or `windres` (GNU). Without a resource compiler the build warns; release CI sets `CQ_EDITOR_REQUIRE_RESOURCES=1` to make it an error. Checked with `windres` from MSYS2: Explorer's details show *CQ-editor 0.8.0-dev* and the icon |
+| ✅ | BUG-19 *(code)* | Building with the Windows GNU toolchain needed MinGW binutils and a hand-made `libshlwapi.a` | `Cargo.toml`, `src/app.rs` | eframe is used without its `links` feature, which removes `webbrowser` (and `shlwapi`) from the dependency tree; links of egui widgets are taken from the platform output and opened with `open`. binutils (`dlltool`) are still required by the `windows` crates. Test: `links_clicked_in_widgets_are_taken_from_the_platform_output` |
+| ✅ | BUG-20 *(code)* | The Log panel lived only in memory: after a GUI panic or crash, the messages that explained it were gone | `src/logging.rs` | Every entry is also appended to `logs/cq-editor.log` in the data folder (warnings and errors immediately, other lines within a second, by a flushing thread even when nothing else is logged), rotated at 2 MB to `cq-editor.1.log`. A panic hook records the panic and its backtrace without waiting for the log lock. Bug reports and Troubleshooting mention the file |
 
 ### Performance
 
 | Status | Id | Problem | Where | Suggested fix |
 | :---: | --- | --- | --- | --- |
 | ✅ | PERF-01 | Resolved: display triangles are tagged with their OCCT face from per-face triangle counts and picked directly; the separate pick triangles (and their Python node walk) remain only as a fallback when the counts do not match. A 324-hole plate meshes in 1.5 s instead of 2.2 s with a 34% smaller message | `worker/cq_worker/tessellation.py` | Covered by a face-by-face comparison with the former extraction on ten shape kinds |
-| | PERF-02 | Each tessellation writes and reads a temporary `.glb` file on disk | `tessellation.py:306` | Reuse one temporary directory, or use an in-memory stream if OCCT allows it. Measured: writing and reading the glTF of the 83k-triangle plate takes about 0.19 s, against 1.3 s for BRepMesh itself |
+| ✅ | PERF-02 | Resolved as far as OCCT allows: `RWGltf_CafWriter` (OCCT 7.8 through OCP) can only write files, so the glTF still passes through disk. Measured on the 324-hole plate, the file handling costs about 1 ms of the writer's 95 ms (and its parallel mode gains nothing), so the round trip now reuses one scratch folder per worker process. That also fixed a leak: a worker stopped while meshing left its `cq-editor-*.glb` files in the temporary folder, and the next worker now removes leftovers older than a day | `tessellation.py` (`_scratch_path`) | Tests: `test_glb_round_trips_leave_only_an_empty_scratch_directory`, `test_scratch_left_by_killed_workers_is_removed_once_stale` |
 | ✅ | PERF-03 | Resolved: a retained scene-part BVH prefilters parts and per-mesh BVHs prune edges and vertices in screen space; hover picking already pauses while dragging or when the pointer is still | `src/viewer/picking.rs`, `src/spatial.rs` | Covered by linear-scan equivalence tests and the `pick_latency_on_growing_assemblies` benchmark |
 | ✅ | PERF-04 | Resolved: the `measure` request resolves selected ids through `RegistryEntry.subshape` and calculates against live OCCT geometry | `worker/cq_worker/measurement.py`, `protocol.rs` | Covered by exact numeric worker and protocol tests |
+
+### Found in the October 2026 review
+
+A full review of the code for this roadmap found these problems, which were
+not listed before. All are resolved, each with a regression test unless
+noted.
+
+| Status | Id | Problem | Where | Resolution |
+| :---: | --- | --- | --- | --- |
+| ✅ | BUG-21 *(P1, code)* | Quitting with **Don't save** brought the discarded edits back: eframe's final `save` wrote a new recovery checkpoint, and the next start offered *Unsaved work can be recovered* | `src/app.rs` (`checkpoint_recovery`) | No checkpoint once quitting was confirmed (`allow_close`) |
+| ✅ | BUG-22 *(P2, code)* | **Stop debugging** raised `DebugStop`, an `Exception`, so a script's own `except Exception` swallowed it and the session went on | `worker/cq_worker/debugger.py` | `DebugStop` derives from `BaseException`, like `KeyboardInterrupt`. Test: `test_stop_is_not_swallowed_by_the_scripts_exception_handlers` |
+| ✅ | BUG-23 *(P1, code)* | The editor could panic (and close) when an edit, such as a reload, left the completion popup's anchor inside a multi-byte character: `close_popups_if_left` sliced the text without checking character boundaries | `src/editor/mod.rs` | `typed_text` checks both boundaries. Test: `completion_survives_edits_that_move_its_anchor_inside_a_character` |
+| ✅ | BUG-24 *(P2, code)* | A link in an upload service's JSON reply was opened with the system handler, which also opens local files and starts programs | `src/app.rs` (`open_url`) | Only `http` and `https` URLs without control characters are opened. Test: `only_web_links_are_opened` |
+| ✅ | BUG-25 *(P3, code)* | A long status message (typically an error) took the whole status bar and pushed the Python state, cursor position and encoding out of it | `src/ui/status_bar.rs` | The fixed indicators are laid out first; the message is truncated to what remains and shows its full text on hover. Checked in the app |
+| ✅ | BUG-26 *(P3, code)* | The Log filter lowercased the text but not the source, so typing a source such as `OCP` matched nothing | `src/panels/log.rs` | Both are compared in lowercase. Test: `the_filter_ignores_case_in_sources_too` |
+| ✅ | BUG-27 *(P3, code)* | When a run's scene could not be decoded, `finish_run` returned early and also dropped the run's variables and a queued render; a run request that failed in the worker left the debugger arrow on screen and dropped a queued render | `src/app.rs` (`finish_run`, `request_failed`) | The scene error is reported and the rest of the result still applies; a failed run clears the debug line and starts the queued render. No automated test: `AppState` needs a running eframe context |
+| ✅ | BUG-28 *(P3, seen)* | Clicking the text of a Traceback row (the file name, line or code) did nothing: egui labels are selectable by default and took the click from the row, so only the empty part of a cell jumped to the line | `src/panels/traceback.rs` | Cell labels are not selectable; the Variables table has the same fix and test. Checked in the app: clicking the file name of a frame moves the cursor to its line |
 
 ---
 
@@ -432,7 +491,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 | Milestone | Goal | Contents |
 | --- | --- | --- |
-| **0.8: stable core rewrite** | Preserve the modeling workflow without hiding incompatibilities | BUG-01…BUG-13, BUG-18, ENG-01, compatibility matrix, docs linked from Help |
+| **0.8: stable core rewrite** | Preserve the modeling workflow without hiding incompatibilities | BUG-01…BUG-27 ✅, ENG-01, compatibility matrix, docs linked from Help ✅ |
 | **0.9: code ↔ model** | The GUI helps write code | FEAT-A3, A4, B1, B2, B3, B5; completion while typing names, Go to line, Replace, hover docs; PERF-01…04 |
 | **1.0: projects** | Comfortable for large designs | FEAT-D1, D2, D3, C1, C2, E1, E3, E4, F1 |
 | **Later** | Exploratory | FEAT-A2, A6, B4, C3–C8, D4–D6, E2, E5, E6, F2, F3, ENG-02…05 |

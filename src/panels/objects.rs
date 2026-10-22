@@ -104,7 +104,7 @@ fn tree(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
                 .default_open(true)
                 .show(ui, |ui| {
                     if state.scene.is_empty() {
-                        ui.weak("Nothing shown yet — press F5 to render");
+                        ui.weak(state.empty_view_hint());
                     }
                     for node in &state.scene.nodes {
                         node_row(ui, state, node, default, actions);

@@ -44,8 +44,9 @@ SCRIPT_FILENAME = "<cq-editor>"
 #: Seed used before every run, so that ``rand_color`` is reproducible.
 RANDOM_SEED = 59798267586177
 
-#: Longest value text sent for the variables panel.
-MAX_VALUE_LENGTH = 300
+#: Longest value text sent for the variables panel, whose detail view shows
+#: it in full.
+MAX_VALUE_LENGTH = 2000
 
 script_log = logging.getLogger("script")
 

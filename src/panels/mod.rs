@@ -145,8 +145,34 @@ impl TabViewer for TabContext<'_> {
 }
 
 /// Centered, dimmed text for empty panels.
+///
+/// Laid out with centered rows rather than a justified layout, which
+/// stretched the spaces of wrapped lines unevenly.
 pub(crate) fn empty_state(ui: &mut egui::Ui, icon: &str, text: &str) {
-    ui.centered_and_justified(|ui| {
-        ui.weak(format!("{icon}  {text}"));
-    });
+    let rect = ui.available_rect_before_wrap();
+    ui.allocate_rect(rect, egui::Sense::hover());
+    let color = ui.visuals().weak_text_color();
+    let job = empty_state_job(ui.style(), &format!("{icon}  {text}"), color, rect.width());
+    let galley = ui.painter().layout_job(job);
+    // Centered rows are laid out around x = 0.
+    let top = (rect.center().y - galley.size().y / 2.0).max(rect.top());
+    ui.painter()
+        .galley(egui::pos2(rect.center().x, top), galley, color);
 }
+
+fn empty_state_job(
+    style: &egui::Style,
+    text: &str,
+    color: egui::Color32,
+    width: f32,
+) -> egui::text::LayoutJob {
+    let font = egui::TextStyle::Body.resolve(style);
+    let mut job =
+        egui::text::LayoutJob::simple(text.to_owned(), font, color, (width - 24.0).max(40.0));
+    job.halign = egui::Align::Center;
+    job
+}
+
+#[cfg(test)]
+#[path = "../../tests/rust/panels/test_empty_state.rs"]
+mod tests;

@@ -76,11 +76,14 @@ See [Debugging and inspection](debugging.md).
 
 ### Encoding and line endings
 
-Files are read and written as **UTF-8**. A file in another encoding is not
-opened (and never modified). The error message says where the invalid data
-starts, so you can convert the file first. A UTF-8 byte order mark and the
-file's line endings (LF, CRLF or CR) are preserved on save. The status bar
-shows both.
+Files are read and written as **UTF-8**. When a file is not valid UTF-8,
+CQ-editor asks before doing anything: **Open as Windows-1252** reads it with
+the Western European encoding of older Windows editors, without changing the
+file. Saving it then writes UTF-8, the encoding Python expects; until then
+the status bar shows *Windows-1252 → UTF-8*. **Cancel** leaves the file
+alone. A UTF-8 byte order mark and the file's line endings (LF, CRLF or CR)
+are preserved on save. The status bar shows the encoding and the line
+endings.
 
 ### Safe saving
 
@@ -131,7 +134,9 @@ or saving).
 * **File > Local History…** lists earlier versions of the current document:
   checkpoints, saved versions and the contents a *Save As* replaced. Select
   one to preview it, then **Restore this version**. The newest **20
-  versions per document** are kept.
+  versions per document** are kept. Versions older than 90 days are removed,
+  which also clears the history of files you deleted or renamed, and the
+  oldest versions go first when the whole history exceeds 64 MB.
 
 Recovery data stays on your computer, in the `recovery/` folder of the
 [application data folder](../getting-started/installation.md#where-cq-editor-keeps-its-files).

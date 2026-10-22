@@ -4,14 +4,14 @@
 pub mod preferences;
 pub mod upload;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::{Align2, RichText};
 use egui_phosphor::regular as icon;
 
 use crate::app::AppState;
 use crate::commands::Action;
-use crate::document::DiskVersion;
+use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
 
 /// Something that would discard unsaved changes, waiting for confirmation.
@@ -84,6 +84,9 @@ pub struct Dialogs {
     pub external_change: Option<ExternalChange>,
     pub recovery_session: Option<RecoverySnapshot>,
     pub history: Option<HistoryDialog>,
+    /// A file that is not UTF-8, waiting for permission to read it as
+    /// Windows-1252.
+    pub legacy_encoding: Option<PathBuf>,
     pub message: Option<Message>,
 }
 
@@ -150,6 +153,15 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     {
         state.dialogs.unsaved = None;
         state.resolve_unsaved(intent, choice);
+    }
+
+    if let Some(path) = state.dialogs.legacy_encoding.clone()
+        && let Some(open) = legacy_encoding(ctx, &path)
+    {
+        state.dialogs.legacy_encoding = None;
+        if open {
+            state.open_path_with(&path, Encoding::Windows1252);
+        }
     }
 
     let document_name = state.document.display_name();
@@ -267,6 +279,58 @@ fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
         });
     if response.should_close() && choice.is_none() {
         choice = Some(UnsavedChoice::Cancel);
+    }
+    choice
+}
+
+/// Offers to read a file that is not UTF-8 as Windows-1252. Returns whether
+/// to open it once the user decided.
+fn legacy_encoding(ctx: &egui::Context, path: &Path) -> Option<bool> {
+    let mut choice = None;
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let response = egui::Modal::new(egui::Id::new("legacy_encoding"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(icon::WARNING)
+                        .size(28.0)
+                        .color(ui.visuals().warn_fg_color),
+                );
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Not a UTF-8 file").strong().size(16.0));
+                    ui.label(format!("{name} is not valid UTF-8 text."))
+                        .on_hover_text(path.display().to_string());
+                    ui.label(
+                        "It can be opened as Windows-1252 (Western European), the usual \
+                         encoding of older Windows editors. Saving then converts it to \
+                         UTF-8, the encoding Python expects.",
+                    );
+                    ui.weak("Opening does not change the file.");
+                });
+            });
+            ui.add_space(12.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
+                }
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("Open as Windows-1252").strong())
+                            .fill(ui.visuals().selection.bg_fill),
+                    )
+                    .clicked()
+                {
+                    choice = Some(true);
+                }
+            });
+        });
+    if response.should_close() && choice.is_none() {
+        choice = Some(false);
     }
     choice
 }

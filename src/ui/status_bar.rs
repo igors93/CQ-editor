@@ -5,6 +5,7 @@ use egui::RichText;
 use egui_phosphor::regular as icon;
 
 use crate::app::{AppState, StatusKind};
+use crate::document::Encoding;
 use crate::worker;
 
 pub fn ui(ui: &mut egui::Ui, state: &AppState) {
@@ -12,17 +13,8 @@ pub fn ui(ui: &mut egui::Ui, state: &AppState) {
     let success = state.palette().success;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 14.0;
-        if let Some(status) = &state.status {
-            let (glyph, color) = match status.kind {
-                StatusKind::Info => (icon::INFO, visuals.weak_text_color()),
-                StatusKind::Success => (icon::CHECK_CIRCLE, success),
-                StatusKind::Warning => (icon::WARNING, visuals.warn_fg_color),
-                StatusKind::Error => (icon::X_CIRCLE, visuals.error_fg_color),
-            };
-            ui.label(RichText::new(glyph).color(color));
-            ui.add(egui::Label::new(&status.text).truncate());
-        }
-
+        // The fixed indicators are laid out first, from the right; the
+        // message gets what remains, so a long error cannot push them out.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (glyph, text, color) = match state.worker.status() {
                 worker::Status::Ready(info) => (
@@ -60,7 +52,22 @@ pub fn ui(ui: &mut egui::Ui, state: &AppState) {
             ui.label(RichText::new(glyph).color(color).small())
                 .on_hover_text(&tooltip);
 
-            ui.label(RichText::new("UTF-8").small().weak());
+            match state.document.encoding() {
+                Encoding::Utf8 => {
+                    ui.label(RichText::new("UTF-8").small().weak());
+                }
+                legacy => {
+                    ui.label(
+                        RichText::new(format!("{} → UTF-8", legacy.label()))
+                            .small()
+                            .color(visuals.warn_fg_color),
+                    )
+                    .on_hover_text(format!(
+                        "The file was read as {}; saving converts it to UTF-8",
+                        legacy.label()
+                    ));
+                }
+            }
             ui.label(
                 RichText::new(state.document.line_ending().label())
                     .small()
@@ -75,6 +82,20 @@ pub fn ui(ui: &mut egui::Ui, state: &AppState) {
                         .weak(),
                 )
                 .on_hover_text("The script re-runs whenever its file changes on disk");
+            }
+
+            if let Some(status) = &state.status {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let (glyph, color) = match status.kind {
+                        StatusKind::Info => (icon::INFO, visuals.weak_text_color()),
+                        StatusKind::Success => (icon::CHECK_CIRCLE, success),
+                        StatusKind::Warning => (icon::WARNING, visuals.warn_fg_color),
+                        StatusKind::Error => (icon::X_CIRCLE, visuals.error_fg_color),
+                    };
+                    ui.label(RichText::new(glyph).color(color));
+                    // Shows the whole text on hover when truncated.
+                    ui.add(egui::Label::new(&status.text).truncate());
+                });
             }
         });
     });

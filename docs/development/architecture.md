@@ -37,7 +37,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `main.rs` | Command line, window options, start-up |
 | `app.rs` | Application state (`AppState`), the frame loop, action execution, worker message handling. `CqEditorApp` wraps it with the dock layout and implements `eframe::App` |
 | `commands.rs` | `Action`, everything the user can ask for, and the keyboard shortcut table |
-| `document.rs` | The open script: UTF-8 decoding, BOM and line-ending preservation, atomic saves, external change classification |
+| `document.rs` | The open script: UTF-8 decoding (Windows-1252 on request, saved back as UTF-8), BOM and line-ending preservation, atomic saves, external change classification |
 | `recovery.rs` | Crash-recovery session and bounded local history |
 | `file_watcher.rs` | Polling watcher behind *Automatic reload* |
 | `settings.rs` | Preferences, persisted by eframe |
@@ -61,11 +61,17 @@ directly**. They push an `Action` (see `commands.rs`), and `app.rs` runs the
 queued actions after the UI of the frame has been built:
 
 ```
-begin_frame   apply theme/scale · process worker events · poll file watcher · recovery checkpoint · collect shortcuts
+logic         process worker events · poll file watcher · recovery checkpoint
+begin_frame   apply theme/scale · collect shortcuts
 build UI      menu bar · toolbar · dock (editor, view, panels) · status bar · dialogs   → push Actions
 execute       for each Action: open/save/run/select/export/…  → may send worker Requests
 end_frame     handle window close requests (unsaved changes guard)
 ```
+
+`logic` is eframe's `App::logic`: it runs before every frame and also while
+the window is minimized or hidden, whenever a repaint was requested. Worker
+replies, automatic reload and recovery checkpoints therefore never wait for
+the window to be drawn.
 
 Menus, toolbar buttons, shortcuts and context menus therefore share one code
 path per command, and the shortcut shown in a menu comes from the same table
@@ -81,7 +87,7 @@ that handles the key press.
 * a **stderr** thread that forwards lines to the Log panel.
 
 Events reach the UI through a channel and wake egui up with
-`request_repaint`. Each process gets a *generation* number, so late events
+`request_repaint`, which runs `App::logic` even when nothing is drawn. Each process gets a *generation* number, so late events
 of a killed process are ignored. Requests that expect an answer get an id,
 which `AppState::pending` maps to what the answer is for (run, completion,
 inspection, export, …).
@@ -209,7 +215,8 @@ and its GPU buffers.
 | Preferences, layout, window | `app.ron` | eframe persistence (`App::save`) |
 | Scripts | wherever you save them | `document.rs`: temp file + atomic replace (`ReplaceFileW`/`MoveFileExW` on Windows, `rename` elsewhere), synchronized to disk |
 | Recovery session | `recovery/active-session.json` | Written every 5 s while the buffer is modified |
-| Local history | `recovery/history/version-*.json` | 20 newest versions per document path |
+| Local history | `recovery/history/<document>/version-<timestamp>-<n>.json` | One folder per document (FNV-1a hash of its path, `untitled` for buffers without a file); file names carry the timestamps, so a checkpoint lists one small folder and reads no JSON. 20 newest versions per document; once per session, versions older than 90 days and the oldest beyond 64 MB in total are removed |
+| Log | `logs/cq-editor.log`, `logs/cq-editor.1.log` | `logging.rs` appends every Log panel line and GUI panics; rotated at 2 MB |
 
 ## Design principles
 

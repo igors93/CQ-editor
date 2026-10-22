@@ -1,12 +1,14 @@
 //! Application state and the frame loop.
 //!
-//! Each frame: apply settings, drain worker events, poll the file watcher and
-//! collect keyboard shortcuts; then build the UI (menu, toolbar, dock area,
-//! status bar, dialogs), which only *queues* [`Action`]s; finally execute the
-//! queued actions. Keeping mutations out of the widget code makes the data
-//! flow easy to follow.
+//! Worker events, the file watcher and recovery checkpoints are handled in
+//! [`eframe::App::logic`], which also runs while the window is minimized or
+//! hidden, so runs never stall waiting for a repaint. Each frame then applies
+//! settings and collects keyboard shortcuts, builds the UI (menu, toolbar,
+//! dock area, status bar, dialogs), which only *queues* [`Action`]s, and
+//! finally executes the queued actions. Keeping mutations out of the widget
+//! code makes the data flow easy to follow.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -18,7 +20,7 @@ use crate::commands::{self, Action};
 use crate::dialogs::{
     self, Dialogs, ExternalChange, ExternalChangeChoice, HistoryDialog, Intent, UnsavedChoice,
 };
-use crate::document::{DEFAULT_SCRIPT, Document, ExternalUpdate};
+use crate::document::{DEFAULT_SCRIPT, Document, Encoding, ExternalUpdate, is_not_utf8};
 use crate::editor::{CodeEditor, CompletionRequest, EditorOptions};
 use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
@@ -40,6 +42,9 @@ use crate::worker::{self, Event, LaunchConfig, Worker, launch};
 const SETTINGS_KEY: &str = "settings";
 const LAYOUT_KEY: &str = "dock_layout";
 const LOGO_ICO: &[u8] = include_bytes!("../assets/icons/cadquery_logo_dark.ico");
+/// The documentation of this editor, not the wiki of the PyQt one.
+pub const DOCUMENTATION_URL: &str =
+    concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/master/docs/README.md");
 
 /// Command-line options.
 #[derive(Debug, Default)]
@@ -80,7 +85,8 @@ enum Pending {
     Export,
     Upload,
     Updates,
-    Imports,
+    /// The local modules imported by the script at this path.
+    Imports(PathBuf),
     Measure,
 }
 
@@ -103,6 +109,9 @@ pub struct AppState {
     phase: Phase,
     /// A render was requested while one was running.
     rerun: bool,
+    /// A run of a document that was replaced since: its results belong to
+    /// the previous file and are discarded.
+    stale_run: Option<RequestId>,
     /// Render as soon as the worker is ready (`Some(debug)`).
     run_when_ready: Option<bool>,
     pending: HashMap<RequestId, Pending>,
@@ -186,6 +195,17 @@ impl AppState {
 
     // -- per-frame bookkeeping ------------------------------------------------
 
+    /// Work that must go on without painting: eframe calls this before
+    /// every frame and also while the window is minimized or hidden,
+    /// whenever a repaint was requested (the worker threads request one per
+    /// message; the watcher and recovery timers schedule theirs).
+    fn logic(&mut self, ctx: &egui::Context) {
+        self.process_worker_events();
+        self.sync_watcher();
+        self.poll_watcher(ctx);
+        self.poll_recovery(ctx);
+    }
+
     fn begin_frame(&mut self, ctx: &egui::Context) {
         if self.applied_theme != Some(self.settings.general.theme) {
             theme::apply(ctx, self.settings.general.theme);
@@ -200,11 +220,6 @@ impl AppState {
             self.settings.general.ui_scale = self.applied_scale;
         }
         self.palette = Palette::of(ctx.theme());
-
-        self.process_worker_events();
-        self.sync_watcher();
-        self.poll_watcher(ctx);
-        self.poll_recovery(ctx);
         commands::collect_shortcuts(ctx, &mut self.actions);
     }
 
@@ -261,10 +276,7 @@ impl AppState {
             (Phase::Idle, worker::Status::Starting) => Some("Starting Python…"),
             _ => None,
         };
-        let hint = self
-            .worker
-            .is_ready()
-            .then_some("Press F5 to render the script");
+        let hint = self.worker.is_ready().then(|| self.empty_view_hint());
         let events = self.viewer.ui(
             ui,
             frame,
@@ -273,7 +285,7 @@ impl AppState {
                 settings: &self.settings.viewer,
                 colors: &colors,
                 busy,
-                empty_hint: hint,
+                empty_hint: hint.as_deref(),
             },
         );
         for event in events {
@@ -296,6 +308,20 @@ impl AppState {
                 }
                 ViewerEvent::Screenshot(Err(err)) => self.dialogs.error("Screenshot failed", err),
             }
+        }
+    }
+
+    /// What an empty view and Objects panel suggest: after a failed run,
+    /// pressing F5 again is not the answer.
+    pub fn empty_view_hint(&self) -> String {
+        match &self.traceback {
+            Some(error) => {
+                let location = error
+                    .line
+                    .map_or_else(String::new, |l| format!(" at line {l}"));
+                format!("The last run failed{location}; see the Traceback panel")
+            }
+            None => "Press F5 to render the script".to_owned(),
         }
     }
 
@@ -369,7 +395,7 @@ impl AppState {
                 self.dialogs.upload.get_or_insert_with(Default::default);
             }
 
-            Action::Documentation => open_url("https://github.com/CadQuery/CQ-editor/wiki"),
+            Action::Documentation => open_url(DOCUMENTATION_URL),
             Action::CadQueryDocumentation => open_url("https://cadquery.readthedocs.io/en/latest/"),
             Action::About => self.dialogs.about = true,
             Action::CheckUpdates => {
@@ -448,7 +474,7 @@ impl AppState {
         }
         if restore {
             let name = snapshot.display_name();
-            self.set_document(snapshot.into_document());
+            self.set_document(snapshot.into_document(), false);
             self.checkpoint_recovery();
             self.set_status(
                 StatusKind::Success,
@@ -465,7 +491,8 @@ impl AppState {
     pub fn restore_history(&mut self, snapshot: RecoverySnapshot) {
         self.checkpoint_recovery();
         let name = snapshot.display_name();
-        self.set_document(snapshot.into_document());
+        // Another version of the same file, like a reload: the model stays.
+        self.set_document(snapshot.into_document(), true);
         self.checkpoint_recovery();
         self.set_status(
             StatusKind::Success,
@@ -496,7 +523,7 @@ impl AppState {
 
     fn perform(&mut self, intent: Intent) {
         match intent {
-            Intent::New => self.set_document(Document::untitled("")),
+            Intent::New => self.set_document(Document::untitled(""), false),
             Intent::Open => {
                 let mut dialog = rfd::FileDialog::new().add_filter("Python script", &["py"]);
                 if let Some(dir) = self.document.path().and_then(Path::parent) {
@@ -510,7 +537,7 @@ impl AppState {
             Intent::OpenExample(index) => {
                 if let Some(example) = self.examples.get(index) {
                     let document = Document::example(&example.title, example.source);
-                    self.set_document(document);
+                    self.set_document(document, false);
                     self.set_status(
                         StatusKind::Info,
                         "Examples are read-only; saving asks for a new location",
@@ -526,12 +553,29 @@ impl AppState {
     }
 
     fn open_path(&mut self, path: &Path) {
-        match Document::open(path) {
+        self.open_path_with(path, Encoding::Utf8);
+    }
+
+    /// Opens a file that is not UTF-8 after the user agreed to read it as
+    /// `encoding` (and to convert it on save).
+    pub fn open_path_with(&mut self, path: &Path, encoding: Encoding) {
+        match Document::open_with(path, encoding) {
             Ok(document) => {
-                self.set_document(document);
+                self.set_document(document, false);
                 self.settings.add_recent_file(path);
                 self.settings.last_file = Some(path.to_path_buf());
-                self.set_status(StatusKind::Info, format!("Opened {}", path.display()));
+                let status = match encoding {
+                    Encoding::Utf8 => format!("Opened {}", path.display()),
+                    _ => format!(
+                        "Opened {} as {}; saving converts it to UTF-8",
+                        path.display(),
+                        encoding.label()
+                    ),
+                };
+                self.set_status(StatusKind::Info, status);
+            }
+            Err(err) if is_not_utf8(&err) => {
+                self.dialogs.legacy_encoding = Some(path.to_path_buf());
             }
             Err(err) => self
                 .dialogs
@@ -539,7 +583,11 @@ impl AppState {
         }
     }
 
-    fn set_document(&mut self, document: Document) {
+    /// Replaces the document. Unless `keep_scene` (another version of the
+    /// same file), the model, its selection and the variables of the
+    /// previous file are cleared, and a run still going for it is discarded:
+    /// its result would look like the output of the new script.
+    fn set_document(&mut self, document: Document, keep_scene: bool) {
         self.clear_recovery_session();
         self.document = document;
         self.dialogs.external_change = None;
@@ -547,6 +595,25 @@ impl AppState {
         self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
         self.editor.reset();
         self.traceback = None;
+        if keep_scene {
+            return;
+        }
+        self.rerun = false;
+        self.run_when_ready = None;
+        match self.phase {
+            Phase::Idle => {}
+            Phase::Running { id, .. } => self.stale_run = Some(id),
+            Phase::Paused { id } => {
+                self.stale_run = Some(id);
+                self.debug_command(DebugAction::Stop);
+            }
+        }
+        let removed = self.scene.clear();
+        self.release(removed);
+        self.scene.overlay = Overlay::default();
+        self.measurements.clear();
+        self.inspector.clear();
+        self.variables.clear();
     }
 
     /// Returns whether the document ended up saved.
@@ -704,6 +771,8 @@ impl AppState {
             self.settings.last_file = Some(path.clone());
             self.set_status(StatusKind::Success, format!("Saved {}", path.display()));
         }
+        // The saved script may import other modules now.
+        self.request_imports();
     }
 
     fn show_local_history(&mut self) {
@@ -728,7 +797,10 @@ impl AppState {
     fn checkpoint_recovery(&mut self) {
         // The startup document is a separate clean buffer while the recovered
         // session awaits a decision. It must never clear that pending session.
-        if self.dialogs.recovery_session.is_some() {
+        // When quitting was confirmed, the edits were saved or deliberately
+        // discarded ("Don't save"); eframe's final `save` must not bring
+        // them back as an interrupted session on the next start.
+        if self.dialogs.recovery_session.is_some() || self.allow_close {
             return;
         }
         match self.recovery.checkpoint(&self.document) {
@@ -802,6 +874,7 @@ impl AppState {
     fn reset_execution_state(&mut self) {
         self.phase = Phase::Idle;
         self.rerun = false;
+        self.stale_run = None;
         self.pending.clear();
         self.console.busy = false;
         self.editor.set_debug_line(None);
@@ -914,6 +987,12 @@ impl AppState {
                 logging::push(Level::from_python(&level), &source, &message);
             }
             Message::RunFinished(result) => self.finish_run(*result),
+            Message::DebugPaused { id, objects, .. } if self.stale_run == Some(id) => {
+                // A session of the previous document reached a breakpoint.
+                self.release(objects.into_iter().map(|node| node.key).collect());
+                self.phase = Phase::Paused { id };
+                self.debug_command(DebugAction::Stop);
+            }
             Message::DebugPaused {
                 id,
                 line,
@@ -1031,11 +1110,22 @@ impl AppState {
                 }
             }
             Message::Imports { id, paths } => {
-                self.pending.remove(&id);
-                let mut files: Vec<PathBuf> = self.watcher.watched().cloned().collect();
-                files.extend(paths.into_iter().map(PathBuf::from));
-                files.dedup();
-                self.watcher.set_files(files);
+                let Some(Pending::Imports(script)) = self.pending.remove(&id) else {
+                    return;
+                };
+                // Answers for another file, or after watching changed, are
+                // outdated.
+                if self.watched_imports_of().as_deref() != Some(script.as_path()) {
+                    return;
+                }
+                // The script and its current imports: modules no longer
+                // imported stop being watched, and none is watched twice.
+                let files: BTreeSet<PathBuf> = paths
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .chain([script])
+                    .collect();
+                self.watcher.set_files(files.into_iter().collect());
             }
             Message::Error { id, message } => self.request_failed(id, message),
         }
@@ -1065,7 +1155,15 @@ impl AppState {
             }
             Some(Pending::Run) => {
                 self.phase = Phase::Idle;
-                self.set_status(StatusKind::Error, message);
+                self.editor.set_debug_line(None);
+                if std::mem::take(&mut self.stale_run) == request_id {
+                    log::warn!("A run of the previous document failed: {message}");
+                } else {
+                    self.set_status(StatusKind::Error, message);
+                }
+                if std::mem::take(&mut self.rerun) {
+                    self.start_run(false);
+                }
             }
             Some(Pending::Measure) if self.measurements.request_id == request_id => {
                 self.measurements.loading = false;
@@ -1073,7 +1171,7 @@ impl AppState {
                 self.measurements.request_id = None;
             }
             Some(Pending::Measure) => {}
-            Some(Pending::Completion | Pending::ConsoleCompletion | Pending::Imports) | None => {
+            Some(Pending::Completion | Pending::ConsoleCompletion | Pending::Imports(_)) | None => {
                 log::warn!("{message}");
                 self.set_status(StatusKind::Warning, message);
             }
@@ -1148,6 +1246,17 @@ impl AppState {
         self.phase = Phase::Idle;
         self.editor.set_debug_line(None);
 
+        if self.stale_run == Some(result.id) {
+            self.stale_run = None;
+            let keys = result.objects.into_iter().flatten().map(|node| node.key);
+            self.release(keys.collect());
+            log::info!("Discarded the result of a run of the previous document");
+            if std::mem::take(&mut self.rerun) {
+                self.start_run(false);
+            }
+            return;
+        }
+
         match &result.error {
             Some(error) => {
                 self.editor.error_line = error.line;
@@ -1174,35 +1283,36 @@ impl AppState {
                 .then(|| self.scene.snapshot_properties());
             let was_empty = self.scene.is_empty();
             let decoding = Instant::now();
-            let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) else {
-                return;
-            };
-            if let Some(timings) = &result.timings {
-                log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
-            }
-            let count = nodes.len();
-            if self.settings.objects.clear_before_run || result.debug {
-                let removed = self.scene.replace(nodes, preserved.as_ref());
-                self.release(removed);
-                self.measurements.clear();
-            } else {
-                self.scene.append(nodes, preserved.as_ref());
-            }
-            self.scene.overlay = Overlay::default();
-            self.refresh_inspector();
-            if self.settings.viewer.fit_automatically || was_empty {
-                let animate = self.settings.viewer.animate && !was_empty;
-                self.viewer.fit(&self.scene, animate, self.now());
-            }
-            if ok {
-                let plural = if count == 1 { "" } else { "s" };
-                self.set_status(
-                    StatusKind::Success,
-                    format!(
-                        "Rendered {count} object{plural} in {:.2} s",
-                        result.duration
-                    ),
-                );
+            // A scene that cannot be decoded is reported, and the rest of
+            // the result (variables, a queued render) still applies.
+            if let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) {
+                if let Some(timings) = &result.timings {
+                    log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
+                }
+                let count = nodes.len();
+                if self.settings.objects.clear_before_run || result.debug {
+                    let removed = self.scene.replace(nodes, preserved.as_ref());
+                    self.release(removed);
+                    self.measurements.clear();
+                } else {
+                    self.scene.append(nodes, preserved.as_ref());
+                }
+                self.scene.overlay = Overlay::default();
+                self.refresh_inspector();
+                if self.settings.viewer.fit_automatically || was_empty {
+                    let animate = self.settings.viewer.animate && !was_empty;
+                    self.viewer.fit(&self.scene, animate, self.now());
+                }
+                if ok {
+                    let plural = if count == 1 { "" } else { "s" };
+                    self.set_status(
+                        StatusKind::Success,
+                        format!(
+                            "Rendered {count} object{plural} in {:.2} s",
+                            result.duration
+                        ),
+                    );
+                }
             }
         }
         if let Some(variables) = result.variables {
@@ -1210,6 +1320,10 @@ impl AppState {
         }
         if result.stopped {
             self.set_status(StatusKind::Info, "Debugging stopped");
+        }
+        if ok {
+            // The script may have started importing other modules.
+            self.request_imports();
         }
         if std::mem::take(&mut self.rerun) {
             self.start_run(false);
@@ -1274,18 +1388,37 @@ impl AppState {
         if self.watch_key.as_ref() == Some(&key) {
             return;
         }
-        let (autoreload, watch_imports, path) = key.clone();
+        let (autoreload, _, path) = key.clone();
         self.watch_key = Some(key);
         match path.filter(|_| autoreload) {
             Some(path) => {
-                self.watcher.set_files(vec![path.clone()]);
-                if watch_imports {
-                    let path = path.display().to_string();
-                    self.send_tracked(Pending::Imports, |id| Request::Imports { id, path });
-                }
+                self.watcher.set_files(vec![path]);
+                self.request_imports();
             }
             None => self.watcher.clear(),
         }
+    }
+
+    /// The script whose local imports are watched, if any.
+    fn watched_imports_of(&self) -> Option<PathBuf> {
+        let editor = &self.settings.editor;
+        (editor.autoreload && editor.watch_imported_modules)
+            .then(|| self.document.path().map(Path::to_path_buf))
+            .flatten()
+    }
+
+    /// Asks which local modules the script imports, so the watcher follows
+    /// them. Called whenever watching starts and again after each save and
+    /// successful run, as the imports change with the script.
+    fn request_imports(&mut self) {
+        let Some(script) = self.watched_imports_of() else {
+            return;
+        };
+        if !self.worker.is_ready() {
+            return; // asked again after the first run
+        }
+        let path = script.display().to_string();
+        self.send_tracked(Pending::Imports(script), |id| Request::Imports { id, path });
     }
 
     fn poll_watcher(&mut self, ctx: &egui::Context) {
@@ -1648,10 +1781,43 @@ impl AppState {
     }
 }
 
-fn open_url(url: &str) {
+/// Opens a web page in the browser: the menu's links and the links of egui
+/// widgets (eframe's own link handling is disabled, see `Cargo.toml`).
+///
+/// Only http(s) URLs are opened. An upload service's reply supplies links
+/// too, and handed to the system, a path or another scheme would open local
+/// documents or start programs.
+pub fn open_url(url: &str) {
+    if !is_web_url(url) {
+        log::warn!("Not opening {url}: only http and https links are opened");
+        return;
+    }
     if let Err(err) = open::that(url) {
         log::warn!("Cannot open {url}: {err}");
     }
+}
+
+fn is_web_url(url: &str) -> bool {
+    url.split_once("://").is_some_and(|(scheme, rest)| {
+        (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+            && !rest.is_empty()
+            && !url.chars().any(char::is_control)
+    })
+}
+
+/// Takes the links egui widgets asked to open this frame.
+fn take_requested_urls(ctx: &egui::Context) -> Vec<String> {
+    ctx.output_mut(|output| {
+        let mut urls = Vec::new();
+        output.commands.retain(|command| match command {
+            egui::OutputCommand::OpenUrl(open) => {
+                urls.push(open.url.clone());
+                false
+            }
+            _ => true,
+        });
+        urls
+    })
 }
 
 pub struct CqEditorApp {
@@ -1674,7 +1840,7 @@ impl CqEditorApp {
             .filter(|dock| dock.find_tab(&Tab::Viewer).is_some())
             .unwrap_or_else(panels::default_layout);
 
-        let cache_dir = eframe::storage_dir("cq-editor").unwrap_or_else(std::env::temp_dir);
+        let cache_dir = eframe::storage_dir(crate::APP_ID).unwrap_or_else(std::env::temp_dir);
         let recovery = RecoveryStore::new(cache_dir.join("recovery"));
         let mut startup_errors = Vec::new();
         let recovery_session = match recovery.load_session() {
@@ -1689,9 +1855,15 @@ impl CqEditorApp {
             .file
             .clone()
             .or_else(|| settings.last_file.clone().filter(|p| p.is_file()));
+        let mut legacy_encoding = None;
         let document = startup_path
             .and_then(|path| match Document::open(&path) {
                 Ok(document) => Some(document),
+                Err(error) if is_not_utf8(&error) => {
+                    // Asked once the window is up, like a file opened later.
+                    legacy_encoding = Some(path);
+                    None
+                }
                 Err(error) => {
                     log::warn!("Cannot open {}: {error}", path.display());
                     startup_errors.push(format!(
@@ -1704,6 +1876,7 @@ impl CqEditorApp {
             .unwrap_or_else(|| Document::untitled(DEFAULT_SCRIPT));
         let mut dialogs = Dialogs {
             recovery_session,
+            legacy_encoding,
             ..Dialogs::default()
         };
         if !startup_errors.is_empty() {
@@ -1728,6 +1901,7 @@ impl CqEditorApp {
             dialogs,
             phase: Phase::Idle,
             rerun: false,
+            stale_run: None,
             run_when_ready: None,
             pending: HashMap::new(),
             actions: Vec::new(),
@@ -1770,6 +1944,10 @@ impl CqEditorApp {
 }
 
 impl eframe::App for CqEditorApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.state.logic(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.state.begin_frame(&ctx);
@@ -1829,6 +2007,9 @@ impl eframe::App for CqEditorApp {
             log::debug!("action {action:?}");
             self.execute(action);
         }
+        for url in take_requested_urls(&ctx) {
+            open_url(&url);
+        }
         self.state.end_frame(&ctx);
     }
 
@@ -1837,4 +2018,12 @@ impl eframe::App for CqEditorApp {
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
         eframe::set_value(storage, LAYOUT_KEY, &self.dock);
     }
+
+    fn on_exit(&mut self) {
+        logging::flush();
+    }
 }
+
+#[cfg(test)]
+#[path = "../tests/rust/app/test_app.rs"]
+mod tests;

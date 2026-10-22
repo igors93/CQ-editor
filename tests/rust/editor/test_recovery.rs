@@ -125,3 +125,145 @@ fn an_unmodified_document_clears_only_the_active_session() {
 
     std::fs::remove_dir_all(root).unwrap();
 }
+
+fn saved_document(root: &Path, name: &str) -> (PathBuf, Document) {
+    std::fs::create_dir_all(root).unwrap();
+    let source = root.join(name);
+    std::fs::write(&source, "saved\n").unwrap();
+    let document = Document::open(&source).unwrap();
+    (source, document)
+}
+
+fn write_version(directory: &Path, snapshot: &RecoverySnapshot) -> PathBuf {
+    std::fs::create_dir_all(directory).unwrap();
+    let path = directory.join(version_name(snapshot.timestamp_ms, 0));
+    std::fs::write(&path, serde_json::to_vec(snapshot).unwrap()).unwrap();
+    path
+}
+
+fn snapshot(path: Option<&Path>, text: &str, timestamp_ms: u64) -> RecoverySnapshot {
+    RecoverySnapshot {
+        schema: SCHEMA_VERSION,
+        timestamp_ms,
+        path: path.map(Path::to_path_buf),
+        text: text.to_owned(),
+        line_ending: LineEnding::Lf,
+        utf8_bom: false,
+    }
+}
+
+#[test]
+fn each_document_keeps_its_history_in_its_own_folder() {
+    let root = temporary_directory("folders");
+    let (first_path, mut first) = saved_document(&root, "first.py");
+    let (second_path, mut second) = saved_document(&root, "second.py");
+    let mut untitled = Document::untitled("");
+    let mut store = RecoveryStore::new(root.join("store"));
+
+    // Like the app, which clears the session whenever the document changes.
+    first.text = "first edit\n".into();
+    store.checkpoint(&first).unwrap();
+    store.clear_session().unwrap();
+    second.text = "second edit\n".into();
+    store.checkpoint(&second).unwrap();
+    store.clear_session().unwrap();
+    untitled.text = "draft\n".into();
+    store.checkpoint(&untitled).unwrap();
+
+    let history = root.join("store").join("history");
+    let folder = |path: Option<&Path>| history.join(document_folder(path));
+    // A baseline and an edit each; a checkpoint only lists its own folder.
+    assert_eq!(version_files(&folder(Some(&first_path))).unwrap().len(), 2);
+    assert_eq!(version_files(&folder(Some(&second_path))).unwrap().len(), 2);
+    assert_eq!(version_files(&folder(None)).unwrap().len(), 1);
+    assert!(version_files(&history).unwrap().is_empty(), "no flat files");
+
+    let mut texts = |path| -> Vec<String> {
+        store
+            .history(path)
+            .unwrap()
+            .into_iter()
+            .map(|version| version.text)
+            .collect()
+    };
+    assert_eq!(texts(Some(&first_path)), ["first edit\n", "saved\n"]);
+    assert_eq!(texts(None), ["draft\n"]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn folder_names_are_stable_across_releases() {
+    assert_eq!(
+        document_folder(Some(Path::new("scripts/part.py"))),
+        "doc-58d2002fe837b7f2"
+    );
+    assert_eq!(document_folder(None), "untitled");
+    assert_eq!(
+        version_timestamp("version-1700000000000-3.json"),
+        Some(1_700_000_000_000)
+    );
+    assert_eq!(version_timestamp("notes.json"), None);
+}
+
+#[test]
+fn flat_history_of_earlier_releases_is_migrated() {
+    let root = temporary_directory("migrate");
+    let (source, document) = saved_document(&root, "legacy.py");
+    let history = root.join("store").join("history");
+    let old = write_version(
+        &history,
+        &snapshot(Some(&source), "old version\n", timestamp_ms()),
+    );
+
+    let mut store = RecoveryStore::new(root.join("store"));
+    let versions = store.history(document.path()).unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].text, "old version\n");
+    assert!(!old.exists(), "moved into the document's folder");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn old_versions_and_histories_of_deleted_files_expire() {
+    let root = temporary_directory("expire");
+    let store = RecoveryStore::new(root.clone());
+    let now = timestamp_ms();
+    let expired_ms = now - MAX_HISTORY_AGE.as_millis() as u64 - 1;
+    let deleted = Path::new("deleted-long-ago.py");
+    let kept = Path::new("still-edited.py");
+    let deleted_dir = store.document_dir(Some(deleted));
+    let kept_dir = store.document_dir(Some(kept));
+    write_version(&deleted_dir, &snapshot(Some(deleted), "gone\n", expired_ms));
+    let old = write_version(&kept_dir, &snapshot(Some(kept), "old\n", expired_ms));
+    let recent = write_version(&kept_dir, &snapshot(Some(kept), "recent\n", now));
+
+    store.prune_all(now).unwrap();
+
+    assert!(!deleted_dir.exists(), "an emptied folder is removed");
+    assert!(!old.exists());
+    assert!(recent.exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn the_oldest_versions_go_first_beyond_the_size_budget() {
+    let root = temporary_directory("budget");
+    let mut store = RecoveryStore::new(root.clone());
+    let now = timestamp_ms();
+    let text = "x".repeat(1000);
+    let files: Vec<PathBuf> = (0..6)
+        .map(|age| {
+            let path = PathBuf::from(format!("part-{age}.py"));
+            let version = snapshot(Some(&path), &text, now - 1000 * age);
+            write_version(&store.document_dir(Some(&path)), &version)
+        })
+        .collect();
+    let size = std::fs::metadata(&files[0]).unwrap().len();
+    store.max_history_bytes = 3 * size;
+
+    store.prune_all(now).unwrap();
+
+    let remaining: Vec<bool> = files.iter().map(|path| path.exists()).collect();
+    assert_eq!(remaining, [true, true, true, false, false, false]);
+    std::fs::remove_dir_all(root).unwrap();
+}

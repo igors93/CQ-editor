@@ -66,9 +66,12 @@ parameters at the top of the script instead.
 
 ## Files
 
-**"… is not valid UTF-8 … Convert it to UTF-8 first".** CQ-editor only opens
-UTF-8 files and did not modify yours. Convert it, for example with your
-editor's *Save with encoding* command, then open it again.
+**"Not a UTF-8 file".** The script was saved in another encoding, typically
+by an older Windows editor. Choose **Open as Windows-1252** to read it; the
+file is not changed until you save, and saving converts it to UTF-8 (the
+status bar shows *Windows-1252 → UTF-8* until then). If the text looks wrong,
+the file uses yet another encoding: cancel, convert it with your editor's
+*Save with encoding* command, then open it again.
 
 **Automatic reload does not trigger.** The script must be saved to a file.
 Check that the *Autoreload* indicator is shown in the status bar. If your
@@ -111,3 +114,10 @@ Please include the information listed in [Reporting a
 bug](../../README.md#reporting-a-bug), and copy the relevant lines of the Log
 panel (copy button in its toolbar). The **Help > About** dialog shows the
 CQ-editor, Python and CadQuery versions.
+
+Everything the Log panel shows is also written to `logs/cq-editor.log` in
+the [application data
+folder](../getting-started/installation.md#where-cq-editor-keeps-its-files),
+with the date of each line. If CQ-editor itself crashed, the file keeps the
+messages that led to it and the panic report. It is rotated at 2 MB; the
+previous part is `cq-editor.1.log`.

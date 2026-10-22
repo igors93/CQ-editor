@@ -27,8 +27,8 @@ tracked in the compatibility matrix instead of being assumed.
   assemblies export to STEP with their names and colors
 * New: Log panel with level filters; console with history
 * New: atomic saves that preserve line endings, the UTF-8 BOM, permissions
-  and file metadata; files that are not valid UTF-8 are refused instead of
-  being rewritten
+  and file metadata; files that are not valid UTF-8 are never rewritten
+  without asking
 * New: crash recovery (checkpoints every 5 seconds while a buffer is
   modified, restore on the next start) and File > Local History with the
   newest 20 versions per document
@@ -73,6 +73,60 @@ tracked in the compatibility matrix instead of being assumed.
   instead of conflicting with the Shift+F3 Top view shortcut
 * Fixed: Ctrl+left-drag explicitly selects Pan even when a platform event does
   not also set egui's synthesized Command modifier
+* Fixed: worker replies, automatic reload and recovery checkpoints are
+  handled while the window is minimized, instead of waiting for a repaint
+* Fixed: icons in dialog titles (Preferences, Upload Model) showed as empty
+  boxes
+* Fixed: Help > Documentation opens these docs instead of the old PyQt wiki
+* Fixed: with *Autoreload: watch imported modules*, modules imported after
+  watching started were never watched; the list is refreshed after each save
+  and successful run, without duplicates or modules no longer imported
+* Fixed: the Variables panel showed every value as "…"; the value column now
+  gets the room the other columns leave, and clicking a row shows the whole
+  value (up to 2000 characters), ready to copy
+* Fixed: after a failed run, the empty view and Objects panel point to the
+  Traceback instead of asking to press F5 again; empty-panel texts are no
+  longer justified with uneven word spacing
+* Fixed: opening another file cleared nothing, so the previous file's model
+  looked like the result of the new script; a run or debugging session still
+  going for the previous file is discarded
+* Fixed: `debug()` in the console named objects *Workplane 1* instead of
+  after their variable
+* Fixed: `--help` and command-line errors printed nothing from the Windows
+  release executable
+* Fixed: every release left its extracted worker folder behind; a new one
+  removes the others
+* Fixed: each recovery checkpoint read every history file of every document;
+  history now lives in one folder per document and is pruned by age (90
+  days) and total size (64 MB), which also clears the history of deleted
+  files
+* Fixed: files that are not UTF-8 could not be opened; they can now be read
+  as Windows-1252 and are converted to UTF-8 on save
+* Fixed: the Windows executable had no icon or version information in
+  Explorer
+* Fixed: building with the Windows GNU toolchain needed a hand-made
+  `libshlwapi.a`; links are opened with the `open` crate
+* Fixed: GUI panics and the messages before them were lost; the log is also
+  written to `logs/cq-editor.log` in the data folder
+* Fixed: a worker stopped while meshing left `cq-editor-*.glb` files in the
+  temporary folder; meshing uses one scratch folder per worker and the next
+  worker removes leftovers
+* Fixed: quitting with *Don't save* offered the discarded edits as unsaved
+  work at the next start
+* Fixed: *Stop debugging* could be swallowed by an `except Exception` in the
+  script
+* Fixed: the editor could crash when an edit moved the completion popup's
+  anchor inside a multi-byte character
+* Fixed: a link in an upload service's reply could open a local file or
+  program; only http and https links are opened
+* Fixed: a long status message pushed the Python state, cursor position and
+  encoding out of the status bar
+* Fixed: the Log filter matched message sources case-sensitively
+* Fixed: a scene that could not be decoded also dropped the run's variables
+  and a queued render; a failed run request left the debugger arrow and
+  dropped a queued render
+* Fixed: clicking the text of a Traceback row did not jump to its line, only
+  the empty part of a cell did
 * Removed: the PyQt GUI, PyInstaller and conda constructor packaging
 
 ## Release 0.5.0

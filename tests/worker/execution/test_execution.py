@@ -109,9 +109,9 @@ def test_settings_from_message_ignore_unknown_keys():
     assert settings.change_working_dir is True
 
 
-@pytest.mark.parametrize("value", ["x" * 1000])
-def test_long_values_are_truncated(value):
-    from cq_worker.execution import describe_variables
+def test_long_values_are_truncated():
+    from cq_worker.execution import MAX_VALUE_LENGTH, describe_variables
 
-    (row,) = describe_variables({"long": value}, hidden=set())
-    assert len(row["value"]) == 300
+    (row,) = describe_variables({"long": "x" * 5000}, hidden=set())
+    assert len(row["value"]) == MAX_VALUE_LENGTH
+    assert row["value"].endswith("…")

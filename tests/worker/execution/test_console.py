@@ -53,3 +53,18 @@ def test_debug_api_uses_current_scene_after_take_shown():
     console.take_shown()
     console.namespace["debug"](cq.Workplane().box(1, 1, 1), name="debug-box")
     assert list(console.take_shown()) == ["debug-box"]
+
+
+def test_console_names_shown_and_debugged_objects_after_their_variables():
+    console = ConsoleSession()
+    console.execute("plate = cq.Workplane().box(4, 4, 1)")
+    console.execute("show_object(plate)")
+    console.execute("probe = cq.Workplane().sphere(1)")
+    console.execute("debug(probe)")
+    shown = console.take_shown()
+    assert list(shown) == ["plate", "probe"]
+    assert shown["probe"].options == {"color": "red", "alpha": 0.2}
+
+    # The wrapper keeps working after the scene was handed over.
+    console.execute("debug(plate)")
+    assert list(console.take_shown()) == ["plate"]

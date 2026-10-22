@@ -19,7 +19,7 @@ cargo run -- examples/01_hello_box.py
 | | Debug | Release |
 | --- | --- | --- |
 | Worker sources | Loaded from `worker/` in the source tree. Python edits apply on the next worker restart (Run > Restart Python) | Embedded in the executable and extracted to the data folder on first use |
-| Console window on Windows | Yes (logs are visible) | No (`windows_subsystem = "windows"`) |
+| Console window on Windows | Yes (logs are visible) | No (`windows_subsystem = "windows"`). `--help` and command-line errors are written to the console of the shell that started it, or shown in a message box |
 | Optimization | Dependencies are optimized (`opt-level = 2`), the crate itself is not, and only line tables are kept for debugging | Thin LTO, stripped |
 | `.venv` discovery | Also looks in the source tree | Next to the executable and in the working directory |
 
@@ -63,24 +63,11 @@ Nothing else is needed.
 ### GNU (no Visual Studio)
 
 The `x86_64-pc-windows-gnu` toolchain avoids Visual Studio, but its minimal
-self-contained MinGW environment lacks two things this project needs:
-
-1. **`as` and `dlltool`** from MinGW-w64 binutils, used by the `windows`
-   crates to build import libraries. Install binutils, for example from
-   [WinLibs](https://winlibs.com) or MSYS2 (`pacman -S
-   mingw-w64-x86_64-binutils`), and put its `bin` folder on `PATH`.
-   Otherwise the build fails with *dlltool could not create import library*.
-2. **`libshlwapi.a`**, linked by the `webbrowser` crate (through
-   `egui-winit`, to open links). The self-contained toolchain does not ship
-   it, so linking fails with `cannot find -lshlwapi`. A full MinGW-w64
-   installation provides it. Otherwise generate it with `dlltool` from a
-   one-function definition file:
-
-   ```sh
-   printf 'LIBRARY SHLWAPI.dll\nEXPORTS\nAssocQueryStringW\n' > shlwapi.def
-   dlltool -d shlwapi.def -l libshlwapi.a -m i386:x86-64
-   cp libshlwapi.a "$(rustc --print sysroot)/lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained/"
-   ```
+self-contained MinGW environment lacks **`as` and `dlltool`** from MinGW-w64
+binutils, used by the `windows` crates to build import libraries. Install
+binutils, for example from [WinLibs](https://winlibs.com) or MSYS2 (`pacman
+-S mingw-w64-x86_64-binutils`), and put its `bin` folder on `PATH`.
+Otherwise the build fails with *dlltool could not create import library*.
 
 Then build from a shell where binutils is on `PATH`:
 
@@ -89,12 +76,20 @@ export PATH="$HOME/.cargo/bin:/path/to/mingw/bin:$PATH"
 cargo build --release
 ```
 
+The `.exe` gets its icon and version information (shown by Explorer) from a
+resource compiled by `build.rs` with `windres`, which also needs `gcc` as its
+preprocessor: both come with a full MinGW-w64 installation (MSYS2: `pacman
+-S mingw-w64-x86_64-gcc`). Without them the build still succeeds, with a
+warning and an executable without that information. The MSVC toolchain uses
+`rc.exe` from the Windows SDK instead. Release builds in CI set
+`CQ_EDITOR_REQUIRE_RESOURCES=1`, which makes a missing resource compiler an
+error.
+
+Links are opened with the `open` crate rather than eframe's `links` feature,
+so the GNU toolchain no longer needs a hand-made `libshlwapi.a`.
+
 Setting `CARGO_INCREMENTAL=0` reduces the size of `target/` considerably,
 which helps on small disks.
-
-> The window icon is set at run time on every platform. The `.exe` file
-> itself has no embedded icon or version resource yet. See the
-> [roadmap](../roadmap.md).
 
 ## Release builds in CI
 

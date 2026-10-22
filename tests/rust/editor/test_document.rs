@@ -244,7 +244,72 @@ fn invalid_utf8_is_rejected_without_changing_the_file() {
     let error = Document::open(&path).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     assert!(error.to_string().contains("not valid UTF-8"));
+    assert!(is_not_utf8(&error), "the GUI can offer another encoding");
+    let missing = Document::open(&temporary_file("missing.py")).unwrap_err();
+    assert!(!is_not_utf8(&missing));
     assert_eq!(std::fs::read(&path).unwrap(), original);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn windows_1252_files_open_on_request_and_are_saved_as_utf8() {
+    let path = temporary_file("legacy.py");
+    // "café € “x”" in Windows-1252, with Windows line endings.
+    let original = b"s = 'caf\xe9 \x80 \x93x\x94'\r\nshow_object(s)\r\n";
+    std::fs::write(&path, original).unwrap();
+
+    let mut document = Document::open_with(&path, Encoding::Windows1252).unwrap();
+    assert_eq!(document.text, "s = 'café € “x”'\nshow_object(s)\n");
+    assert_eq!(document.encoding(), Encoding::Windows1252);
+    assert_eq!(document.line_ending(), LineEnding::CrLf);
+    assert!(!document.is_modified());
+    // The file watcher keeps reading it the same way.
+    let disk = document.disk_version().unwrap().unwrap();
+    assert_eq!(
+        document.classify_external_update(&disk),
+        ExternalUpdate::Unchanged
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        original,
+        "opening never writes"
+    );
+
+    assert!(document.save().unwrap());
+    assert_eq!(document.encoding(), Encoding::Utf8);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "s = 'café € “x”'\r\nshow_object(s)\r\n"
+    );
+    assert!(!document.is_modified());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn windows_1252_decodes_every_byte() {
+    let all: Vec<u8> = (0..=255).collect();
+    let text = decode_windows_1252(&all);
+    assert_eq!(text.chars().count(), 256);
+    assert!(text.starts_with("\0\u{1}"));
+    let high: Vec<char> = text.chars().skip(0x80).take(4).collect();
+    assert_eq!(high, ['€', '\u{81}', '‚', 'ƒ']);
+    assert_eq!(text.chars().nth(0xe9), Some('é'));
+    assert_eq!(text.chars().last(), Some('ÿ'));
+}
+
+#[test]
+fn a_recovered_legacy_file_keeps_its_encoding_for_the_watcher() {
+    let path = temporary_file("recovered-legacy.py");
+    std::fs::write(&path, b"x = '\xe9'\n").unwrap();
+    let document = Document::recovered(
+        "x = 'é'\ny = 1\n".to_owned(),
+        Some(path.clone()),
+        LineEnding::Lf,
+        false,
+    );
+    assert_eq!(document.encoding(), Encoding::Windows1252);
+    assert!(document.is_modified());
+    assert!(document.disk_version().unwrap().is_some());
     std::fs::remove_file(path).unwrap();
 }
 

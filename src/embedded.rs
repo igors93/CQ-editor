@@ -60,13 +60,19 @@ pub fn worker_dir(cache_dir: &Path) -> io::Result<PathBuf> {
     if cfg!(debug_assertions) && source_tree.join("cq_worker").is_dir() {
         return Ok(source_tree);
     }
+    extract(cache_dir, WORKER_FILES)
+}
 
+/// Writes `files` into a `worker-<hash>` folder of `cache_dir`, unless an
+/// earlier start already did, and then removes the folders of other worker
+/// versions.
+fn extract(cache_dir: &Path, files: &[(&str, &str)]) -> io::Result<PathBuf> {
     let mut hasher = DefaultHasher::new();
-    WORKER_FILES.hash(&mut hasher);
+    files.hash(&mut hasher);
     let dir = cache_dir.join(format!("worker-{:016x}", hasher.finish()));
     let marker = dir.join(".complete");
     if !marker.exists() {
-        for (relative, contents) in WORKER_FILES {
+        for (relative, contents) in files {
             let path = dir.join(relative);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -74,8 +80,32 @@ pub fn worker_dir(cache_dir: &Path) -> io::Result<PathBuf> {
             std::fs::write(path, contents)?;
         }
         std::fs::write(marker, b"")?;
+        remove_other_versions(cache_dir, &dir);
     }
     Ok(dir)
+}
+
+/// Every version used to leave its folder behind. A still running instance
+/// of another version loses nothing: its worker has imported all its
+/// modules, and a restart extracts them again.
+fn remove_other_versions(cache_dir: &Path, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_worker = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("worker-"));
+        if is_worker
+            && path != keep
+            && entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && let Err(error) = std::fs::remove_dir_all(&path)
+        {
+            log::warn!("Cannot remove the old worker {}: {error}", path.display());
+        }
+    }
 }
 
 #[cfg(test)]

@@ -46,3 +46,29 @@ fn a_new_document_does_not_inherit_line_moves() {
     editor.sync_markers("x\n");
     assert_eq!(editor.breakpoints.iter().copied().collect::<Vec<_>>(), [2]);
 }
+
+#[test]
+fn completion_survives_edits_that_move_its_anchor_inside_a_character() {
+    let mut editor = CodeEditor {
+        completion: Completion {
+            items: vec![CompletionItem {
+                name: "box".to_owned(),
+                insert: "box".to_owned(),
+                kind: "function".to_owned(),
+            }],
+            // Byte 1 is inside "é" once the text below replaced the buffer.
+            anchor: 1,
+            open: true,
+            ..Completion::default()
+        },
+        selection: Selection::caret(4),
+        ..CodeEditor::default()
+    };
+
+    editor.close_popups_if_left("éé = 1");
+
+    assert!(!editor.completion.open);
+    assert_eq!(typed_since("éé", 1, 4), "");
+    assert_eq!(typed_text("éé", 2, 4), Some("é"));
+    assert_eq!(typed_text("abc", 1, 9), None);
+}

@@ -20,6 +20,44 @@ fn main() {
 
     println!("cargo:rerun-if-changed=worker/cq_worker");
     println!("cargo:rerun-if-changed=examples");
+    windows_resources();
+}
+
+/// Embeds the icon and version information into the Windows executable, so
+/// Explorer shows them (the window icon is set at run time). This needs the
+/// resource compiler of the toolchain: `rc.exe` from the Windows SDK, or
+/// `windres` from MinGW-w64 binutils. Without it the build succeeds with a
+/// warning and a plain executable, unless `CQ_EDITOR_REQUIRE_RESOURCES` is
+/// set (release builds), which turns the warning into an error.
+fn windows_resources() {
+    const ICON: &str = "assets/icons/cadquery_logo_dark.ico";
+    println!("cargo:rerun-if-changed={ICON}");
+    println!("cargo:rerun-if-env-changed=CQ_EDITOR_REQUIRE_RESOURCES");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let mut resource = winresource::WindowsResource::new();
+        resource
+            .set_icon(ICON)
+            .set("ProductName", "CQ-editor")
+            // Explorer and the Task Manager show it as the program's name.
+            .set("FileDescription", "CQ-editor")
+            .set("OriginalFilename", "cq-editor.exe")
+            .set("LegalCopyright", "Apache License 2.0");
+        if let Err(error) = resource.compile() {
+            let message = format!(
+                "The executable has no icon or version information: the resource \
+                 compiler failed ({error}). Install the Windows SDK, or MinGW-w64 \
+                 binutils (windres) with gcc on PATH."
+            );
+            if env::var_os("CQ_EDITOR_REQUIRE_RESOURCES").is_some() {
+                panic!("{message}");
+            }
+            println!("cargo:warning={message}");
+        }
+    }
 }
 
 /// Emits `pub const NAME: &[(&str, &str)]` with every `.py` file of `dir`,

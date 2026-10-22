@@ -45,8 +45,12 @@ The **Variables** panel lists name, type and value of every public variable
 after a run, or of the local variables of the paused frame while debugging.
 
 * Type in the filter box to search by name or type.
-* Values are cut at 300 characters. Hover a value to read it when the column
-  is too narrow.
+* The **Value** column takes the width that **Name** and **Type** leave; drag
+  the column borders to resize them.
+* **Click a row** to show its whole value below the table, where it wraps and
+  can be selected or copied; × closes it. Right-click a row to copy its value
+  or name.
+* Values are cut at 2000 characters.
 * The names CQ-editor injects (`show_object`, `debug`, …) are hidden.
 
 ## Traceback
@@ -75,7 +79,12 @@ The **Log** panel collects everything that is not a direct result:
 | CQ-editor | Worker start-up, recovery events, file reload messages |
 
 * Toggle **Errors**, **Warnings**, **Info** and **Debug** to filter by level
-  (Debug is hidden by default), or type in the filter box.
+  (Debug is hidden by default), or type in the filter box, which matches the
+  text and the source and ignores case.
 * The copy button copies the lines currently shown. **Clear** (or **Run >
-  Clear Log**) empties the log.
+  Clear Log**) empties the panel.
+* Every line is also written to the log file `logs/cq-editor.log` in the
+  [application data
+  folder](../getting-started/installation.md#where-cq-editor-keeps-its-files),
+  which survives a crash of CQ-editor and is not affected by **Clear**.
 * The log keeps the newest 10,000 lines.

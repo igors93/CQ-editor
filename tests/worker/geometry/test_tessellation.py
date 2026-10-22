@@ -1,3 +1,6 @@
+import os
+import time
+
 import cadquery as cq
 import numpy as np
 import pytest
@@ -195,3 +198,35 @@ def test_face_ids_need_matching_triangle_counts():
 
     assert len(tessellation._display_triangle_faces(shape, 12)) == 12
     assert tessellation._display_triangle_faces(shape, 13) is None
+
+
+def test_glb_round_trips_leave_only_an_empty_scratch_directory():
+    tessellate(cq.Workplane().box(1, 1, 1).val().wrapped, Tolerance())
+    first = tessellation._scratch_dir
+    tessellate(cq.Workplane().sphere(1).val().wrapped, Tolerance())
+
+    # One directory per worker process, reused and emptied after each mesh.
+    assert tessellation._scratch_dir == first
+    assert os.listdir(first) == []
+
+
+def test_scratch_left_by_killed_workers_is_removed_once_stale(tmp_path):
+    stale_dir = tmp_path / "cq-editor-mesh-killed"
+    stale_dir.mkdir()
+    (stale_dir / "mesh-1.glb").write_bytes(b"glTF")
+    stale_file = tmp_path / "cq-editor-abc123.glb"  # older releases
+    stale_file.write_bytes(b"glTF")
+    fresh_dir = tmp_path / "cq-editor-mesh-running"
+    fresh_dir.mkdir()
+    unrelated = tmp_path / "notes.glb"
+    unrelated.write_bytes(b"glTF")
+    old = time.time() - 2 * tessellation.STALE_SCRATCH_SECONDS
+    for path in (stale_dir, stale_file, unrelated):
+        os.utime(path, (old, old))
+
+    tessellation._remove_stale_scratch(str(tmp_path))
+
+    assert not stale_dir.exists()
+    assert not stale_file.exists()
+    assert fresh_dir.exists()
+    assert unrelated.exists()

@@ -11,7 +11,20 @@ keywords = ["cadquery", "cad", "engineering", "design"]
 autoexamples = false
 
 [dependencies]
-eframe = { version = "0.36", features = ["persistence"] }
+# The defaults without "links": its `webbrowser` dependency needs shlwapi,
+# which the self-contained Windows GNU toolchain lacks. Links are opened
+# with `open` instead (see `app::open_url`).
+eframe = { version = "0.36", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "persistence",
+    "wayland",
+    "web_screen_reader",
+    "wgpu",
+    "x11",
+] }
+# eframe's "winit/default", which a dependency list cannot name.
+winit = "0.30"
 egui = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 egui_extras = { version = "0.36" }
@@ -28,8 +41,15 @@ open = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tempfile = "3.27"
 
+[target.'cfg(windows)'.build-dependencies]
+# Icon and version information of the .exe (see build.rs).
+winresource = "0.1"
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+] }
 
 [profile.dev]
 # Line tables keep panic backtraces useful at a fraction of full debug info's size.
