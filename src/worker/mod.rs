@@ -11,7 +11,7 @@
 pub mod launch;
 pub mod protocol;
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -19,6 +19,13 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use protocol::{Message, ReadyInfo, Request, RequestId};
+
+/// Text, completion and other control messages are expected to stay small.
+const MAX_CONTROL_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
+/// Mesh-bearing replies need a separate, deliberately larger wire ceiling.
+const MAX_MESH_MESSAGE_BYTES: usize = 512 * 1024 * 1024;
+/// Native libraries can write directly to stderr, so bound those lines too.
+const MAX_STDERR_LINE_BYTES: usize = 256 * 1024;
 
 /// How to start the worker.
 #[derive(Clone, Debug, PartialEq)]
@@ -245,29 +252,61 @@ impl Worker {
         thread::Builder::new()
             .name("worker-reader".into())
             .spawn(move || {
-                for line in BufReader::new(stdout).lines() {
-                    let Ok(line) = line else { break };
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    let received_at = SystemTime::now();
-                    let started = Instant::now();
-                    match serde_json::from_str::<Message>(&line) {
-                        Ok(mut message) => {
-                            if let Message::RunFinished(result) = &mut message {
-                                result.receipt = protocol::Receipt {
-                                    received_at: Some(received_at),
-                                    parse: started.elapsed(),
-                                };
+                let mut reader = BufReader::new(stdout);
+                let mut protocol_failed = false;
+                loop {
+                    match read_limited_line(&mut reader, MAX_MESH_MESSAGE_BYTES) {
+                        Ok(LimitedLine::Line(line)) => {
+                            if protocol_failed {
+                                continue;
                             }
-                            let _ = tx.send((generation, Event::Message(message)));
+                            if line.iter().all(u8::is_ascii_whitespace) {
+                                continue;
+                            }
+                            let limit = worker_message_limit(&line);
+                            if line.len() > limit {
+                                let _ = tx.send((
+                                    generation,
+                                    Event::Message(oversized_message(line.len(), limit)),
+                                ));
+                                ctx.request_repaint();
+                                protocol_failed = true;
+                                continue;
+                            }
+                            let received_at = SystemTime::now();
+                            let started = Instant::now();
+                            match serde_json::from_slice::<Message>(&line) {
+                                Ok(mut message) => {
+                                    if let Message::RunFinished(result) = &mut message {
+                                        result.receipt = protocol::Receipt {
+                                            received_at: Some(received_at),
+                                            parse: started.elapsed(),
+                                        };
+                                    }
+                                    let _ = tx.send((generation, Event::Message(message)));
+                                }
+                                Err(err) => log::warn!(
+                                    "Unreadable worker message ({err}): {}",
+                                    String::from_utf8_lossy(&line[..line.len().min(200)])
+                                ),
+                            }
+                            ctx.request_repaint();
                         }
-                        Err(err) => log::warn!(
-                            "Unreadable worker message ({err}): {}",
-                            line.chars().take(200).collect::<String>()
-                        ),
+                        Ok(LimitedLine::TooLong(_)) => {
+                            if !protocol_failed {
+                                let _ = tx.send((
+                                    generation,
+                                    Event::Message(oversized_message(
+                                        MAX_MESH_MESSAGE_BYTES + 1,
+                                        MAX_MESH_MESSAGE_BYTES,
+                                    )),
+                                ));
+                                ctx.request_repaint();
+                                protocol_failed = true;
+                            }
+                        }
+                        Ok(LimitedLine::Eof) | Err(_) => break,
                     }
-                    ctx.request_repaint();
                 }
                 let _ = tx.send((generation, Event::Exited));
                 ctx.request_repaint();
@@ -277,8 +316,16 @@ impl Worker {
         thread::Builder::new()
             .name("worker-stderr".into())
             .spawn(move || {
-                for line in BufReader::new(stderr).lines() {
-                    let Ok(line) = line else { break };
+                let mut reader = BufReader::new(stderr);
+                loop {
+                    let line = match read_limited_line(&mut reader, MAX_STDERR_LINE_BYTES) {
+                        Ok(LimitedLine::Line(line)) => String::from_utf8_lossy(&line).into_owned(),
+                        Ok(LimitedLine::TooLong(prefix)) => format!(
+                            "{}\n[stderr line truncated after {MAX_STDERR_LINE_BYTES} bytes]",
+                            String::from_utf8_lossy(&prefix)
+                        ),
+                        Ok(LimitedLine::Eof) | Err(_) => break,
+                    };
                     let _ = tx.send((generation, Event::Stderr(line)));
                     ctx.request_repaint();
                 }
@@ -315,3 +362,85 @@ fn python_path(worker_dir: &std::path::Path) -> std::ffi::OsString {
     }
     std::env::join_paths(paths).unwrap_or_else(|_| worker_dir.as_os_str().to_owned())
 }
+
+#[derive(Debug, PartialEq, Eq)]
+enum LimitedLine {
+    Line(Vec<u8>),
+    /// The retained value is only the bounded prefix; the remainder was drained.
+    TooLong(Vec<u8>),
+    Eof,
+}
+
+/// Reads and drains one line while retaining at most `limit` bytes.
+fn read_limited_line(reader: &mut impl BufRead, limit: usize) -> io::Result<LimitedLine> {
+    let mut line = Vec::new();
+    let mut too_long = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(if too_long {
+                LimitedLine::TooLong(line)
+            } else if line.is_empty() {
+                LimitedLine::Eof
+            } else {
+                LimitedLine::Line(line)
+            });
+        }
+
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let content_len = newline.unwrap_or(available.len());
+        if !too_long {
+            let retained = content_len.min(limit.saturating_sub(line.len()));
+            line.extend_from_slice(&available[..retained]);
+            too_long = retained < content_len;
+        }
+        let consumed = newline.map_or(available.len(), |position| position + 1);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(if too_long {
+                LimitedLine::TooLong(line)
+            } else {
+                LimitedLine::Line(line)
+            });
+        }
+    }
+}
+
+fn worker_message_limit(line: &[u8]) -> usize {
+    if line.len() <= MAX_CONTROL_MESSAGE_BYTES {
+        return MAX_CONTROL_MESSAGE_BYTES;
+    }
+    // Channel.send emits compact JSON and puts the top-level type near the
+    // start. Looking only at that bounded prefix avoids parsing a large mesh
+    // message twice. Quotes inside a JSON string are escaped and therefore
+    // cannot match these field encodings.
+    const HEADER_BYTES: usize = 1024;
+    const MESH_TYPES: [&[u8]; 4] = [
+        br#""type":"run_finished""#,
+        br#""type":"debug_paused""#,
+        br#""type":"inspection_geometry""#,
+        br#""type":"scene_add""#,
+    ];
+    let header = &line[..line.len().min(HEADER_BYTES)];
+    if MESH_TYPES
+        .iter()
+        .any(|kind| header.windows(kind.len()).any(|window| window == *kind))
+    {
+        MAX_MESH_MESSAGE_BYTES
+    } else {
+        MAX_CONTROL_MESSAGE_BYTES
+    }
+}
+
+fn oversized_message(actual: usize, limit: usize) -> Message {
+    Message::Fatal {
+        message: "The Python worker sent an oversized protocol message".into(),
+        detail: Some(format!(
+            "Received at least {actual} bytes; this message type is limited to {limit} bytes"
+        )),
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/rust/protocol/test_worker_io.rs"]
+mod tests;

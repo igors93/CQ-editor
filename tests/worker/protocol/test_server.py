@@ -62,6 +62,63 @@ def test_script_log_reaches_the_gui(conversation):
     assert "from script" in messages
 
 
+def test_script_log_truncates_an_excessive_record(conversation):
+    talk = conversation()
+    from cq_worker.protocol import LOG_MESSAGE_CHARS
+    from cq_worker.server import ChannelLogHandler
+    import logging
+
+    handler = ChannelLogHandler(talk.channel)
+    record = logging.LogRecord(
+        "script", logging.INFO, __file__, 1, "x" * (LOG_MESSAGE_CHARS + 10), (), None
+    )
+
+    handler.emit(record)
+
+    (message,) = talk.of_type("log")
+    assert message["message"].count("x") == LOG_MESSAGE_CHARS
+    assert "log truncated" in message["message"]
+
+
+def test_script_log_has_a_total_limit_per_request(conversation):
+    talk = conversation()
+    from cq_worker.protocol import LOG_CAPTURE_CHARS, LOG_MESSAGE_CHARS
+    from cq_worker.server import ChannelLogHandler
+    import logging
+
+    talk.channel.current_id = 3
+    handler = ChannelLogHandler(talk.channel)
+    for _ in range(LOG_CAPTURE_CHARS // LOG_MESSAGE_CHARS):
+        handler.emit(
+            logging.LogRecord(
+                "script", logging.INFO, __file__, 1, "x" * LOG_MESSAGE_CHARS, (), None
+            )
+        )
+    handler.emit(
+        logging.LogRecord("script", logging.INFO, __file__, 1, "lost", (), None)
+    )
+    handler.emit(
+        logging.LogRecord("script", logging.INFO, __file__, 1, "lost again", (), None)
+    )
+
+    first_request = talk.of_type("log")
+    assert (
+        sum(message["message"].count("x") for message in first_request)
+        == LOG_CAPTURE_CHARS
+    )
+    assert (
+        sum("log output truncated" in message["message"] for message in first_request)
+        == 1
+    )
+
+    talk.channel.current_id = 4
+    handler.emit(
+        logging.LogRecord("script", logging.INFO, __file__, 1, "new", (), None)
+    )
+    assert talk.of_type("log")[-1]["id"] == 4
+    assert talk.of_type("log")[-1]["message"] == "new"
+
+
 def test_restarted_worker_keeps_objects_when_stale_keys_are_released(conversation):
     # After Stop or Restart Python the GUI still shows the old objects, and
     # releases their keys once the first run of the new worker finishes.

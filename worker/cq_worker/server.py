@@ -31,7 +31,14 @@ from .execution import (
     describe_variables,
     script_api,
 )
-from .protocol import PROTOCOL_VERSION, Channel, Message
+from .protocol import (
+    LOG_CAPTURE_CHARS,
+    LOG_MESSAGE_CHARS,
+    PROTOCOL_VERSION,
+    Channel,
+    Message,
+    truncate_text,
+)
 from .scene import Registry, SceneBuilder, find_cq_objects, to_compound
 from .tessellation import GeometryCache, Tolerance
 
@@ -60,12 +67,36 @@ class ChannelLogHandler(logging.Handler):
     def __init__(self, channel: Channel) -> None:
         super().__init__(logging.INFO)
         self._channel = channel
+        self._request_id = channel.current_id
+        self._captured_chars = 0
+        self._truncated = False
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            request_id = self._channel.current_id
+            if self._request_id != request_id:
+                self._request_id = request_id
+                self._captured_chars = 0
+                self._truncated = False
+            if self._truncated:
+                return
+
             message = record.getMessage()
             if record.exc_info:
                 message += "\n" + "".join(traceback.format_exception(*record.exc_info))
+            remaining = LOG_CAPTURE_CHARS - self._captured_chars
+            retained = min(LOG_MESSAGE_CHARS, remaining)
+            captured = message[:retained]
+            self._captured_chars += len(captured)
+            if len(message) > len(captured) and remaining <= LOG_MESSAGE_CHARS:
+                message = (
+                    captured
+                    + f"\n[log output truncated after {LOG_CAPTURE_CHARS} characters "
+                    "for this request; further records were discarded]\n"
+                )
+                self._truncated = True
+            else:
+                message = truncate_text(message, LOG_MESSAGE_CHARS, "log")
             self._channel.send(
                 {
                     "type": "log",

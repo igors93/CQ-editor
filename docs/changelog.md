@@ -61,6 +61,9 @@ tracked in the compatibility matrix instead of being assumed.
 * Fixed: equal per-face triangle counts could conceal a changed glTF face
   order and assign the wrong OCCT face id; every proposed face group is now
   checked geometrically before display triangles are accepted for picking
+* Fixed: script output without a newline and JSON protocol lines could grow
+  without a bound; output is now chunked and truncated per request, while
+  control, mesh and native-stderr messages have separate reader limits
 * Fixed: in a short Objects pane, the property sheet grew over the object
   tree; it now scrolls and leaves the tree its room
 * Fixed: breakpoints and the error line stayed on their line numbers when

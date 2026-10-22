@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from cq_worker.protocol import OUTPUT_CAPTURE_CHARS
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -50,6 +52,27 @@ def test_worker_process_keeps_native_stdout_out_of_protocol():
     (finished,) = [m for m in messages if m["type"] == "run_finished"]
     assert finished["ok"]
     assert [obj["name"] for obj in finished["objects"]] == ["result"]
+
+
+def test_worker_process_bounds_output_without_a_newline():
+    process, messages = run_worker(
+        {
+            "cmd": "run",
+            "id": 13,
+            "script": "import sys\nsys.stdout.write('x' * (2 * 1024 * 1024))",
+        },
+        {"cmd": "shutdown"},
+    )
+
+    output = [
+        message["text"]
+        for message in messages
+        if message.get("type") == "output" and message.get("id") == 13
+    ]
+    assert process.returncode == 0
+    assert sum(part.count("x") for part in output) == OUTPUT_CAPTURE_CHARS
+    assert sum("output truncated" in part for part in output) == 1
+    assert any(message.get("type") == "run_finished" for message in messages)
 
 
 def test_worker_namespaces_scene_keys_with_the_gui_session():

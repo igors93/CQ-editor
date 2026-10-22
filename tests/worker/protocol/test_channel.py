@@ -5,7 +5,12 @@ import json
 
 import pytest
 
-from cq_worker.protocol import Channel, OutputStream
+from cq_worker.protocol import (
+    OUTPUT_CAPTURE_CHARS,
+    OUTPUT_CHUNK_CHARS,
+    Channel,
+    OutputStream,
+)
 
 
 def messages(writer):
@@ -70,6 +75,40 @@ def test_output_stream_flushes_partial_line_and_ignores_empty_write():
     assert messages(writer) == [
         {"type": "output", "id": None, "stream": "stderr", "text": "partial"}
     ]
+
+
+def test_output_stream_flushes_by_size_without_waiting_for_a_newline():
+    writer = io.BytesIO()
+    stream = OutputStream(Channel(io.BytesIO(), writer), "stdout")
+    text = "x" * (OUTPUT_CHUNK_CHARS + 1)
+
+    stream.write(text)
+
+    assert [message["text"] for message in messages(writer)] == [text[:-1]]
+    stream.flush()
+    assert "".join(message["text"] for message in messages(writer)) == text
+
+
+def test_output_stream_truncates_excessive_output_per_request():
+    writer = io.BytesIO()
+    channel = Channel(io.BytesIO(), writer)
+    channel.current_id = 4
+    stream = OutputStream(channel, "stdout")
+    limit = OUTPUT_CAPTURE_CHARS
+
+    text = "x" * (limit + 10)
+    assert stream.write(text) == len(text)
+    stream.write("discarded too")
+    stream.flush()
+
+    first_request = [message["text"] for message in messages(writer)]
+    assert sum(part.count("x") for part in first_request) == limit
+    assert sum("output truncated" in part for part in first_request) == 1
+
+    channel.current_id = 5
+    stream.write("new request\n")
+    assert messages(writer)[-1]["id"] == 5
+    assert messages(writer)[-1]["text"] == "new request\n"
 
 
 def test_output_stream_requires_text():

@@ -160,6 +160,19 @@ same reason.
 up to 128 MB of recently used ones, so a render after Clear or a debugging
 session can also receive references.
 
+The line transport has explicit memory ceilings. Ordinary control messages
+are limited to 2 MiB; the four replies that may carry mesh arrays
+(`run_finished`, `debug_paused`, `inspection_geometry` and `scene_add`) have
+a separate 512 MiB limit. The reader drains an oversized line without
+retaining more than its limit and reports a protocol failure. Native stderr
+lines retain at most 256 KiB and are marked when truncated.
+
+Captured `stdout` and `stderr` are flushed in chunks of 64 Ki characters,
+even without a newline, and keep at most 1 MiB per stream and request. A
+single Python logging record keeps at most 256 Ki characters. Both paths add
+an explicit truncation marker rather than silently consuming unbounded
+memory; repeated logging records share a 1 MiB per-request ceiling.
+
 Binary arrays are decoded on the GUI's reader thread, so large models never
 stall the interface. Base64 inside JSON is kept on purpose: for a message
 with 5 MB of mesh arrays, encoding and serializing take about 35 ms in the

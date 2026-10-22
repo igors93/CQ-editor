@@ -25,6 +25,25 @@ Message = dict[str, Any]
 #: Bumped whenever the message format changes incompatibly.
 PROTOCOL_VERSION = 4
 
+#: Captured output is sent regularly even when a script never writes ``\n``.
+OUTPUT_CHUNK_CHARS = 64 * 1024
+#: A runaway script cannot fill the GUI and its protocol queue indefinitely.
+OUTPUT_CAPTURE_CHARS = 1024 * 1024
+#: One Python logging record may include a traceback, but not arbitrary data.
+LOG_MESSAGE_CHARS = 256 * 1024
+#: Repeated logging calls share a per-request ceiling as well.
+LOG_CAPTURE_CHARS = 1024 * 1024
+
+_UNSET = object()
+
+
+def truncate_text(text: str, limit: int, kind: str) -> str:
+    """Keep a text protocol field bounded and make the data loss explicit."""
+
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[{kind} truncated after {limit} characters]\n"
+
 
 class Channel:
     """Bidirectional message pipe to the GUI."""
@@ -71,8 +90,9 @@ class Channel:
 class OutputStream(io.TextIOBase):
     """Text stream that forwards writes to the GUI as ``output`` messages.
 
-    Text is buffered until a newline or an explicit flush so that a single
-    ``print`` call produces a single message.
+    Text is buffered until a newline, an explicit flush or the chunk limit.
+    Each request also has a total capture limit so runaway output cannot grow
+    the worker, protocol queue or GUI indefinitely.
     """
 
     def __init__(self, channel: Channel, name: str) -> None:
@@ -80,6 +100,11 @@ class OutputStream(io.TextIOBase):
         self._channel = channel
         self._name = name
         self._pending: list[str] = []
+        self._pending_chars = 0
+        self._captured_chars = 0
+        self._request_id: int | None | object = _UNSET
+        self._truncated = False
+        self._lock = threading.RLock()
 
     @property
     def encoding(self) -> str:
@@ -91,22 +116,66 @@ class OutputStream(io.TextIOBase):
     def write(self, text: str) -> int:
         if not isinstance(text, str):
             raise TypeError(f"write() argument must be str, not {type(text).__name__}")
-        if text:
-            self._pending.append(text)
-            if "\n" in text:
-                self.flush()
+        if not text:
+            return 0
+        with self._lock:
+            self._sync_request()
+            if self._truncated:
+                return len(text)
+
+            remaining = OUTPUT_CAPTURE_CHARS - self._captured_chars
+            accepted = text[:remaining]
+            was_truncated = len(text) > len(accepted)
+            self._captured_chars += len(accepted)
+            while accepted:
+                room = OUTPUT_CHUNK_CHARS - self._pending_chars
+                part, accepted = accepted[:room], accepted[room:]
+                self._pending.append(part)
+                self._pending_chars += len(part)
+                if "\n" in part or self._pending_chars == OUTPUT_CHUNK_CHARS:
+                    self._flush_pending()
+
+            if was_truncated:
+                self._truncate()
         return len(text)
 
     def flush(self) -> None:
+        with self._lock:
+            self._sync_request()
+            self._flush_pending()
+
+    def _sync_request(self) -> None:
+        request_id = self._channel.current_id
+        if self._request_id is _UNSET:
+            self._request_id = request_id
+        elif self._request_id != request_id:
+            self._flush_pending()
+            self._request_id = request_id
+            self._captured_chars = 0
+            self._truncated = False
+
+    def _truncate(self) -> None:
+        self._flush_pending()
+        self._send(
+            f"\n[output truncated after {OUTPUT_CAPTURE_CHARS} characters; "
+            "further characters from this request were discarded]\n"
+        )
+        self._truncated = True
+
+    def _flush_pending(self) -> None:
         if not self._pending:
             return
         text = "".join(self._pending)
         self._pending.clear()
+        self._pending_chars = 0
+        self._send(text)
+
+    def _send(self, text: str) -> None:
         try:
             self._channel.send(
                 {
                     "type": "output",
-                    "id": self._channel.current_id,
+                    "id": self._request_id,
                     "stream": self._name,
                     "text": text,
                 }
