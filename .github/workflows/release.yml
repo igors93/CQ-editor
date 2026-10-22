@@ -147,7 +147,7 @@ jobs:
           package=$(find dist -maxdepth 1 -name '*.pkg' -print -quit)
           test -n "$package"
           installer -pkg "$package" -target CurrentUserHomeDirectory
-          prefix="$HOME/Library/Application Support/CQ-editor"
+          prefix="$HOME/Library/CQ-editor"
           "$prefix/bin/python3" -c "import sys, cadquery, OCP, jedi; assert sys.version_info[:3] == (3, 12, 15); assert cadquery.__version__ == '2.8.0'; assert OCP.__version__.startswith('7.9.3.1'); assert jedi.__version__ == '0.19.2'"
           "$prefix/bin/cq-editor" --help
           test -d "$HOME/Applications/CQ-editor.app"

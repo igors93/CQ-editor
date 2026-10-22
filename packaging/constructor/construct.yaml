@@ -34,7 +34,10 @@ default_prefix: ${HOME}/.local/share/CQ-editor  # [linux]
 default_prefix: '%LOCALAPPDATA%\Programs\CQ-editor'  # [win]
 default_prefix_domain_user: '%LOCALAPPDATA%\Programs\CQ-editor'  # [win]
 default_prefix_all_users: '%PROGRAMFILES%\CQ-editor'  # [win]
-default_location_pkg: Library/Application Support  # [osx]
+# Constructor's PKG bootstrap cannot relocate its embedded conda packages when
+# the installation prefix contains spaces. Keep the private runtime in the
+# user's Library while the application launcher remains in ~/Applications.
+default_location_pkg: Library  # [osx]
 pkg_name: CQ-editor  # [osx]
 progress_notifications: true  # [osx]
 welcome_image: ""  # [osx]

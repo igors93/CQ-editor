@@ -53,6 +53,8 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertIn("licenses", construct)
 
     def test_native_shortcuts_launch_the_bundled_executable(self):
+        construct = CONSTRUCT.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
         menu = json.loads(MENU.read_text(encoding="utf-8"))
         item = menu["menu_items"][0]
         self.assertFalse(item["activate"])
@@ -70,6 +72,16 @@ class ReleasePackagingTests(unittest.TestCase):
             item["platforms"]["osx"]["CFBundleIdentifier"],
             "io.github.igors93.cq-editor",
         )
+
+        # Constructor rejects macOS PKG prefixes with spaces because its
+        # embedded conda runtime cannot be safely relocated into such paths.
+        mac_location = next(
+            line.split(":", 1)[1].split("#", 1)[0].strip()
+            for line in construct.splitlines()
+            if line.startswith("default_location_pkg:")
+        )
+        self.assertNotIn(" ", mac_location)
+        self.assertIn('prefix="$HOME/Library/CQ-editor"', workflow)
 
     def test_release_workflow_builds_and_smoke_tests_every_installer(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
