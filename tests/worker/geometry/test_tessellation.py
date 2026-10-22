@@ -194,10 +194,60 @@ def test_unmatched_display_triangles_fall_back_to_separate_pick_triangles(
 
 def test_face_ids_need_matching_triangle_counts():
     shape = cq.Workplane().box(1, 1, 1).val().wrapped
-    tessellate(shape, Tolerance())  # triangulates the faces
+    mesh = tessellate(shape, Tolerance())  # triangulates the faces
 
-    assert len(tessellation._display_triangle_faces(shape, 12)) == 12
-    assert tessellation._display_triangle_faces(shape, 13) is None
+    assert (
+        len(tessellation._display_triangle_faces(shape, mesh.positions, mesh.indices))
+        == len(mesh.indices) // 3
+    )
+    extra_triangle = np.concatenate((mesh.indices, mesh.indices[:3]))
+    assert (
+        tessellation._display_triangle_faces(shape, mesh.positions, extra_triangle)
+        is None
+    )
+    invalid_indices = mesh.indices.astype(np.int64)
+    invalid_indices[0] = -1
+    assert (
+        tessellation._display_triangle_faces(shape, mesh.positions, invalid_indices)
+        is None
+    )
+
+
+def test_equal_triangle_counts_do_not_hide_reordered_face_groups(monkeypatch):
+    """A changed glTF face order must select the independent fallback mesh."""
+
+    original = tessellation._mesh_faces
+
+    def reordered(*args):
+        positions, normals, indices = original(*args)
+        triangles = indices.reshape(-1, 3).copy()
+        # Every box face has two triangles. Swap the first two complete face
+        # groups, preserving both the per-face and total triangle counts.
+        triangles[:4] = triangles[[2, 3, 0, 1]]
+        return positions, normals, triangles.reshape(-1)
+
+    monkeypatch.setattr(tessellation, "_mesh_faces", reordered)
+    mesh = tessellate(cq.Workplane().box(1, 2, 3).val().wrapped, Tolerance())
+
+    assert len(mesh.face_indices) == 12 * 3
+    assert len(mesh.triangle_faces) == len(mesh.face_indices) // 3
+    assert sorted(set(mesh.triangle_faces)) == [1, 2, 3, 4, 5, 6]
+
+
+def test_triangle_order_inside_one_face_group_is_irrelevant(monkeypatch):
+    original = tessellation._mesh_faces
+
+    def reordered(*args):
+        positions, normals, indices = original(*args)
+        triangles = indices.reshape(-1, 3).copy()
+        triangles[:2] = triangles[[1, 0]]
+        return positions, normals, triangles.reshape(-1)
+
+    monkeypatch.setattr(tessellation, "_mesh_faces", reordered)
+    mesh = tessellate(cq.Workplane().box(1, 2, 3).val().wrapped, Tolerance())
+
+    assert len(mesh.face_indices) == 0
+    assert len(mesh.triangle_faces) == len(mesh.indices) // 3
 
 
 def test_glb_round_trips_leave_only_an_empty_scratch_directory():

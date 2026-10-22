@@ -58,6 +58,9 @@ tracked in the compatibility matrix instead of being assumed.
 * Fixed: OCP 8 moved generated collection types and removed the `_s` suffix
   from `TopoDS` downcasts, preventing the worker from importing with current
   CadQuery `master`; one compatibility shim now supports both OCP 7 and 8
+* Fixed: equal per-face triangle counts could conceal a changed glTF face
+  order and assign the wrong OCCT face id; every proposed face group is now
+  checked geometrically before display triangles are accepted for picking
 * Fixed: in a short Objects pane, the property sheet grew over the object
   tree; it now scrolls and leaves the tree its room
 * Fixed: breakpoints and the error line stayed on their line numbers when

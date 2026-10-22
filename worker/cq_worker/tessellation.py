@@ -296,7 +296,7 @@ def tessellate(
 
     topology = topology or TopologyIndex.build(shape)
     positions, normals, indices = _mesh_faces(shape, deflection, tolerance.angular)
-    triangle_faces = _display_triangle_faces(shape, len(indices) // 3)
+    triangle_faces = _display_triangle_faces(shape, positions, indices)
     if triangle_faces is None:
         face_positions, face_indices, triangle_faces = _topology_faces(topology.faces)
     else:
@@ -524,30 +524,107 @@ def _node_matrix(node: dict) -> np.ndarray:
 
 
 def _display_triangle_faces(
-    shape: TopoDS_Shape, triangle_count: int
+    shape: TopoDS_Shape, positions: np.ndarray, indices: np.ndarray
 ) -> np.ndarray | None:
     """The 1-based OCCT face id of every display triangle.
 
     The glTF writer emits the triangles of each meshed face in explorer
-    order, so per-face triangle counts are enough: one call per face instead
-    of a Python loop over every node. Returns ``None`` when the counts do not
-    add up to ``triangle_count``, and the caller extracts separate pick
-    triangles instead of guessing.
+    order. Validate every proposed face group against its OCCT triangulation
+    bounds and a few triangle centroids: equal counts alone cannot detect an
+    exporter that changed face order. This remains much cheaper than walking
+    every node from Python. Returns ``None`` on any mismatch, and the caller
+    extracts separate pick triangles instead of guessing.
     """
+
+    if len(indices) % 3:
+        return None
+    triangles = np.asarray(indices).reshape(-1, 3)
+    if triangles.size and (
+        int(triangles.min()) < 0 or int(triangles.max()) >= len(positions)
+    ):
+        return None
 
     index = _ShapeMap()
     TopExp.MapShapes_s(shape, TopAbs_FACE, index)
     identifiers, counts = [], []
+    offset = 0
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
         face = _topods("Face", explorer.Current())
-        triangulation = BRep_Tool.Triangulation_s(face, TopLoc_Location())
+        location = TopLoc_Location()
+        triangulation = BRep_Tool.Triangulation_s(face, location)
         if triangulation is not None and triangulation.NbTriangles() > 0:
+            count = triangulation.NbTriangles()
+            group = triangles[offset : offset + count]
+            if len(group) != count or not _face_group_matches(
+                triangulation, location, positions, group
+            ):
+                return None
             identifiers.append(index.FindIndex(face))
-            counts.append(triangulation.NbTriangles())
+            counts.append(count)
+            offset += count
         explorer.Next()
     faces = np.repeat(np.array(identifiers, dtype=np.uint32), counts)
-    return faces if len(faces) == triangle_count else None
+    return faces if offset == len(triangles) else None
+
+
+def _face_group_matches(
+    triangulation,
+    location: TopLoc_Location,
+    positions: np.ndarray,
+    triangles: np.ndarray,
+) -> bool:
+    """Check a glTF triangle group against OCCT geometry, not just its size."""
+
+    points = positions[triangles]
+    actual_bounds = np.concatenate((points.min(axis=(0, 1)), points.max(axis=(0, 1))))
+
+    box = Bnd_Box()
+    if not triangulation.MinMax(box, location.Transformation(), True):
+        return False
+    lo, hi = box.CornerMin(), box.CornerMax()
+    expected_bounds = np.array(
+        [lo.X(), lo.Y(), lo.Z(), hi.X(), hi.Y(), hi.Z()], dtype=np.float32
+    )
+    if not _f32_close(actual_bounds, expected_bounds).all():
+        return False
+
+    actual_centers = points.mean(axis=1)
+    sample_indices = {
+        1,
+        (triangulation.NbTriangles() + 1) // 2,
+        triangulation.NbTriangles(),
+    }
+    transform = location.Transformation()
+    for triangle_index in sample_indices:
+        triangle = triangulation.Triangle(triangle_index)
+        expected_center = np.array(
+            [
+                (
+                    point.X(),
+                    point.Y(),
+                    point.Z(),
+                )
+                for point in (
+                    triangulation.Node(triangle.Value(corner)).Transformed(transform)
+                    for corner in (1, 2, 3)
+                )
+            ],
+            dtype=np.float32,
+        ).mean(axis=0)
+        if not _f32_close(actual_centers, expected_center).all(axis=1).any():
+            return False
+    return True
+
+
+def _f32_close(actual: np.ndarray, expected: np.ndarray) -> np.ndarray:
+    """Compare serialized f32 geometry within two units in the last place."""
+
+    actual = np.asarray(actual, dtype=np.float32)
+    expected = np.asarray(expected, dtype=np.float32)
+    spacing = np.maximum(np.abs(np.spacing(actual)), np.abs(np.spacing(expected)))
+    tolerance = np.maximum(spacing * 2, np.float32(1e-5))
+    return np.abs(actual - expected) <= tolerance
 
 
 def _topology_faces(

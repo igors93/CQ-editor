@@ -184,11 +184,12 @@ free the new worker's objects.
 2. OCCT's glTF writer (`RWGltf_CafWriter`) emits positions, exact normals and
    indices from C++ in one pass. numpy reads the binary back, which is much
    faster than walking `Poly_Triangulation` from Python.
-3. The writer emits each face's triangles in explorer order, so per-face
-   triangle counts tag every display triangle with its OCCT face id
-   (`triangle_faces`). Picking and face highlights use the display
-   triangles; separate pick triangles are extracted only if the counts do
-   not match.
+3. The writer emits each face's triangles in explorer order. Per-face counts
+   propose the OCCT face id of each display triangle (`triangle_faces`), then
+   each group is checked against the independent OCCT triangulation bounds
+   and sampled centroids. Picking and face highlights use the display
+   triangles only after that validation; a count or geometry mismatch
+   extracts separate pick triangles instead.
 4. Edges are discretized with `GCPnts_TangentialDeflection`. Free vertices
    are sent as points.
 5. Each mesh gets a **content id**: a BLAKE2b hash of the shape's binary BREP

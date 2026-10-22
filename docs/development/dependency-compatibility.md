@@ -43,6 +43,11 @@ lane and performs a real box tessellation with topology identifiers. The
 complete worker suite then covers execution, assemblies, inspection, GLB
 conversion, exact measurements and exports.
 
+The tessellation suite also compares the display mesh with a separate
+face-by-face OCCT extraction across ten shape families. An injected glTF face
+reordering preserves every triangle count and verifies that geometric
+validation activates the independent pick-mesh fallback.
+
 OCP 8 moved generated collection types to `OCP.collections` and removed the
 `_s` suffix from the `TopoDS` downcasts. `tessellation.py` selects those two
 spellings at import time. Geometry behavior is shared; there is no forked
