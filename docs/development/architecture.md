@@ -35,7 +35,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | Module | Responsibility |
 | --- | --- |
 | `main.rs` | Command line, window options, start-up |
-| `app.rs` | Application state (`AppState`), the frame loop, action execution, worker message handling. `CqEditorApp` wraps it with the dock layout and implements `eframe::App` |
+| `app/` | Application state (`AppState`), the frame loop and action dispatch (`mod.rs`); `CqEditorApp` wraps it with the dock layout and implements `eframe::App`. One `impl AppState` module per concern: `documents.rs` (open, save, reload, recovery, history), `runs.rs` (render, debug, stop), `worker_events.rs` (worker lifecycle, message routing), `watching.rs` (automatic reload), `services.rs` (selection, measurement, inspector, export, console, upload). `execution.rs` is the pure state machine of runs and pending requests |
 | `commands.rs` | `Action`, everything the user can ask for, and the keyboard shortcut table |
 | `document.rs` | The open script: UTF-8 decoding (Windows-1252 on request, saved back as UTF-8), BOM and line-ending preservation, atomic saves, external change classification |
 | `recovery.rs` | Crash-recovery session and bounded local history |
@@ -57,7 +57,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 
 egui is an immediate-mode toolkit: the whole interface is rebuilt every
 frame. To keep that manageable, widgets **never change application state
-directly**. They push an `Action` (see `commands.rs`), and `app.rs` runs the
+directly**. They push an `Action` (see `commands.rs`), and `app/` runs the
 queued actions after the UI of the frame has been built:
 
 ```
@@ -89,8 +89,11 @@ that handles the key press.
 Events reach the UI through a channel and wake egui up with
 `request_repaint`, which runs `App::logic` even when nothing is drawn. Each process gets a *generation* number, so late events
 of a killed process are ignored. Requests that expect an answer get an id,
-which `AppState::pending` maps to what the answer is for (run, completion,
-inspection, export, …).
+which `Execution` (`app/execution.rs`) maps to what the answer is for (run,
+completion, inspection, export, …). The same state machine decides whether a
+render starts, waits for Python, is queued behind the running one or belongs
+to a document that was replaced since; `tests/rust/app/test_execution.rs`
+covers its transitions without a window or a process.
 
 ### Rendering
 
@@ -192,8 +195,12 @@ free the new worker's objects.
    extracts separate pick triangles instead.
 4. Edges are discretized with `GCPnts_TangentialDeflection`. Free vertices
    are sent as points.
-5. Each mesh gets a **content id**: a BLAKE2b hash of the shape's binary BREP
-   and the tolerances.
+5. Each mesh gets a **content id**: a BLAKE2b hash of the shape's binary BREP,
+   the tolerances and the mesh generator (`mesh_generator()`: the
+   `MESH_FORMAT` of `tessellation.py`, the OCP version and the installed OCP
+   binary). The GUI keeps meshes across Python restarts, so after a switch to
+   another environment or an OCP upgrade the ids change and no mesh of the
+   previous mesher is reused.
 
 `GeometryCache` is an LRU of 256 MB keyed by that id. On top of it, the GUI
 sends the ids of meshes it already has (`known_geometry`), and the worker

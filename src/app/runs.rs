@@ -1,0 +1,217 @@
+//! Rendering and debugging the script. [`Execution`](super::execution)
+//! decides; these methods send the requests and apply the results.
+
+use std::time::Instant;
+
+use super::execution::{RunEnd, RunRequest};
+use super::{AppState, StatusKind};
+use crate::logging::{self, Level};
+use crate::scene::{Overlay, SceneNode};
+use crate::worker::protocol::{
+    DebugAction, Request, RequestId, RunFinished, SceneNode as NodeMessage,
+};
+
+impl AppState {
+    pub(super) fn start_run(&mut self, debug: bool) {
+        let availability = self.worker.status().into();
+        match self.execution.request_run(debug, availability) {
+            RunRequest::Start => {}
+            RunRequest::WhenReady => {
+                self.set_status(StatusKind::Info, "Waiting for Python to start…");
+                return;
+            }
+            RunRequest::Unavailable => {
+                self.set_status(
+                    StatusKind::Error,
+                    "Python is not available — check Preferences > General",
+                );
+                return;
+            }
+            RunRequest::Queued => return,
+            RunRequest::Busy => {
+                self.set_status(StatusKind::Warning, "Already running; stop it first");
+                return;
+            }
+        }
+
+        // A reload may have changed the text since the editor last drew.
+        self.editor.sync_markers(&self.document.text);
+        let id = self.worker.next_id();
+        // Pinned, so a debugging session may reference them even after it
+        // clears the view below.
+        let known_geometry = self.scene.known_geometry();
+        self.scene.pin_geometry(id, &known_geometry);
+        let request = Request::Run {
+            id,
+            script: self.document.text.clone(),
+            path: self.document.path().map(|p| p.display().to_string()),
+            debug,
+            breakpoints: self.editor.breakpoints.iter().copied().collect(),
+            settings: self.settings.run_settings(),
+            scene: self.settings.scene_settings(),
+            known_geometry,
+        };
+        if !self.worker.send(&request) {
+            self.set_status(StatusKind::Error, "Cannot reach Python");
+            return;
+        }
+        self.execution.started(id, debug);
+        if debug {
+            // Like the original: the view starts empty and follows the
+            // locals of each paused frame.
+            let removed = self.scene.clear();
+            self.release(removed);
+            self.measurements.clear();
+            self.set_status(
+                StatusKind::Info,
+                "Debugging — running to the first breakpoint",
+            );
+        }
+    }
+
+    pub(super) fn finish_run(&mut self, result: RunFinished) {
+        let RunEnd { stale, rerun } = self.execution.ended(result.id);
+        self.editor.set_debug_line(None);
+
+        if stale {
+            let keys = result.objects.into_iter().flatten().map(|node| node.key);
+            self.release(keys.collect());
+            log::info!("Discarded the result of a run of the previous document");
+            if rerun {
+                self.start_run(false);
+            }
+            return;
+        }
+
+        match &result.error {
+            Some(error) => {
+                self.editor.error_line = error.line;
+                let location = error
+                    .line
+                    .map(|l| format!(" (line {l})"))
+                    .unwrap_or_default();
+                self.set_status(
+                    StatusKind::Error,
+                    format!("{}: {}{location}", error.type_name, error.message),
+                );
+                logging::push(Level::Error, "script", &error.text);
+            }
+            None => self.editor.error_line = None,
+        }
+        let ok = result.ok;
+        self.traceback = result.error;
+
+        if let Some(objects) = result.objects {
+            let preserved = self
+                .settings
+                .objects
+                .preserve_properties
+                .then(|| self.scene.snapshot_properties());
+            let was_empty = self.scene.is_empty();
+            let decoding = Instant::now();
+            // A scene that cannot be decoded is reported, and the rest of
+            // the result (variables, a queued render) still applies.
+            if let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) {
+                if let Some(timings) = &result.timings {
+                    log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
+                }
+                let count = nodes.len();
+                if self.settings.objects.clear_before_run || result.debug {
+                    let removed = self.scene.replace(nodes, preserved.as_ref());
+                    self.release(removed);
+                    self.measurements.clear();
+                } else {
+                    self.scene.append(nodes, preserved.as_ref());
+                }
+                self.scene.overlay = Overlay::default();
+                self.refresh_inspector();
+                if self.settings.viewer.fit_automatically || was_empty {
+                    let animate = self.settings.viewer.animate && !was_empty;
+                    self.viewer.fit(&self.scene, animate, self.now());
+                }
+                if ok {
+                    let plural = if count == 1 { "" } else { "s" };
+                    self.set_status(
+                        StatusKind::Success,
+                        format!(
+                            "Rendered {count} object{plural} in {:.2} s",
+                            result.duration
+                        ),
+                    );
+                }
+            }
+        }
+        if let Some(variables) = result.variables {
+            self.variables = variables;
+        }
+        if result.stopped {
+            self.set_status(StatusKind::Info, "Debugging stopped");
+        }
+        if ok {
+            // The script may have started importing other modules.
+            self.request_imports();
+        }
+        if rerun {
+            self.start_run(false);
+        }
+    }
+
+    /// A run of the worker failed before it could finish.
+    pub(super) fn run_failed(&mut self, id: RequestId, message: String) {
+        let RunEnd { stale, rerun } = self.execution.ended(id);
+        self.editor.set_debug_line(None);
+        if stale {
+            log::warn!("A run of the previous document failed: {message}");
+        } else {
+            self.set_status(StatusKind::Error, message);
+        }
+        if rerun {
+            self.start_run(false);
+        }
+    }
+
+    pub(super) fn debug_command(&mut self, action: DebugAction) {
+        if self.execution.resume().is_none() {
+            return;
+        }
+        self.editor.sync_markers(&self.document.text);
+        let breakpoints = self.editor.breakpoints.iter().copied().collect();
+        self.worker.send(&Request::Debug {
+            action,
+            breakpoints,
+        });
+        self.editor.set_debug_line(None);
+    }
+
+    pub(super) fn stop_debugging(&mut self) {
+        if self.is_paused() {
+            self.debug_command(DebugAction::Stop);
+        } else {
+            self.stop();
+        }
+    }
+
+    /// Aborts a running script by restarting the worker.
+    pub(super) fn stop(&mut self) {
+        if !self.is_busy() {
+            return;
+        }
+        self.start_worker();
+        self.set_status(StatusKind::Warning, "Execution stopped");
+    }
+
+    pub(super) fn decode_scene_nodes(
+        &mut self,
+        request: Option<RequestId>,
+        objects: Vec<NodeMessage>,
+    ) -> Option<Vec<SceneNode>> {
+        match self.scene.decode_nodes(request, objects) {
+            Ok(nodes) => Some(nodes),
+            Err(error) => {
+                log::error!("Cannot decode worker scene: {error}");
+                self.set_status(StatusKind::Error, "Cannot update the 3D scene");
+                None
+            }
+        }
+    }
+}

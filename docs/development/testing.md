@@ -26,7 +26,7 @@ The test folders follow the parts of the application they protect:
 
 | Folder | Coverage |
 | --- | --- |
-| `tests/rust/app/` | Commands, preferences, file watching, logging, embedded files and the command line |
+| `tests/rust/app/` | Commands, the run and request state machine, preferences, file watching, logging, embedded files and the command line |
 | `tests/rust/editor/` | Document persistence, recovery, text editing and highlighting |
 | `tests/rust/panels/` | Console behavior and the Objects panel layout |
 | `tests/rust/protocol/` | JSON messages, binary mesh decoding and interpreter discovery |

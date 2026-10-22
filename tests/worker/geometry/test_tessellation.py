@@ -3,6 +3,7 @@ import time
 
 import cadquery as cq
 import numpy as np
+import OCP
 import pytest
 
 from conftest import decode
@@ -108,6 +109,24 @@ def test_geometry_cache_survives_occt_meshing_side_effects():
     )
     assert rebuilt_id == first_id
     assert rebuilt_mesh is first
+
+
+def test_geometry_ids_name_the_mesher_that_made_them():
+    # The GUI keeps meshes across worker restarts, also when Python moves to
+    # another OCP build; a mesh of that other build must never be reused.
+    shape = cq.Workplane().box(1, 2, 3).val().wrapped
+    tolerance = Tolerance()
+    current = GeometryCache().identifier(shape, tolerance)
+
+    assert GeometryCache().identifier(shape, tolerance) == current
+    assert GeometryCache(generator="another OCP").identifier(shape, tolerance) != (
+        current
+    )
+    generator = tessellation.mesh_generator()
+    assert f"cq-editor-mesh {tessellation.MESH_FORMAT};" in generator
+    assert OCP.__version__ in generator
+    # The installed binary, which tells environments with equal versions apart.
+    assert os.path.normcase(os.path.abspath(OCP.OCP.__file__)) in generator
 
 
 def test_large_structural_dimensions_keep_submillimeter_cross_sections():

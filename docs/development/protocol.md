@@ -139,7 +139,7 @@ A full mesh:
 
 | Field | Encoding |
 | --- | --- |
-| `id` | Content id: BLAKE2b of the shape's binary BREP and the tolerances |
+| `id` | Content id: BLAKE2b of the shape's binary BREP, the tolerances and the mesh generator (`MESH_FORMAT`, the OCP version and its installed binary), so an id never names a mesh made by another environment's mesher |
 | `positions`, `normals` | base64 of little-endian `f32` triples |
 | `indices` | base64 of little-endian `u32`, three per triangle |
 | `edges` | base64 `f32` triples, two points per segment |

@@ -79,7 +79,7 @@ recovery, local history and conflict-safe autoreload; see the
 | ✅ | [BUG-12](#bug-12--the-view-keeps-the-previous-files-objects) | The view keeps the previous file's objects | P2 |
 | ✅ | [BUG-13](#bug-13--debug-in-the-console-loses-the-variable-name) | `debug()` in the console loses the variable name | P2 |
 | ✅ | [BUG-14 … BUG-20](#p3-maintenance-and-polish) | Maintenance and polish | P3 |
-| ✅ | [BUG-21 … BUG-28](#found-in-the-october-2026-review) | Found in the October 2026 review | P1–P3 |
+| ✅ | [BUG-21 … BUG-32](#found-in-the-october-2026-review) | Found in the October 2026 reviews | P1–P3 |
 | ✅ | [PERF-01 … PERF-04](#performance) | Performance | |
 
 ### P1: fix before the next release
@@ -88,8 +88,9 @@ recovery, local history and conflict-safe autoreload; see the
 
 ✅ **Resolved.** *Evidence: code; the fix was checked in the app.*
 
-**Where:** `src/app.rs` (`start_worker`, `reset_execution_state`,
-`finish_run`), `src/scene.rs` (`replace`, `append`),
+**Where:** `src/app/worker_events.rs` (`start_worker`,
+`reset_execution_state`), `src/app/runs.rs` (`finish_run`),
+`src/scene.rs` (`replace`, `append`),
 `worker/cq_worker/scene.py` (`Registry`).
 
 After **Run > Stop**, **Run > Restart Python** or a worker crash, the scene
@@ -112,7 +113,7 @@ worker generation in the `CQ_EDITOR_SESSION` environment variable
 then `s2-n1` after a restart; `Registry` in `worker/cq_worker/scene.py`).
 Releasing the keys of a previous process is now a harmless no-op. The CQ
 Inspector state is also reset when Python restarts (`start_worker` in
-`src/app.rs`). Objects of the old process stay visible. Exporting them
+`src/app/worker_events.rs`). Objects of the old process stay visible. Exporting them
 before rendering again reports that they *come from a previous Python
 session (render again)*.
 
@@ -189,7 +190,7 @@ edits, and a fresh document after a reset).
 
 ✅ **Resolved.** *Evidence: code.*
 
-**Where:** `src/app.rs`, where `begin_frame` (called from `ui()`) ran
+**Where:** `src/app/mod.rs`, where `begin_frame` (called from `ui()`) ran
 `process_worker_events`, `poll_watcher` and `poll_recovery`.
 
 All worker traffic, automatic reload and recovery checkpoints ran as part
@@ -244,7 +245,7 @@ command cannot drift independently.
 
 ✅ **Resolved.** *Evidence: code; regression test.*
 
-**Where:** `src/app.rs` (`Action::Documentation`).
+**Where:** `src/app/mod.rs` (`Action::Documentation`).
 
 The menu opened `https://github.com/CadQuery/CQ-editor/wiki`, which
 describes the PyQt editor (installation with conda, PyQt preferences).
@@ -259,7 +260,8 @@ these docs.
 
 ✅ **Resolved.** *Evidence: code.*
 
-**Where:** `src/app.rs` (`sync_watcher`, handling of `Message::Imports`).
+**Where:** `src/app/watching.rs` (`sync_watcher`), `src/app/worker_events.rs`
+(handling of `Message::Imports`).
 
 With *Autoreload: watch imported modules*, the list of local imports was
 computed only when autoreload, that option or the file path changed. A
@@ -301,7 +303,7 @@ the default layout.
 
 ✅ **Resolved.** *Evidence: seen; regression test.*
 
-**Where:** `src/app.rs` (`empty_view_hint`), `src/panels/mod.rs`
+**Where:** `src/app/mod.rs` (`empty_view_hint`), `src/panels/mod.rs`
 (`empty_state`).
 
 * After a failed run with nothing on screen, the view said *Press F5 to
@@ -318,7 +320,7 @@ the default layout.
 
 ✅ **Resolved.** *Evidence: seen.*
 
-**Where:** `src/app.rs` (`set_document`).
+**Where:** `src/app/documents.rs` (`set_document`).
 
 Opening another file reset the editor and the traceback, but the 3D view,
 Objects panel, selection and CQ Inspector still showed the previous file's
@@ -360,7 +362,7 @@ with the former binding.
 | ✅ | BUG-16 *(code)* | Each recovery checkpoint (every 5 s while modified) read and parsed **every** history file of **every** document. History of deleted or renamed files was never pruned, and all untitled buffers shared one bucket | `src/recovery.rs` | One folder per document (stable FNV-1a hash of the path); version file names carry their timestamps, so a checkpoint lists one folder of at most 20 files and parses no JSON. Once per session, versions older than 90 days and the oldest beyond 64 MB are removed, and the flat history of earlier releases is migrated. Untitled buffers keep one shared folder on purpose: they have no identity across sessions, and their drafts stay findable. Tests in `tests/rust/editor/test_recovery.rs` |
 | ✅ | BUG-17 *(code)* | Files that are not UTF-8 could not be opened at all | `src/document.rs`, `src/dialogs/mod.rs` | A *Not a UTF-8 file* dialog offers **Open as Windows-1252** (WHATWG mapping, never fails); the file is untouched until saved, saving writes UTF-8, and the status bar shows *Windows-1252 → UTF-8* meanwhile. The file watcher keeps reading the file in its encoding. Tests: `windows_1252_files_open_on_request_and_are_saved_as_utf8` and others |
 | ✅ | BUG-18 *(code)* | The Windows `.exe` had no embedded icon or version information | `build.rs` | `winresource` compiles the icon and version strings with `rc.exe` (MSVC) or `windres` (GNU). Without a resource compiler the build warns; release CI sets `CQ_EDITOR_REQUIRE_RESOURCES=1` to make it an error. Checked with `windres` from MSYS2: Explorer's details show *CQ-editor 0.8.0-dev* and the icon |
-| ✅ | BUG-19 *(code)* | Building with the Windows GNU toolchain needed MinGW binutils and a hand-made `libshlwapi.a` | `Cargo.toml`, `src/app.rs` | eframe is used without its `links` feature, which removes `webbrowser` (and `shlwapi`) from the dependency tree; links of egui widgets are taken from the platform output and opened with `open`. binutils (`dlltool`) are still required by the `windows` crates. Test: `links_clicked_in_widgets_are_taken_from_the_platform_output` |
+| ✅ | BUG-19 *(code)* | Building with the Windows GNU toolchain needed MinGW binutils and a hand-made `libshlwapi.a` | `Cargo.toml`, `src/app/mod.rs` | eframe is used without its `links` feature, which removes `webbrowser` (and `shlwapi`) from the dependency tree; links of egui widgets are taken from the platform output and opened with `open`. binutils (`dlltool`) are still required by the `windows` crates. Test: `links_clicked_in_widgets_are_taken_from_the_platform_output` |
 | ✅ | BUG-20 *(code)* | The Log panel lived only in memory: after a GUI panic or crash, the messages that explained it were gone | `src/logging.rs` | Every entry is also appended to `logs/cq-editor.log` in the data folder (warnings and errors immediately, other lines within a second, by a flushing thread even when nothing else is logged), rotated at 2 MB to `cq-editor.1.log`. A panic hook records the panic and its backtrace without waiting for the log lock. Bug reports and Troubleshooting mention the file |
 
 ### Performance
@@ -374,22 +376,24 @@ with the former binding.
 
 ### Found in the October 2026 review
 
-A full review of the code for this roadmap found these problems, which were
-not listed before. All are resolved, each with a regression test unless
-noted.
+A full review of the code for this roadmap, and a later architecture
+review, found these problems, which were not listed before. All are
+resolved, each with a regression test unless noted.
 
 | Status | Id | Problem | Where | Resolution |
 | :---: | --- | --- | --- | --- |
-| ✅ | BUG-21 *(P1, code)* | Quitting with **Don't save** brought the discarded edits back: eframe's final `save` wrote a new recovery checkpoint, and the next start offered *Unsaved work can be recovered* | `src/app.rs` (`checkpoint_recovery`) | No checkpoint once quitting was confirmed (`allow_close`) |
+| ✅ | BUG-21 *(P1, code)* | Quitting with **Don't save** brought the discarded edits back: eframe's final `save` wrote a new recovery checkpoint, and the next start offered *Unsaved work can be recovered* | `src/app/documents.rs` (`checkpoint_recovery`) | No checkpoint once quitting was confirmed (`allow_close`) |
 | ✅ | BUG-22 *(P2, code)* | **Stop debugging** raised `DebugStop`, an `Exception`, so a script's own `except Exception` swallowed it and the session went on | `worker/cq_worker/debugger.py` | `DebugStop` derives from `BaseException`, like `KeyboardInterrupt`. Test: `test_stop_is_not_swallowed_by_the_scripts_exception_handlers` |
 | ✅ | BUG-23 *(P1, code)* | The editor could panic (and close) when an edit, such as a reload, left the completion popup's anchor inside a multi-byte character: `close_popups_if_left` sliced the text without checking character boundaries | `src/editor/mod.rs` | `typed_text` checks both boundaries. Test: `completion_survives_edits_that_move_its_anchor_inside_a_character` |
-| ✅ | BUG-24 *(P2, code)* | A link in an upload service's JSON reply was opened with the system handler, which also opens local files and starts programs | `src/app.rs` (`open_url`) | Only `http` and `https` URLs without control characters are opened. Test: `only_web_links_are_opened` |
+| ✅ | BUG-24 *(P2, code)* | A link in an upload service's JSON reply was opened with the system handler, which also opens local files and starts programs | `src/app/mod.rs` (`open_url`) | Only `http` and `https` URLs without control characters are opened. Test: `only_web_links_are_opened` |
 | ✅ | BUG-25 *(P3, code)* | A long status message (typically an error) took the whole status bar and pushed the Python state, cursor position and encoding out of it | `src/ui/status_bar.rs` | The fixed indicators are laid out first; the message is truncated to what remains and shows its full text on hover. Checked in the app |
 | ✅ | BUG-26 *(P3, code)* | The Log filter lowercased the text but not the source, so typing a source such as `OCP` matched nothing | `src/panels/log.rs` | Both are compared in lowercase. Test: `the_filter_ignores_case_in_sources_too` |
-| ✅ | BUG-27 *(P3, code)* | When a run's scene could not be decoded, `finish_run` returned early and also dropped the run's variables and a queued render; a run request that failed in the worker left the debugger arrow on screen and dropped a queued render | `src/app.rs` (`finish_run`, `request_failed`) | The scene error is reported and the rest of the result still applies; a failed run clears the debug line and starts the queued render. No automated test: `AppState` needs a running eframe context |
+| ✅ | BUG-27 *(P3, code)* | When a run's scene could not be decoded, `finish_run` returned early and also dropped the run's variables and a queued render; a run request that failed in the worker left the debugger arrow on screen and dropped a queued render | `src/app/runs.rs` (`finish_run`, `run_failed`) | The scene error is reported and the rest of the result still applies; a failed run clears the debug line and starts the queued render. Test: `a_failed_run_still_starts_the_render_queued_behind_it` (the run state machine); the scene decoding path still needs a running eframe context |
 | ✅ | BUG-28 *(P3, seen)* | Clicking the text of a Traceback row (the file name, line or code) did nothing: egui labels are selectable by default and took the click from the row, so only the empty part of a cell jumped to the line | `src/panels/traceback.rs` | Cell labels are not selectable; the Variables table has the same fix and test. Checked in the app: clicking the file name of a frame moves the cursor to its line |
 | ✅ | BUG-29 *(P1, code)* | Worker dependency versions were unbounded and the current CadQuery development branch could not import because OCP 8 moved generated collection classes and removed `TopoDS.*_s` downcasts | `worker/pyproject.toml`, `tessellation.py`, `.github/workflows/ci.yml` | Explicit supported ranges, OCP 7/8 name adapters, blocking released-version lanes and an upstream-development early-warning lane. `test_compatibility.py` performs a real topology-aware tessellation in every environment |
 | ✅ | BUG-30 *(P1, code)* | A script writing forever without a newline grew `OutputStream._pending` indefinitely, and Rust's JSON/stderr `lines()` readers had no maximum line size | `worker/cq_worker/protocol.py`, `src/worker/mod.rs` | Output flushes every 64 Ki characters and is truncated after 1 MiB per stream/request; logging records stop at 256 Ki characters each and 1 MiB per request. A bounded reader retains at most 2 MiB for control, 512 MiB for mesh-bearing replies and 256 KiB for native stderr. Regression tests inject newline-free output and oversized lines |
+| ✅ | BUG-31 *(P2, code)* | A mesh id hashed only the shape's BREP and the tolerances, but the GUI keeps meshes across Python restarts: after switching to another environment, or upgrading OCP, the new worker could answer with a reference to a mesh made by the previous mesher. The worker also reported OCP as `unknown` for conda installs, which carry no pip metadata | `worker/cq_worker/tessellation.py` (`GeometryCache`), `environment.py` | Ids also hash the mesh generator: `MESH_FORMAT`, the OCP version and the installed OCP binary (`mesh_generator`); the OCP version falls back to the bindings' own `__version__`. Tests: `test_geometry_ids_name_the_mesher_that_made_them`, `test_ocp_version_is_known_without_pip_metadata` |
+| ✅ | BUG-32 *(P3, code)* | The CQ inspector drew the construction geometry of a reply that arrived after another workplane, or another step, was selected | `src/app/worker_events.rs` (`Message::InspectionGeometry`) | The pending request remembers its workplane and entry, and replies for anything but the current selection are ignored. Covered by `every_reply_is_routed_once` for the routing; the overlay itself needs a running eframe context |
 
 ---
 
@@ -486,6 +490,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | ENG-03 | Headless UI tests of panels and dialogs (for example with `egui_kittest`) |
 | | ENG-04 | Benchmarks for tessellation, decoding and picking on large assemblies, tracked over time (picking has `pick_latency_on_growing_assemblies`; not yet tracked over time) |
 | | ENG-05 | Accessibility review (keyboard-only use, screen readers through AccessKit, contrast of both themes) |
+| ✅ | ENG-06 | `src/app.rs` had grown to about 2,000 lines of state, event routing and transitions. It is now `src/app/`, one module per concern around the central `Action` dispatch, and runs with their pending requests are a pure state machine (`Execution`) whose transitions are tested in `tests/rust/app/test_execution.rs`. Next: move the remaining egui-bound glue behind similar testable controllers as it changes |
 
 ---
 

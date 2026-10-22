@@ -1,0 +1,234 @@
+//! Script runs and the requests that still wait for an answer.
+//!
+//! A pure state machine, without egui or a process, so every transition is
+//! tested directly (`tests/rust/app/test_execution.rs`). `AppState` asks it
+//! what a user request or a worker message leads to and carries out the side
+//! effects: sending requests, updating the scene, the status bar and the log.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use crate::scene::NodeKey;
+use crate::worker::{self, protocol::RequestId};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase {
+    #[default]
+    Idle,
+    Running {
+        id: RequestId,
+        debug: bool,
+    },
+    Paused {
+        id: RequestId,
+    },
+}
+
+/// What an outstanding request was for, so replies and errors can be routed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pending {
+    Run,
+    Completion,
+    ConsoleCompletion,
+    Inspect,
+    /// The construction geometry of one inspector entry: the workplane and
+    /// its selected (frame, item).
+    InspectGeometry {
+        key: NodeKey,
+        entry: (usize, Option<usize>),
+    },
+    Console,
+    Export,
+    Upload,
+    Updates,
+    /// The local modules imported by the script at this path.
+    Imports(PathBuf),
+    Measure,
+}
+
+/// Whether the worker can take a run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerAvailability {
+    Ready,
+    Starting,
+    Unavailable,
+}
+
+impl From<&worker::Status> for WorkerAvailability {
+    fn from(status: &worker::Status) -> Self {
+        match status {
+            worker::Status::Ready(_) => Self::Ready,
+            worker::Status::Starting => Self::Starting,
+            worker::Status::NotStarted | worker::Status::Failed(_) => Self::Unavailable,
+        }
+    }
+}
+
+/// What a request to run the script leads to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunRequest {
+    /// Send the run now and report it with [`Execution::started`].
+    Start,
+    /// Python is still starting; [`Execution::worker_ready`] returns the run.
+    WhenReady,
+    /// There is no Python to run it.
+    Unavailable,
+    /// A render is running; one more render follows it.
+    Queued,
+    /// A debugging session runs, or a render runs and debugging was asked.
+    Busy,
+}
+
+/// What follows the end of a run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RunEnd {
+    /// The run belongs to a document that was replaced since: its results
+    /// would look like the output of the new script and are discarded.
+    pub stale: bool,
+    /// A render was requested while it ran and starts now.
+    pub rerun: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct Execution {
+    phase: Phase,
+    /// A render was requested while one was running.
+    rerun: bool,
+    /// The run of a document that was replaced since.
+    stale_run: Option<RequestId>,
+    /// Render as soon as the worker is ready (`Some(debug)`).
+    run_when_ready: Option<bool>,
+    pending: HashMap<RequestId, Pending>,
+}
+
+impl Execution {
+    pub fn phase(&self) -> Phase {
+        self.phase
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.phase != Phase::Idle
+    }
+
+    pub fn is_paused(&self) -> bool {
+        matches!(self.phase, Phase::Paused { .. })
+    }
+
+    pub fn is_debugging(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Paused { .. } | Phase::Running { debug: true, .. }
+        )
+    }
+
+    // -- requests ---------------------------------------------------------------
+
+    pub fn track(&mut self, id: RequestId, kind: Pending) {
+        self.pending.insert(id, kind);
+    }
+
+    /// What the request `id` was for, without answering it.
+    pub fn pending(&self, id: RequestId) -> Option<&Pending> {
+        self.pending.get(&id)
+    }
+
+    pub fn is_pending(&self, id: RequestId) -> bool {
+        self.pending.contains_key(&id)
+    }
+
+    /// The request `id` was answered: what it was for, once.
+    pub fn answer(&mut self, id: RequestId) -> Option<Pending> {
+        self.pending.remove(&id)
+    }
+
+    // -- runs ---------------------------------------------------------------------
+
+    /// A render (`debug` false) or a debugging session was asked for.
+    pub fn request_run(&mut self, debug: bool, worker: WorkerAvailability) -> RunRequest {
+        match worker {
+            WorkerAvailability::Ready => {}
+            WorkerAvailability::Starting => {
+                self.run_when_ready = Some(debug);
+                return RunRequest::WhenReady;
+            }
+            WorkerAvailability::Unavailable => return RunRequest::Unavailable,
+        }
+        match self.phase {
+            Phase::Idle => RunRequest::Start,
+            Phase::Running { debug: false, .. } if !debug => {
+                self.rerun = true;
+                RunRequest::Queued
+            }
+            _ => RunRequest::Busy,
+        }
+    }
+
+    /// The run `id` was sent.
+    pub fn started(&mut self, id: RequestId, debug: bool) {
+        self.pending.insert(id, Pending::Run);
+        self.phase = Phase::Running { id, debug };
+    }
+
+    /// The debugger stopped the run `id`. Returns whether the run is stale,
+    /// and should be stopped instead of shown.
+    pub fn paused(&mut self, id: RequestId) -> bool {
+        self.phase = Phase::Paused { id };
+        self.stale_run == Some(id)
+    }
+
+    /// A debugger command continues the paused run, whose id is returned.
+    pub fn resume(&mut self) -> Option<RequestId> {
+        let Phase::Paused { id } = self.phase else {
+            return None;
+        };
+        self.phase = Phase::Running { id, debug: true };
+        Some(id)
+    }
+
+    /// The run `id` finished or failed.
+    pub fn ended(&mut self, id: RequestId) -> RunEnd {
+        self.pending.remove(&id);
+        self.phase = Phase::Idle;
+        RunEnd {
+            stale: self.stale_run.take() == Some(id),
+            rerun: std::mem::take(&mut self.rerun),
+        }
+    }
+
+    /// The worker became ready: the run asked for while it started, if any.
+    pub fn worker_ready(&mut self) -> Option<bool> {
+        self.run_when_ready.take()
+    }
+
+    /// The document was replaced. Queued runs are dropped and a run still
+    /// going becomes stale. Returns whether that run is paused and must be
+    /// stopped.
+    pub fn abandon(&mut self) -> bool {
+        self.rerun = false;
+        self.run_when_ready = None;
+        match self.phase {
+            Phase::Idle => false,
+            Phase::Running { id, .. } => {
+                self.stale_run = Some(id);
+                false
+            }
+            Phase::Paused { id } => {
+                self.stale_run = Some(id);
+                true
+            }
+        }
+    }
+
+    /// The worker restarted: nothing it was doing will answer. A render
+    /// asked for while Python starts still follows.
+    pub fn reset(&mut self) {
+        self.phase = Phase::Idle;
+        self.rerun = false;
+        self.stale_run = None;
+        self.pending.clear();
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/rust/app/test_execution.rs"]
+mod tests;

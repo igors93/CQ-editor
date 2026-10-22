@@ -40,12 +40,14 @@ the direction can be agreed on before you invest time. The
 
 | Change | Where |
 | --- | --- |
-| A new command (menu item, toolbar button, shortcut) | Add a variant to `Action` in `src/commands.rs` (and a shortcut in `shortcuts()`), handle it in `AppState::execute` in `src/app.rs` (dock layout actions go to `CqEditorApp::execute`), then add the menu item in `src/ui/menu_bar.rs` and/or the button in `src/ui/toolbar.rs` |
+| A new command (menu item, toolbar button, shortcut) | Add a variant to `Action` in `src/commands.rs` (and a shortcut in `shortcuts()`), handle it in `AppState::execute` in `src/app/mod.rs` (dock layout actions go to `CqEditorApp::execute`) and put the work in the `src/app/` module of its concern, then add the menu item in `src/ui/menu_bar.rs` and/or the button in `src/ui/toolbar.rs` |
 | A new preference | A field with a default in `src/settings.rs` (keep `#[serde(default)]` so old `app.ron` files still load), a row in `src/dialogs/preferences.rs`, a line in [Preferences](../user-guide/preferences.md) |
 | A new worker request | A `Request` and a `Message` variant in `src/worker/protocol.rs`, a handler in `Server._handlers` (`worker/cq_worker/server.py`), and a row in [Worker protocol](protocol.md). Bump `PROTOCOL_VERSION` on both sides if old workers would misbehave |
 | A new `show_object` option | `DisplayOptions` in `worker/cq_worker/scene.py`, `SceneNode` in `protocol.rs`, the renderer, and [Writing scripts](../user-guide/scripting.md) |
 | A new panel | A `Tab` in `src/panels/mod.rs` with its default position, a module in `src/panels/` |
 | A new example | A commented `NN_name.py` in `examples/`. It appears in *File > Examples* automatically |
+| How runs, queued renders, stale results or pending requests behave | `Execution` in `src/app/execution.rs`, a pure state machine; add the transition to `tests/rust/app/test_execution.rs` |
+| A change to how meshes are produced | `worker/cq_worker/tessellation.py`; bump `MESH_FORMAT` when the same shape and tolerances would mesh differently, so the GUI never reuses a mesh of the previous format |
 | A new export format | `ExportFormat` in `protocol.rs` and `FORMATS` / `export()` in `worker/cq_worker/exporting.py` |
 
 ## Principles to keep

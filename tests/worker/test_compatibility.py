@@ -29,6 +29,17 @@ def test_runtime_is_inside_the_supported_version_families():
         assert environment["ocp"].startswith(expected_ocp)
 
 
+def test_ocp_version_is_known_without_pip_metadata(monkeypatch):
+    """Conda installs OCP without pip metadata; the bindings know their version."""
+
+    import OCP
+
+    from cq_worker import environment
+
+    monkeypatch.setattr(environment, "distribution_version", lambda name: "unknown")
+    assert environment.ocp_version() == OCP.__version__
+
+
 def test_direct_ocp_calls_work_for_a_real_shape():
     """Exercise the generated APIs that differ between OCP 7 and OCP 8."""
 

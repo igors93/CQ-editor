@@ -27,8 +27,10 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import cache
 
 import numpy as np
+import OCP
 from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBndLib import BRepBndLib
@@ -58,6 +60,12 @@ except ImportError:
     from OCP.collections import (
         IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _ShapeMap,
     )
+
+from .environment import ocp_version
+
+#: Bump whenever a change to this module meshes the same shape with the same
+#: tolerances differently: the version is part of every geometry id.
+MESH_FORMAT = 1
 
 # Never mesh finer than this, whatever the model size (model units).
 MIN_DEFLECTION = 1e-4
@@ -163,22 +171,47 @@ class Mesh:
         }
 
 
+@cache
+def mesh_generator() -> str:
+    """What makes a mesh besides the shape and the tolerances.
+
+    This module's format and the OpenCascade bindings it runs on: their
+    version and the installed binary itself, so another environment, or OCP
+    reinstalled with the same version number, is another generator too.
+    """
+
+    try:
+        path = os.path.abspath(getattr(OCP, "OCP", OCP).__file__)
+        status = os.stat(path)
+        binary = f"{os.path.normcase(path)} {status.st_size} {status.st_mtime_ns}"
+    except (AttributeError, TypeError, OSError):
+        binary = "unknown binary"
+    version = getattr(OCP, "__version__", "unknown")
+    return f"cq-editor-mesh {MESH_FORMAT}; OCP {version} ({ocp_version()}); {binary}"
+
+
 class GeometryCache:
     """Content-addressed LRU cache of tessellated OCCT shapes.
 
-    The identifier is calculated from a triangle-free BREP representation and
-    the two tessellation tolerances. It is stable when a script recreates the
-    same part, unlike Python object identity or OCCT's in-process hash code.
+    The identifier is calculated from a triangle-free BREP representation,
+    the two tessellation tolerances and the :func:`mesh_generator`. It is
+    stable when a script recreates the same part, unlike Python object
+    identity or OCCT's in-process hash code. The GUI keeps meshes across
+    worker restarts, including a switch to another Python environment, and
+    the generator ensures an id never names a mesh another mesher made.
     """
 
-    def __init__(self, max_bytes: int = DEFAULT_CACHE_BYTES) -> None:
+    def __init__(
+        self, max_bytes: int = DEFAULT_CACHE_BYTES, generator: str | None = None
+    ) -> None:
         self.max_bytes = max(0, max_bytes)
+        generator = (generator or mesh_generator()).encode()
+        self._generator = struct.pack("<I", len(generator)) + generator
         self._meshes: OrderedDict[str, Mesh] = OrderedDict()
         self._aliases: dict[str, str] = {}
         self._bytes = 0
 
-    @staticmethod
-    def identifier(shape: TopoDS_Shape, tolerance: Tolerance) -> str:
+    def identifier(self, shape: TopoDS_Shape, tolerance: Tolerance) -> str:
         stream = io.BytesIO()
         BinTools.Write_s(
             shape,
@@ -188,6 +221,7 @@ class GeometryCache:
             BinTools_FormatVersion.BinTools_FormatVersion_CURRENT,
         )
         digest = hashlib.blake2b(digest_size=16, person=b"cq-editor-mesh")
+        digest.update(self._generator)
         digest.update(struct.pack("<dd", tolerance.linear, tolerance.angular))
         digest.update(stream.getbuffer())
         return digest.hexdigest()

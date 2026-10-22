@@ -19,6 +19,17 @@ def distribution_version(name: str) -> str:
         return "unknown"
 
 
+def ocp_version() -> str:
+    """The OCP release, also for conda installs, which carry no pip metadata."""
+
+    version = distribution_version("cadquery-ocp")
+    if version != "unknown":
+        return version
+    import OCP
+
+    return str(getattr(OCP, "__version__", "unknown"))
+
+
 def runtime_environment() -> dict[str, Any]:
     """Versions needed to reproduce worker tests, timings and failures."""
 
@@ -26,7 +37,7 @@ def runtime_environment() -> dict[str, Any]:
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "cadquery": cq.__version__,
-        "ocp": distribution_version("cadquery-ocp"),
+        "ocp": ocp_version(),
         "platform": platform.platform(),
         "executable": sys.executable,
     }

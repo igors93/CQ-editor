@@ -1,6 +1,6 @@
 //! Everything the user can ask for, from menus, the toolbar, panels and
-//! keyboard shortcuts. Widgets only queue actions; `app.rs` executes them
-//! after the frame's UI has been built.
+//! keyboard shortcuts. Widgets only queue actions; the `app` module
+//! executes them after the frame's UI has been built.
 
 use std::path::PathBuf;
 

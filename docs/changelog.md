@@ -55,6 +55,12 @@ tracked in the compatibility matrix instead of being assumed.
   free its own objects, so the CQ Inspector, export and upload failed; scene
   keys are now unique per worker process
 * Fixed: the CI format check (`black`) failed on three worker files
+* Fixed: after switching Python environments or upgrading OCP, a render
+  could reuse meshes made by the previous mesher; mesh ids now include
+  the mesh format and the OCP build, and conda installs report their OCP
+  version instead of `unknown`
+* Fixed: the CQ inspector could draw the geometry of a previously
+  selected step or workplane when its reply arrived late
 * Fixed: OCP 8 moved generated collection types and removed the `_s` suffix
   from `TopoDS` downcasts, preventing the worker from importing with current
   CadQuery `master`; one compatibility shim now supports both OCP 7 and 8
