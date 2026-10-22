@@ -7,6 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  packaging:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate release packaging
+        run: python -m unittest discover -s tests/packaging -p "test_*.py"
+
   rust:
     strategy:
       fail-fast: false
@@ -90,7 +102,7 @@ jobs:
         run: python -c "from cq_worker.environment import summary; print(summary())"
 
       - name: Format
-        run: black --check worker tests/worker
+        run: black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
 
       - name: Test
         run: python -m pytest tests/worker

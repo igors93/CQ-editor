@@ -11,7 +11,7 @@ interactive console and exporters.
 
 | Page | What you will learn |
 | --- | --- |
-| [Installation](getting-started/installation.md) | Install CadQuery, build or download CQ-editor, point it at the right Python |
+| [Installation](getting-started/installation.md) | Install a self-contained release, verify its checksum, or configure a custom Python |
 | [Your first model](getting-started/first-model.md) | A 10-minute tour: model a bracket, change parameters, select faces, debug and export |
 
 ## User guide
@@ -46,6 +46,6 @@ interactive console and exporters.
 * [Roadmap](roadmap.md): known bugs, planned features and the direction of the project
 * [Changelog](changelog.md): what changed in each release
 
-> These pages describe the current source tree (version `0.8.0-dev`). If
+> These pages describe the current source tree (version `0.8.0`). If
 > something here does not match what the program does, please
-> [open an issue](https://github.com/CadQuery/CQ-editor/issues/new).
+> [open an issue](https://github.com/igors93/CQ-editor/issues/new).

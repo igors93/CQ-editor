@@ -5,7 +5,7 @@ This page is the plan for CQ-editor after the Rust rewrite. It lists the
 experience, and the **features** that would make CQ-editor clearly more
 capable than the original PyQt editor, without losing what made it useful.
 
-Every item is based on the current source tree (`0.8.0-dev`). Bugs say how
+Every item is based on the current source tree (`0.8.0`). Bugs say how
 they were found:
 
 * **seen**: reproduced in the running application (several are visible in
@@ -361,7 +361,7 @@ with the former binding.
 | ✅ | BUG-15 *(code)* | Every worker version extracted a new `worker-<hash>/` folder in the data directory; old ones were never removed | `src/embedded.rs` | After a successful extraction, the folders of other versions (and interrupted extractions) are removed. A running older instance loses nothing: its worker has imported all modules, and a restart extracts them again. Test: `extracting_a_new_worker_removes_the_other_versions` |
 | ✅ | BUG-16 *(code)* | Each recovery checkpoint (every 5 s while modified) read and parsed **every** history file of **every** document. History of deleted or renamed files was never pruned, and all untitled buffers shared one bucket | `src/recovery.rs` | One folder per document (stable FNV-1a hash of the path); version file names carry their timestamps, so a checkpoint lists one folder of at most 20 files and parses no JSON. Once per session, versions older than 90 days and the oldest beyond 64 MB are removed, and the flat history of earlier releases is migrated. Untitled buffers keep one shared folder on purpose: they have no identity across sessions, and their drafts stay findable. Tests in `tests/rust/editor/test_recovery.rs` |
 | ✅ | BUG-17 *(code)* | Files that are not UTF-8 could not be opened at all | `src/document.rs`, `src/dialogs/mod.rs` | A *Not a UTF-8 file* dialog offers **Open as Windows-1252** (WHATWG mapping, never fails); the file is untouched until saved, saving writes UTF-8, and the status bar shows *Windows-1252 → UTF-8* meanwhile. The file watcher keeps reading the file in its encoding. Tests: `windows_1252_files_open_on_request_and_are_saved_as_utf8` and others |
-| ✅ | BUG-18 *(code)* | The Windows `.exe` had no embedded icon or version information | `build.rs` | `winresource` compiles the icon and version strings with `rc.exe` (MSVC) or `windres` (GNU). Without a resource compiler the build warns; release CI sets `CQ_EDITOR_REQUIRE_RESOURCES=1` to make it an error. Checked with `windres` from MSYS2: Explorer's details show *CQ-editor 0.8.0-dev* and the icon |
+| ✅ | BUG-18 *(code)* | The Windows `.exe` had no embedded icon or version information | `build.rs` | `winresource` compiles the icon and version strings with `rc.exe` (MSVC) or `windres` (GNU). Without a resource compiler the build warns; release CI sets `CQ_EDITOR_REQUIRE_RESOURCES=1` to make it an error. Checked with `windres` from MSYS2: Explorer's details show *CQ-editor 0.8.0* and the icon |
 | ✅ | BUG-19 *(code)* | Building with the Windows GNU toolchain needed MinGW binutils and a hand-made `libshlwapi.a` | `Cargo.toml`, `src/app/mod.rs` | eframe is used without its `links` feature, which removes `webbrowser` (and `shlwapi`) from the dependency tree; links of egui widgets are taken from the platform output and opened with `open`. binutils (`dlltool`) are still required by the `windows` crates. Test: `links_clicked_in_widgets_are_taken_from_the_platform_output` |
 | ✅ | BUG-20 *(code)* | The Log panel lived only in memory: after a GUI panic or crash, the messages that explained it were gone | `src/logging.rs` | Every entry is also appended to `logs/cq-editor.log` in the data folder (warnings and errors immediately, other lines within a second, by a flushing thread even when nothing else is logged), rotated at 2 MB to `cq-editor.1.log`. A panic hook records the panic and its backtrace without waiting for the log lock. Bug reports and Troubleshooting mention the file |
 
@@ -469,7 +469,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | | FEAT-E1 ⚪ | **Gentle stop**: interrupt pure-Python loops with `KeyboardInterrupt` first, so the console and the cache survive. Restart the process only if the script does not respond |
 | | FEAT-E2 🔵 | **Per-line profiling**: time spent per line and per CadQuery operation, shown in the gutter |
 | | FEAT-E3 🟢 | **Environment manager**: create or choose a virtual environment and install CadQuery, jedi and add-on packages from Preferences |
-| | FEAT-E4 🟢 | **Installers with a bundled Python and CadQuery** (Windows installer or winget, macOS `.app` / `.dmg`, Linux AppImage or Flatpak), with "Open with CQ-editor" for `.py` files |
+| ✅ | FEAT-E4 🟢 | **Self-contained installers:** Windows `.exe`, macOS `.pkg` for Apple Silicon and Intel, and Linux `.sh` bundle the pinned Python/CadQuery runtime. CI installs and smoke-tests each artifact; native launchers are created on all systems and Windows/Linux register "Open with CQ-editor" for `.py` files |
 | | FEAT-E5 🔵 | **Self-update check** for CQ-editor (today only CadQuery releases are checked) |
 | | FEAT-E6 🔵 | **Rich console output**: transport bounded and sanitized Jupyter MIME bundles from the isolated worker without allowing user code to block the GUI |
 

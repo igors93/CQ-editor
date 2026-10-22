@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CadQuery/CQ-editor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/CadQuery/CQ-editor/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/igors93/CQ-editor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/igors93/CQ-editor/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://doi.org/10.5281/zenodo.3955112"><img alt="DOI" src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.3955112-blue.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
   <a href="https://www.patreon.com/jmwright"><img alt="Patreon" src="https://badgen.net/badge/icon/patreon?icon=patreon&label"></a>
@@ -65,30 +65,21 @@ console. Your code stays the single source of truth.
 
 ## Quick start
 
-1. **Install CadQuery** in a Python environment (`jedi` is optional and
-   enables code completion):
+1. **Download the installer** for your computer from the
+   [releases page](https://github.com/igors93/CQ-editor/releases):
 
-   ```sh
-   python -m venv .venv
-   .venv/bin/pip install cadquery jedi        # Windows: .venv\Scripts\pip
-   ```
+   * Windows: `CQ-editor-0.8.0-Windows-x86_64.exe`;
+   * macOS: the Apple Silicon or Intel `.pkg`;
+   * Linux: the `.sh` installer (`chmod +x` it, then run it).
 
-2. **Get CQ-editor.** Download the executable for your system from the
-   [releases page](https://github.com/CadQuery/CQ-editor/releases) (version
-   0.8 and later are single executables), or build it with Rust 1.88+:
+   Python, CadQuery and code completion are already included. Each release
+   publishes SHA-256 checksums, and CI installs and starts every artifact
+   before it is published.
 
-   ```sh
-   cargo build --release                      # → target/release/cq-editor
-   ```
+2. **Launch CQ-editor** from the application menu. On Windows and Linux you
+   can also choose CQ-editor from **Open with** for a `.py` file.
 
-3. **Run it** from a terminal where the environment is active (or point it at
-   Python with `--python`):
-
-   ```sh
-   cq-editor my_part.py
-   ```
-
-4. **Press F5.** Scripts are plain CadQuery; `show_object` decides what is
+3. **Press F5.** Scripts are plain CadQuery; `show_object` decides what is
    displayed:
 
    ```python
@@ -118,8 +109,9 @@ The interface is a native Rust application built with
 [egui](https://github.com/emilk/egui) and [wgpu](https://wgpu.rs). CadQuery
 runs in a separate Python process, the *worker*. The worker executes
 scripts, meshes the shapes and sends them to the interface. Its sources are
-embedded in the executable, so all CQ-editor needs is a Python environment
-with CadQuery.
+embedded in the executable. Release installers also carry a private, tested
+Python/CadQuery environment; source builds can use any compatible environment
+selected with `--python` or in Preferences.
 
 ```
 ┌──────────────────────────────┐   JSON lines    ┌─────────────────────────────┐
@@ -132,28 +124,27 @@ with CadQuery.
 Scripts written for the original PyQt CQ-editor keep working: same
 `show_object` options, same script namespace, same execution settings. See
 [Architecture](docs/development/architecture.md) for the details. GUI
-equivalence, deliberate changes and the remaining stereo, rich-console and
-packaging gaps are tracked in the
+equivalence, deliberate changes and the remaining stereo and rich-console
+gaps are tracked in the
 [compatibility matrix](docs/development/compatibility.md); they are not
 silently treated as equivalent.
 
 ## Getting Help
 
 For general questions and discussion about CQ-editor, please create a
-[GitHub Discussion](https://github.com/CadQuery/CQ-editor/discussions). For
+[GitHub Discussion](https://github.com/igors93/CQ-editor/discussions). For
 CadQuery itself, see the [CadQuery documentation](https://cadquery.readthedocs.io/en/latest/).
 
 ## Reporting a Bug
 
 If you believe that you have found a bug in CQ-editor, please make sure that:
 
-* you are not running a CQ-editor fork, as forks are not always synchronized
-  with the latest updates in this project;
-* you have searched the [issue tracker](https://github.com/CadQuery/CQ-editor/issues)
+* you are using the latest CQ-editor release;
+* you have searched the [issue tracker](https://github.com/igors93/CQ-editor/issues)
   and the [roadmap](docs/roadmap.md#1-bugs-and-problems) to make sure the bug
   is not already known.
 
-Then file a [new issue](https://github.com/CadQuery/CQ-editor/issues/new)
+Then file a [new issue](https://github.com/igors93/CQ-editor/issues/new)
 with:
 
 * the operating system and its version (on Linux, the distribution and its

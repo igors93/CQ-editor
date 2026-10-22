@@ -2,7 +2,7 @@
 
 Contributions of all sizes are welcome: bug reports, documentation fixes,
 examples, features. For larger changes, open an issue or a
-[discussion](https://github.com/CadQuery/CQ-editor/discussions) first, so
+[discussion](https://github.com/igors93/CQ-editor/discussions) first, so
 the direction can be agreed on before you invest time. The
 [roadmap](../roadmap.md) lists known bugs and planned work.
 
@@ -15,7 +15,8 @@ the direction can be agreed on before you invest time. The
 
    ```sh
    cargo fmt --check && cargo clippy --all-targets && cargo test
-   black --check worker tests/worker
+   black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
+   python -m unittest discover -s tests/packaging -p "test_*.py"
    PYTHONPATH=worker python -m pytest tests/worker
    ```
 

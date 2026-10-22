@@ -93,13 +93,35 @@ which helps on small disks.
 
 ## Release builds in CI
 
-`.github/workflows/release.yml` runs when a GitHub release is published, or
-manually. It builds `cargo build --release` on Ubuntu 22.04, Windows and
-macOS, and attaches:
+`.github/workflows/release.yml` runs for a version tag (or manually without
+publishing). It builds the native Rust executable and then uses constructor
+3.17.3 to create four self-contained distributions:
 
-* `CQ-editor-linux-x86_64`
-* `CQ-editor-windows-x86_64.exe`
-* `CQ-editor-macos-arm64`
+* Windows x86_64 `.exe`;
+* Linux x86_64 self-extracting `.sh`;
+* macOS Apple Silicon `.pkg`;
+* macOS Intel `.pkg`.
 
-Each file is the complete application. Users still need their own Python
-environment with CadQuery.
+`packaging/constructor/construct.yaml` pins Python, CadQuery, OCP, Jedi and
+menuinst. The Rust executable is copied into the same private prefix and
+`src/worker/launch.rs` discovers that bundled Python before global or active
+environments. Explicit user choices still win.
+
+Each matrix job installs its finished artifact, imports the bundled CAD
+runtime and starts the installed executable with `--help`. Publication waits
+for all four smoke tests, generates `SHA256SUMS.txt`, creates the GitHub
+release and attaches the installers plus constructor's dependency lockfiles.
+The tag must exactly equal the Cargo package version, for example `0.8.0`.
+
+To build on one platform manually, first create `target/release/cq-editor`
+(or `.exe`), install constructor 3.17.3 from conda-forge and run:
+
+```sh
+mkdir dist
+cd dist
+constructor ../packaging/constructor
+```
+
+macOS additionally needs the `.icns` prepared as shown in the release
+workflow. Constructor builds only for the host platform; it does not
+cross-compile native installers.

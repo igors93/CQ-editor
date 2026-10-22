@@ -40,7 +40,7 @@ The first column is a stable contract id. `compatibility_matrix_is_complete_and_
 checks that no row disappears, every Verified/Enhanced row points to a real
 test, and every Changed/Gap/Unverified row points to an explicit decision or
 follow-up. A passing matrix test therefore proves the inventory is maintained;
-it does not turn the three open gaps into supported features.
+it does not turn the two open gaps into supported features.
 
 | Contract id | Original capability and current result | State | Evidence or decision |
 | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ it does not turn the three open gaps into supported features.
 | `shortcuts.legacy` | Every legacy file, editor, debugger and view shortcut is retained; additions do not replace them. | Verified | `tests/rust/app/test_commands.rs::legacy_shortcuts_are_preserved` |
 | `behavior.rand-color` | `rand_color()` now defaults to visible opacity instead of reproducing the original invisible-color defect. | Enhanced | `tests/worker/execution/test_execution.py::test_rand_color_is_reproducible` |
 | `ui.theme` | Separate application/editor schemes became one System/Light/Dark application theme. | Changed | Decision: [Theme settings](#theme-settings) |
-| `packaging.distribution` | Release jobs build native executables, but do not yet bundle Python, CadQuery and installers like the PyInstaller/conda distribution did. | Gap | Decision: [Distribution](#distribution) |
+| `packaging.distribution` | Native installers again bundle Python and CadQuery; they add platform launchers, install without a pre-existing environment and are smoke-tested after installation. | Enhanced | `tests/packaging/test_release.py::test_installer_contains_a_pinned_cadquery_runtime` |
 | `worker.isolation` | Script execution moved out of process; crashes no longer take down the editor and stale scene ids cannot collide after restart. | Enhanced | `tests/worker/protocol/test_worker_process.py::test_worker_can_be_restarted_after_a_native_process_exit` |
 
 ## Exact interaction inventory
@@ -170,10 +170,15 @@ cross-sections. These defaults must not be described as identical.
 ### Distribution
 
 The old PyInstaller and conda-constructor paths bundled the Python runtime and
-dependencies. Current release artifacts are standalone Rust executables that
-locate a user-managed Python with CadQuery. Bare executables must not be called
-equivalent installers. Bundled, signed installers remain `FEAT-E4`; until they
-exist, installation documentation must state the external Python requirement.
+dependencies. The new constructor installers retain that property while the
+Rust executable keeps its worker source embedded: Windows receives an `.exe`,
+Linux a self-extracting `.sh`, and macOS a `.pkg` for each supported CPU
+architecture. The application prefers the bundled runtime unless the user
+explicitly chooses another interpreter. Release CI installs every artifact,
+imports CadQuery/OCP/Jedi, starts the installed executable with `--help`, and
+publishes checksums plus the resolved package lockfile. Signing still depends
+on platform certificates and is not claimed when release credentials are not
+configured.
 
 ### GUI-only validation
 

@@ -61,3 +61,47 @@ fn existing_interpreter_requires_a_regular_file() {
     assert_eq!(existing(&directory, &["bin"]), None);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn installed_executable_finds_its_bundled_python() {
+    let root = std::env::temp_dir().join(format!("cq-editor-bundled-test-{}", std::process::id()));
+    let executable = if cfg!(windows) {
+        root.join("cq-editor.exe")
+    } else {
+        root.join("bin").join("cq-editor")
+    };
+    let python = CONDA_PYTHON
+        .iter()
+        .fold(root.clone(), |path, part| path.join(part));
+    std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(python.parent().unwrap()).unwrap();
+    std::fs::write(&executable, b"").unwrap();
+    std::fs::write(&python, b"").unwrap();
+    std::fs::write(root.join(".installer.info"), b"").unwrap();
+
+    assert_eq!(bundled_python_for(&executable), Some(python));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unrelated_executable_does_not_invent_a_bundled_python() {
+    let root =
+        std::env::temp_dir().join(format!("cq-editor-unbundled-test-{}", std::process::id()));
+    let executable = root.join("app").join(if cfg!(windows) {
+        "cq-editor.exe"
+    } else {
+        "cq-editor"
+    });
+    std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    std::fs::write(&executable, b"").unwrap();
+    let unmarked_python = CONDA_PYTHON
+        .iter()
+        .fold(root.clone(), |path, part| path.join(part));
+    std::fs::create_dir_all(unmarked_python.parent().unwrap()).unwrap();
+    std::fs::write(unmarked_python, b"").unwrap();
+
+    assert_eq!(bundled_python_for(&executable), None);
+
+    std::fs::remove_dir_all(root).unwrap();
+}

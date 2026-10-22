@@ -26,6 +26,7 @@ The test folders follow the parts of the application they protect:
 
 | Folder | Coverage |
 | --- | --- |
+| `tests/packaging/` | Version synchronization, bundled dependency pins, native shortcuts and the release workflow contract |
 | `tests/rust/app/` | Commands, the run and request state machine, preferences, file watching, logging, embedded files and the command line |
 | `tests/rust/editor/` | Document persistence, recovery, text editing and highlighting |
 | `tests/rust/panels/` | Console behavior and the Objects panel layout |
@@ -48,6 +49,7 @@ requests:
 
 | Job | Steps |
 | --- | --- |
+| `packaging` (Ubuntu 22.04) | Installer metadata, version and release-workflow contract tests |
 | `rust` (Ubuntu 22.04, Windows, macOS) | `cargo fmt --check` · `cargo clippy --all-targets` · `cargo test` |
 | `worker` released matrix (Ubuntu 22.04) | Python 3.10/CadQuery 2.7/OCP 7.8, Python 3.11/CadQuery 2.8/OCP 7.9 and Python 3.14/CadQuery 2.8/OCP 7.9 · package check · Black · full pytest suite |
 | `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · full pytest suite; early-warning lane, allowed to fail while upstream moves |
@@ -56,7 +58,8 @@ Run the same checks locally before opening a pull request:
 
 ```sh
 cargo fmt --check && cargo clippy --all-targets && cargo test
-black --check worker tests/worker
+black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
+python -m unittest discover -s tests/packaging -p "test_*.py"
 PYTHONPATH=worker python -m pytest tests/worker
 ```
 

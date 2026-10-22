@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased (0.8.0)
+## Unreleased
+
+## 0.8.0 (2026-10-22)
 
 The interface was rebuilt in Rust (egui + wgpu); CadQuery now runs in a
 separate Python worker process (`worker/cq_worker`). The core script contract,
@@ -9,6 +11,13 @@ tracked in the compatibility matrix instead of being assumed.
 
 * New: a running or crashing script no longer freezes or closes the editor;
   Run > Stop (Ctrl+Shift+F5) aborts it and a crashed worker restarts itself
+* New: self-contained installers for Windows, Linux, macOS Apple Silicon and
+  macOS Intel bundle the tested Python 3.12, CadQuery 2.8, OCP 7.9 and Jedi
+  runtime; every installer is smoke-tested after installation and published
+  with SHA-256 checksums and its resolved dependency lockfile
+* New: installed applications add a native launcher; Windows and Linux also
+  register CQ-editor as an option for opening Python files without replacing
+  the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
 * New: precise OCCT face, edge and vertex selection with subshape highlighting

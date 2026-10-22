@@ -1,11 +1,11 @@
 [package]
 name = "cq-editor"
-version = "0.8.0-dev"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Cross-platform CadQuery 3D viewer and script editor"
 license = "Apache-2.0"
-repository = "https://github.com/CadQuery/CQ-editor"
+repository = "https://github.com/igors93/CQ-editor"
 keywords = ["cadquery", "cad", "engineering", "design"]
 # Python example scripts live in `examples/`; they are not Cargo examples.
 autoexamples = false

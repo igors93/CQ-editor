@@ -1,6 +1,7 @@
 //! Embeds the Python worker package and the example scripts into the binary,
-//! so a release build is a single executable that only needs a Python
-//! environment with CadQuery installed.
+//! so a release build keeps its worker in sync. Installers bundle the matching
+//! Python/CadQuery environment; development and portable builds may use one
+//! supplied by the user.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

@@ -230,7 +230,7 @@ fn about(ctx: &egui::Context, state: &mut AppState) {
                 }
                 ui.hyperlink_to(
                     format!("{} Source code", icon::GITHUB_LOGO),
-                    "https://github.com/CadQuery/CQ-editor",
+                    "https://github.com/igors93/CQ-editor",
                 );
                 ui.add_space(10.0);
                 if ui.button("Close").clicked() {
