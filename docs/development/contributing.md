@@ -26,8 +26,9 @@ the direction can be agreed on before you invest time. The
 ## Code style
 
 * **Rust:** `cargo fmt`, no clippy warnings, edition 2024.
-* **Python:** `black`, type hints, `from __future__ import annotations`,
-  Python 3.10 compatible (the worker runs in the user's environment).
+* **Python:** `black`, type hints, `from __future__ import annotations`, and
+  compatibility with the supported Python/CadQuery/OCP matrix (the worker
+  runs in the user's environment).
 * **Comments and docs in English.** Comments explain *why*, not what the
   code already says. Every module starts with a short doc comment saying
   what it is for.

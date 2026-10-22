@@ -249,8 +249,14 @@ pub struct ReadyInfo {
     pub protocol: u32,
     pub python: String,
     pub cadquery: String,
+    #[serde(default = "unknown_version")]
+    pub ocp: String,
     pub executable: String,
     pub completion: bool,
+}
+
+fn unknown_version() -> String {
+    "unknown".to_owned()
 }
 
 #[derive(Deserialize, Debug)]

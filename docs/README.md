@@ -37,6 +37,7 @@ interactive console and exporters.
 | [Worker protocol](development/protocol.md) | The JSON-lines protocol (version 4) between the two processes |
 | [Building](development/building.md) | Toolchains, platform notes, release builds |
 | [Testing](development/testing.md) | Test layout, running the suites, continuous integration |
+| [CadQuery/OCP compatibility](development/dependency-compatibility.md) | Supported Python and CAD-kernel versions, CI lanes and environment reporting |
 | [Original compatibility](development/compatibility.md) | Verified legacy behavior, exact shortcuts and mouse controls, deliberate differences and open gaps |
 | [Contributing](development/contributing.md) | Workflow, code style, where to make common changes |
 

@@ -9,6 +9,14 @@ import pytest
 from cq_worker.protocol import Channel, OutputStream
 
 
+def pytest_report_header(config):
+    """Make every saved test or benchmark log identify its CAD runtime."""
+
+    from cq_worker.environment import summary
+
+    return f"worker environment: {summary()}"
+
+
 def decode(text: str, dtype: str, columns: int) -> np.ndarray:
     return np.frombuffer(base64.b64decode(text), dtype=dtype).reshape(-1, columns)
 

@@ -49,7 +49,8 @@ requests:
 | Job | Steps |
 | --- | --- |
 | `rust` (Ubuntu 22.04, Windows, macOS) | `cargo fmt --check` · `cargo clippy --all-targets` · `cargo test` |
-| `worker` (Ubuntu 22.04, Python 3.12) | `pip install cadquery jedi pytest black` · `black --check worker tests/worker` · `pytest tests/worker` |
+| `worker` released matrix (Ubuntu 22.04) | Python 3.10/CadQuery 2.7/OCP 7.8, Python 3.11/CadQuery 2.8/OCP 7.9 and Python 3.14/CadQuery 2.8/OCP 7.9 · package check · Black · full pytest suite |
+| `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · full pytest suite; early-warning lane, allowed to fail while upstream moves |
 
 Run the same checks locally before opening a pull request:
 
@@ -63,6 +64,10 @@ The CI run is the authoritative status. Do not hand-maintain test totals here:
 parameterized compatibility cases make the number change often. CI installs
 the latest `black`; use the version reported by the failing job if local and
 CI formatting differ.
+
+See [CadQuery and OCP compatibility](dependency-compatibility.md) for the
+support policy and exact dependency pins. Pytest's header records Python,
+CadQuery, OCP, platform and interpreter for every saved result.
 
 ## Original compatibility gate
 
@@ -93,7 +98,8 @@ cargo test --release pick_latency -- --ignored --nocapture
 `pick_latency_on_growing_assemblies` sweeps the pointer across assemblies
 of 64 to 16,384 instanced parts and prints the median, 95th percentile and
 maximum pick latency without and with the scene index, plus the index
-build time.
+build time. Its first line records CQ-editor version, operating system,
+architecture, build profile and logical CPU count so results are comparable.
 
 ## Writing tests
 

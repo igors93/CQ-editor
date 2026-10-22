@@ -20,6 +20,7 @@ def test_ready_and_run(conversation):
 
     ready = talk.of_type("ready")[0]
     assert ready["cadquery"]
+    assert ready["ocp"]
     (finished,) = talk.of_type("run_finished")
     assert finished["id"] == 1 and finished["ok"] is True
     assert [o["name"] for o in finished["objects"]] == ["result"]

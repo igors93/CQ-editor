@@ -43,6 +43,9 @@ tracked in the compatibility matrix instead of being assumed.
 * New: documentation in `docs/` (user guide, development guide, roadmap)
 * New: a tested compatibility matrix inventories original features, guards
   legacy shortcuts and mouse gestures, and runs every pre-rewrite example
+* New: CI tests the worker against the supported Python/CadQuery/OCP release
+  matrix and the current CadQuery development branch; test, benchmark and
+  application logs now identify the exact runtime versions
 * Changed: theme follows the system by default; the separate editor color
   scheme preference was merged into the application theme
 * Changed: stereo projection modes were dropped (orthographic and
@@ -52,6 +55,9 @@ tracked in the compatibility matrix instead of being assumed.
   free its own objects, so the CQ Inspector, export and upload failed; scene
   keys are now unique per worker process
 * Fixed: the CI format check (`black`) failed on three worker files
+* Fixed: OCP 8 moved generated collection types and removed the `_s` suffix
+  from `TopoDS` downcasts, preventing the worker from importing with current
+  CadQuery `master`; one compatibility shim now supports both OCP 7 and 8
 * Fixed: in a short Objects pane, the property sheet grew over the object
   tree; it now scrolls and leaves the tree its room
 * Fixed: breakpoints and the error line stayed on their line numbers when

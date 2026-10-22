@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import platform
 import sys
 import tempfile
 import time
@@ -23,6 +22,7 @@ import cadquery as cq
 from . import completion, exporting, inspector, measurement, network
 from .console import ConsoleSession
 from .debugger import Action, Debugger
+from .environment import runtime_environment
 from .execution import (
     SCRIPT_FILENAME,
     Execution,
@@ -109,13 +109,15 @@ class Server:
     # -- main loop ---------------------------------------------------------
 
     def serve_forever(self) -> None:
+        environment = runtime_environment()
         self.channel.send(
             {
                 "type": "ready",
                 "protocol": PROTOCOL_VERSION,
-                "python": platform.python_version(),
-                "cadquery": cq.__version__,
-                "executable": sys.executable,
+                "python": environment["python"],
+                "cadquery": environment["cadquery"],
+                "ocp": environment["ocp"],
+                "executable": environment["executable"],
                 "completion": completion.is_available(),
                 "pid": os.getpid(),
             }

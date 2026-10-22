@@ -15,7 +15,7 @@ executable. You do not install it separately.
 | | Minimum |
 | --- | --- |
 | Operating system | Windows 10/11, Linux (X11 or Wayland), macOS. CI builds and tests all three |
-| Python | 3.10 or newer, with `cadquery` installed |
+| Python | 3.10–3.14, with a matching supported CadQuery version installed |
 | Optional | `jedi`, for code completion and call signatures in the editor and console |
 | Graphics | A GPU and driver supported by [wgpu](https://wgpu.rs) (Vulkan, Metal or Direct3D 12) |
 | Building from source | Rust 1.88 or newer (stable toolchain) |
@@ -25,6 +25,11 @@ executable. You do not install it separately.
 Use any environment manager you like. The editor only needs to find the
 `python` executable of that environment (see [How CQ-editor finds
 Python](#how-cq-editor-finds-python)).
+
+Python 3.11–3.14 with CadQuery 2.8 is recommended. Python 3.10 remains
+supported with CadQuery 2.7. The exact tested combinations, including their
+OCP versions, are in the
+[CadQuery/OCP compatibility matrix](../development/dependency-compatibility.md).
 
 **pip and a virtual environment**
 
@@ -85,7 +90,8 @@ cq-editor --python /path/to/env/bin/python my_part.py
 
 On the first start the status bar shows **Starting Python…** while CadQuery
 is imported, which takes a few seconds. It then shows the versions in use,
-for example **Python 3.10.11 · CadQuery 2.7.0**. Press **F5** to render.
+for example **Python 3.12.10 · CadQuery 2.8.0**. Hover it to also see the OCP
+version, and press **F5** to render.
 
 ![First launch](../images/first-launch.png)
 

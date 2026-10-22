@@ -45,6 +45,9 @@ pub fn ui(ui: &mut egui::Ui, state: &AppState) {
                 .unwrap_or_default();
             let tooltip = match state.worker.status() {
                 worker::Status::Failed(reason) => format!("{reason}\n{python}"),
+                worker::Status::Ready(info) => {
+                    format!("CadQuery {} · OCP {}\n{python}", info.cadquery, info.ocp)
+                }
                 _ => python,
             };
             ui.label(RichText::new(text).small())

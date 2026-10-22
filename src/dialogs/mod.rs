@@ -221,8 +221,8 @@ fn about(ctx: &egui::Context, state: &mut AppState) {
                 ui.add_space(8.0);
                 if let Some(info) = state.worker.info() {
                     ui.weak(format!(
-                        "Python {} · CadQuery {}",
-                        info.python, info.cadquery
+                        "Python {} · CadQuery {} · OCP {}",
+                        info.python, info.cadquery, info.ocp
                     ));
                 }
                 ui.hyperlink_to(

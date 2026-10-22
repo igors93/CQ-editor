@@ -109,7 +109,7 @@ Everything is in the [`docs/`](docs/README.md) folder:
 * [Installation](docs/getting-started/installation.md): requirements, how Python is found, where files are stored
 * [Your first model](docs/getting-started/first-model.md): a guided tour
 * [User guide](docs/README.md#user-guide): [interface](docs/user-guide/interface.md), [writing scripts](docs/user-guide/scripting.md), [3D view](docs/user-guide/viewer.md), [editor](docs/user-guide/editor.md), [debugging](docs/user-guide/debugging.md), [console](docs/user-guide/console.md), [exporting](docs/user-guide/exporting.md), [preferences](docs/user-guide/preferences.md), [shortcuts](docs/user-guide/shortcuts.md), [troubleshooting](docs/user-guide/troubleshooting.md)
-* [Development](docs/README.md#development): [architecture](docs/development/architecture.md), [worker protocol](docs/development/protocol.md), [building](docs/development/building.md), [testing](docs/development/testing.md), [contributing](docs/development/contributing.md)
+* [Development](docs/README.md#development): [architecture](docs/development/architecture.md), [worker protocol](docs/development/protocol.md), [building](docs/development/building.md), [testing](docs/development/testing.md), [CadQuery/OCP compatibility](docs/development/dependency-compatibility.md), [contributing](docs/development/contributing.md)
 * [Roadmap](docs/roadmap.md) and [changelog](docs/changelog.md)
 
 ## How it works

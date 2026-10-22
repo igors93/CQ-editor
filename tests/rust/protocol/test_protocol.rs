@@ -135,7 +135,8 @@ fn serializes_run_request_with_worker_settings() {
 fn parses_worker_readiness_and_optional_fatal_detail() {
     let ready: Message = serde_json::from_value(serde_json::json!({
         "type": "ready", "protocol": PROTOCOL_VERSION,
-        "python": "3.12", "cadquery": "2.7", "executable": "python",
+        "python": "3.12", "cadquery": "2.8", "ocp": "7.9.3.1.1",
+        "executable": "python",
         "completion": true, "pid": 123
     }))
     .unwrap();
@@ -143,7 +144,19 @@ fn parses_worker_readiness_and_optional_fatal_detail() {
         panic!("expected ready");
     };
     assert_eq!(info.protocol, PROTOCOL_VERSION);
+    assert_eq!(info.ocp, "7.9.3.1.1");
     assert!(info.completion);
+
+    let old_ready: Message = serde_json::from_value(serde_json::json!({
+        "type": "ready", "protocol": PROTOCOL_VERSION,
+        "python": "3.10", "cadquery": "2.7", "executable": "python",
+        "completion": false
+    }))
+    .unwrap();
+    let Message::Ready(old_info) = old_ready else {
+        panic!("expected ready");
+    };
+    assert_eq!(old_info.ocp, "unknown");
 
     let fatal: Message =
         serde_json::from_str(r#"{"type":"fatal","message":"no cadquery"}"#).unwrap();

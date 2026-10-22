@@ -148,6 +148,7 @@ measured scene makes the CPU path the bottleneck again.
 | --- | --- |
 | `__main__.py` | Entry point: takes over stdout, imports CadQuery, reports `ready` or `fatal` |
 | `protocol.py` | JSON-lines transport. Captures `print` output and native writes to descriptor 1 |
+| `environment.py` | Reproducible Python, CadQuery, OCP, platform and interpreter version report |
 | `server.py` | Request dispatch, the run loop, debug pause loop, session state |
 | `execution.py` | Running the editor buffer as `__cq_main__`: injected API, environment, module reloading, tracebacks |
 | `debugger.py` | Line stepping with `sys.settrace`, tracing only the script's own frames |

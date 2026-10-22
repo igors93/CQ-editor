@@ -945,9 +945,10 @@ impl AppState {
         match message {
             Message::Ready(info) => {
                 log::info!(
-                    "Python {} with CadQuery {} is ready ({})",
+                    "Python {} with CadQuery {} / OCP {} is ready ({})",
                     info.python,
                     info.cadquery,
+                    info.ocp,
                     info.executable
                 );
                 if !info.completion {

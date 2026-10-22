@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":4,"python":"3.10.11","cadquery":"2.7.0","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":4,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -89,7 +89,7 @@ The worker handles one request at a time, in arrival order.
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
-| `ready` | `protocol`, `python`, `cadquery`, `executable`, `completion`, `pid` | Worker is ready |
+| `ready` | `protocol`, `python`, `cadquery`, `ocp`, `executable`, `completion`, `pid` | Worker is ready; the version fields identify the exact CAD runtime |
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |

@@ -885,6 +885,18 @@ fn latency_summary(mut samples: Vec<Duration>) -> String {
 #[test]
 #[ignore = "benchmark; run explicitly in release mode"]
 fn pick_latency_on_growing_assemblies() {
+    println!(
+        "environment: cq-editor={} os={} arch={} profile={} logical_cpus={}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+        std::thread::available_parallelism().map_or(1, usize::from),
+    );
     let mesh = Arc::new(cylinder(48));
     let (aspect, viewport) = (1.6, Vec2::new(1600.0, 1000.0));
     let path = sweep();

@@ -97,7 +97,8 @@ All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).
   cursor position (*Ln, Col*), the file's line ending (*LF*, *CRLF* or
   *CR*), the encoding (*UTF-8*) and the state of Python: *Starting Python…*,
   *Python 3.x · CadQuery 2.x*, *Python not started* or *Python unavailable*.
-  Hover the Python state to see which interpreter is used.
+  Hover the Python state to see the CadQuery and OCP versions and which
+  interpreter is used.
 
 The window title shows the file name and folder, for example
 *bracket.py — demo — CQ-editor*. An asterisk after the name in the title,

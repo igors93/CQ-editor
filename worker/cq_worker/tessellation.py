@@ -39,14 +39,25 @@ from OCP.GCPnts import GCPnts_TangentialDeflection
 from OCP.Message import Message_ProgressRange
 from OCP.RWGltf import RWGltf_CafWriter
 from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
-from OCP.TColStd import TColStd_IndexedDataMapOfStringString
 from OCP.TDocStd import TDocStd_Document
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
-from OCP.TopTools import TopTools_IndexedMapOfShape
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+try:
+    # OCP 7.x exposes generated collection aliases in their OCCT package.
+    from OCP.TColStd import TColStd_IndexedDataMapOfStringString as _StringMap
+    from OCP.TopTools import TopTools_IndexedMapOfShape as _ShapeMap
+except ImportError:
+    # OCP 8 generates all collection specializations in one module.
+    from OCP.collections import (
+        IndexedDataMap_TCollection_AsciiString_TCollection_AsciiString as _StringMap,
+    )
+    from OCP.collections import (
+        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _ShapeMap,
+    )
 
 # Never mesh finer than this, whatever the model size (model units).
 MIN_DEFLECTION = 1e-4
@@ -249,7 +260,7 @@ class TopologyIndex:
     @classmethod
     def build(cls, shape: TopoDS_Shape) -> TopologyIndex:
         def mapped(kind) -> tuple[TopoDS_Shape, ...]:
-            index = TopTools_IndexedMapOfShape()
+            index = _ShapeMap()
             TopExp.MapShapes_s(shape, kind, index)
             return tuple(index.FindKey(i) for i in range(1, index.Extent() + 1))
 
@@ -317,6 +328,13 @@ def _empty(columns: int) -> np.ndarray:
     return np.zeros((0, columns), dtype=np.float32)
 
 
+def _topods(kind: str, shape: TopoDS_Shape) -> TopoDS_Shape:
+    """Downcast a shape with the generated spelling used by OCP 7 or 8."""
+
+    caster = getattr(TopoDS, f"{kind}_s", None) or getattr(TopoDS, kind)
+    return caster(shape)
+
+
 def _mesh_faces(
     shape: TopoDS_Shape, deflection: float, angular: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -332,9 +350,7 @@ def _mesh_faces(
     try:
         writer = RWGltf_CafWriter(TCollection_AsciiString(path), True)
         writer.SetMergeFaces(True)
-        ok = writer.Perform(
-            document, TColStd_IndexedDataMapOfStringString(), Message_ProgressRange()
-        )
+        ok = writer.Perform(document, _StringMap(), Message_ProgressRange())
         if not ok:
             raise TessellationError("the glTF writer failed to export the mesh")
         with open(path, "rb") as file:
@@ -519,12 +535,12 @@ def _display_triangle_faces(
     triangles instead of guessing.
     """
 
-    index = TopTools_IndexedMapOfShape()
+    index = _ShapeMap()
     TopExp.MapShapes_s(shape, TopAbs_FACE, index)
     identifiers, counts = [], []
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
-        face = TopoDS.Face_s(explorer.Current())
+        face = _topods("Face", explorer.Current())
         triangulation = BRep_Tool.Triangulation_s(face, TopLoc_Location())
         if triangulation is not None and triangulation.NbTriangles() > 0:
             identifiers.append(index.FindIndex(face))
@@ -548,7 +564,7 @@ def _topology_faces(
     identifiers: list[np.ndarray] = []
     offset = 0
     for identifier, raw_face in enumerate(faces, start=1):
-        face = TopoDS.Face_s(raw_face)
+        face = _topods("Face", raw_face)
         location = TopLoc_Location()
         triangulation = BRep_Tool.Triangulation_s(face, location)
         if triangulation is None:
@@ -596,7 +612,7 @@ def _discretize_edges(
     segments: list[np.ndarray] = []
     identifiers: list[np.ndarray] = []
     for identifier, raw_edge in enumerate(edges, start=1):
-        edge = TopoDS.Edge_s(raw_edge)
+        edge = _topods("Edge", raw_edge)
         if BRep_Tool.Degenerated_s(edge):
             continue
         try:
@@ -627,7 +643,7 @@ def _discretize_edges(
 def _topology_vertices(vertices: tuple[TopoDS_Shape, ...]) -> np.ndarray:
     points = []
     for raw_vertex in vertices:
-        point = BRep_Tool.Pnt_s(TopoDS.Vertex_s(raw_vertex))
+        point = BRep_Tool.Pnt_s(_topods("Vertex", raw_vertex))
         points.append((point.X(), point.Y(), point.Z()))
     return np.array(points, dtype=np.float32).reshape(-1, 3)
 
@@ -638,7 +654,7 @@ def _free_vertices(shape: TopoDS_Shape) -> np.ndarray:
     points = []
     explorer = TopExp_Explorer(shape, TopAbs_VERTEX, TopAbs_EDGE)
     while explorer.More():
-        p = BRep_Tool.Pnt_s(TopoDS.Vertex_s(explorer.Current()))
+        p = BRep_Tool.Pnt_s(_topods("Vertex", explorer.Current()))
         points.append((p.X(), p.Y(), p.Z()))
         explorer.Next()
     return np.array(points, dtype=np.float32).reshape(-1, 3)
