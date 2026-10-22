@@ -1,4 +1,8 @@
-"""Compatibility smoke tests for projects shipped before the Rust rewrite."""
+"""Smoke tests for every bundled example.
+
+The examples 01 to 08 shipped before the Rust rewrite and are compatibility
+fixtures; later examples are additions held to the same standard.
+"""
 
 from pathlib import Path
 

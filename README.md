@@ -99,7 +99,7 @@ console. Your code stays the single source of truth.
    ```
 
 New to CadQuery or CQ-editor? The [10-minute tour](docs/getting-started/first-model.md)
-models a bracket step by step, and **File > Examples** has eight commented
+models a bracket step by step, and **File > Examples** has nine commented
 scripts.
 
 ## Documentation

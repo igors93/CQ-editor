@@ -130,8 +130,9 @@ in the Objects panel does the same.
 
 ## Where next
 
-* **File > Examples** has eight commented scripts, from a simple box to an
-  assembly. Examples open read-only; saving asks for a new location.
+* **File > Examples** has nine commented scripts, from a simple box to
+  assemblies such as a welded square-tube workbench. Examples open
+  read-only; saving asks for a new location.
 * The **Console** panel runs Python with the variables of the last run. Try
   `show_object(bracket.faces(">Z"))`.
 * [The interface](../user-guide/interface.md) walks through every panel and

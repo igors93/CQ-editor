@@ -82,8 +82,8 @@ the stable legacy contract ids and fails when:
 
 `legacy_shortcuts_are_preserved` checks every original shortcut,
 `legacy_mouse_gestures_keep_their_navigation_modes` checks the original mouse
-bindings, and `test_examples.py` executes the eight example projects that are
-unchanged from the pre-rewrite revision. This gate checks inventory and
+bindings, and `test_examples.py` executes every example project, including
+the eight (`01` to `08`) that are unchanged from the pre-rewrite revision. This gate checks inventory and
 evidence; it deliberately does not claim that documented gaps are complete.
 
 ## Benchmarks

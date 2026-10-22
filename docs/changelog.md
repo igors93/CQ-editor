@@ -56,6 +56,8 @@ tracked in the compatibility matrix instead of being assumed.
   the linear scan (about 0.1 ms instead of 150 ms per pointer move with
   16,384 parts)
 * New: documentation in `docs/` (user guide, development guide, roadmap)
+* New: a ninth example, a welded 20 x 20 mm square-tube workbench built as
+  an assembly, with its cutting plan and a tube summary in the Log panel
 * New: a tested compatibility matrix inventories original features, guards
   legacy shortcuts and mouse gestures, and runs every pre-rewrite example
 * New: CI tests the worker against the supported Python/CadQuery/OCP release

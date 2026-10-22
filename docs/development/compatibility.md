@@ -14,8 +14,9 @@ legacy surfaces are
 [`editor.py`](https://github.com/igors93/CQ-editor/blob/71903d5/cq_editor/widgets/editor.py)
 and
 [`main_window.py`](https://github.com/igors93/CQ-editor/blob/71903d5/cq_editor/main_window.py).
-The eight scripts in `examples/` are byte-for-byte unchanged from that commit
-and are executable compatibility fixtures.
+The eight scripts `01` to `08` in `examples/` are byte-for-byte unchanged from
+that commit and are executable compatibility fixtures; later examples are
+additions.
 
 Compatibility means the same user-visible result or script contract. It does
 not require the same toolkit, process model or rendering implementation. A
