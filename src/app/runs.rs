@@ -6,12 +6,58 @@ use std::time::Instant;
 use super::execution::{RunEnd, RunRequest};
 use super::{AppState, StatusKind};
 use crate::logging::{self, Level};
+use crate::parameters;
 use crate::scene::{Overlay, SceneNode};
 use crate::worker::protocol::{
     DebugAction, Request, RequestId, RunFinished, SceneNode as NodeMessage,
 };
 
+/// How long after the last parameter change the script renders again, in
+/// seconds: a drag renders once it pauses, not on every pixel.
+pub(super) const PARAMETER_RENDER_DELAY: f64 = 0.3;
+
 impl AppState {
+    /// Writes a parameter's new value into the script, as an undoable
+    /// edit, and renders again shortly after.
+    pub(super) fn set_parameter(&mut self, name: &str, line: usize, value: f64) {
+        if self.is_debugging() {
+            self.set_status(
+                StatusKind::Warning,
+                "Parameters can be changed once debugging ends",
+            );
+            return;
+        }
+        let Some(parameter) = parameters::parameters(&self.document.text)
+            .into_iter()
+            .find(|parameter| parameter.line == line && parameter.name == name)
+        else {
+            return;
+        };
+        let literal = parameter.literal_for(value);
+        let now = self.now();
+        self.editor
+            .adjust_text(&mut self.document, parameter.literal, &literal, now);
+        self.parameter_render_at = Some(now + PARAMETER_RENDER_DELAY);
+    }
+
+    /// Renders once the parameters stopped changing for a moment.
+    pub(super) fn poll_parameter_render(&mut self, ctx: &egui::Context) {
+        let Some(at) = self.parameter_render_at else {
+            return;
+        };
+        let now = ctx.input(|input| input.time);
+        if now < at {
+            if let Ok(wait) = std::time::Duration::try_from_secs_f64(at - now) {
+                ctx.request_repaint_after(wait);
+            }
+            return;
+        }
+        self.parameter_render_at = None;
+        if !self.is_debugging() {
+            self.start_run(false);
+        }
+    }
+
     pub(super) fn start_run(&mut self, debug: bool) {
         let availability = self.worker.status().into();
         match self.execution.request_run(debug, availability) {

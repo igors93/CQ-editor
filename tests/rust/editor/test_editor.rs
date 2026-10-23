@@ -286,3 +286,23 @@ fn documentation_is_shown_only_for_the_name_still_under_the_pointer() {
     editor.show_documentation(documentation);
     assert_eq!(editor.hover.text, None);
 }
+
+#[test]
+fn adjusting_a_literal_keeps_the_caret_on_its_text_and_the_focus() {
+    let mut editor = CodeEditor::default();
+    let mut doc = document("width = 40\nbox(width)\n");
+    editor.selection = Selection::caret(doc.text.len() - 1);
+
+    editor.adjust_text(&mut doc, 8..10, "125", 1.0);
+    editor.adjust_text(&mut doc, 8..11, "7", 1.1);
+    assert_eq!(doc.text, "width = 7\nbox(width)\n");
+    // The caret stays at the end of "box(width)".
+    assert_eq!(editor.selection, Selection::caret(doc.text.len() - 1));
+    assert!(!editor.pending_focus, "the panel keeps the keyboard");
+
+    // The same value again changes nothing.
+    editor.adjust_text(&mut doc, 8..9, "7", 1.2);
+    editor.undo(&mut doc);
+    assert_eq!(doc.text, "width = 40\nbox(width)\n");
+    assert!(!editor.can_undo());
+}

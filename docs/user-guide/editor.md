@@ -115,6 +115,31 @@ Saves are **atomic**: the new contents are written to a temporary file next
 to the script and then swapped in. A crash or power loss in the middle of a
 save leaves either the old or the new file, never a truncated one.
 
+## Parameters panel
+
+The **Parameters** panel lists the script's top-level numbers, such as
+`width = 40` or `wall: float = 2.5`, each with a spin box and a slider.
+Changing a value rewrites its literal in the script and renders again once
+the value stops changing for a moment, so the script stays the source of
+truth: the change is an ordinary edit (a whole drag is one Undo step), and
+saving keeps it. Click a name to go to its line.
+
+Integers stay integers, and floats keep the decimals they are written with
+(`2.50` moves by 0.01). A comment after the value sets the slider's range,
+optionally with a step, and bounds the value:
+
+```python
+width = 40          # [10, 100]
+hole = 2.5          # diameter [0.5, 5, 0.25]
+count = 3           # 1..12
+```
+
+Without a range, the slider spans from zero to twice the first value.
+Only plain assignments at the start of a top-level line count: numbers
+inside functions or blocks, bracketed or continued lines, strings, and
+expressions such as `a = 1 + 2` are left alone. Values cannot be changed
+while debugging.
+
 ## Automatic reload and preview
 
 Turn on **File > Automatic Reload and Preview** (toolbar ⟳) to edit the

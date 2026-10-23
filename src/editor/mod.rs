@@ -351,6 +351,46 @@ impl CodeEditor {
         self.apply(document, edited);
     }
 
+    /// Replaces `range` with `replacement` as a new value of the literal
+    /// there: successive values, such as those of a drag in the Parameters
+    /// panel, are one undo step. The caret stays on the text it was on and
+    /// the keyboard focus stays where it is. `now` is in seconds.
+    pub fn adjust_text(
+        &mut self,
+        document: &mut Document,
+        range: Range<usize>,
+        replacement: &str,
+        now: f64,
+    ) {
+        if document.text.get(range.clone()) == Some(replacement) {
+            return;
+        }
+        self.record_outside_edits(document);
+        let before = self.clamped_selection(&document.text);
+        let shift = |at: usize| {
+            if at >= range.end {
+                at - range.end + range.start + replacement.len()
+            } else {
+                at.min(range.start + replacement.len())
+            }
+        };
+        let after = Selection {
+            anchor: shift(before.anchor),
+            cursor: shift(before.cursor),
+        };
+        document.text.replace_range(range.clone(), replacement);
+        self.history.record(
+            &document.text,
+            &before,
+            &after,
+            EditKind::Adjust(range.start),
+            now,
+        );
+        self.close_popups();
+        self.selection = after.clone();
+        self.pending_selection = Some(after);
+    }
+
     /// Replaces the selection with `text` as one undo step and leaves the
     /// caret after it, e.g. to insert a selector picked in the 3D view.
     pub fn insert_text(&mut self, document: &mut Document, text: &str) {

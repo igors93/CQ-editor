@@ -40,8 +40,8 @@ use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
 use crate::logging;
 use crate::panels::{
-    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, SelectorState,
-    SelectorUse, Tab, TabContext,
+    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, ParametersState,
+    SelectorState, SelectorUse, Tab, TabContext,
 };
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
 use crate::scene::{Overlay, Rgb, Scene};
@@ -98,6 +98,9 @@ pub struct AppState {
     pub measurements: MeasurementState,
     /// The CadQuery selector of the topology selection.
     pub selector: SelectorState,
+    pub parameters: ParametersState,
+    /// When to render after a parameter changed (`ctx` time, seconds).
+    parameter_render_at: Option<f64>,
     pub console: ConsoleState,
     pub log_view: LogView,
     pub status: Option<Status>,
@@ -187,6 +190,7 @@ impl AppState {
     /// message; the watcher and recovery timers schedule theirs).
     fn logic(&mut self, ctx: &egui::Context) {
         self.process_worker_events();
+        self.poll_parameter_render(ctx);
         self.sync_watcher();
         self.poll_watcher(ctx);
         self.poll_recovery(ctx);
@@ -414,6 +418,7 @@ impl AppState {
                 extend,
             } => self.select(key, topology, extend),
             Action::SetVisible { key, visible } => self.scene.set_visible(&key, visible),
+            Action::SetParameter { name, line, value } => self.set_parameter(&name, line, value),
             Action::RemoveSelected => {
                 let keys = self.scene.selected_top_level();
                 let removed = self.scene.remove_top_level(&keys);
@@ -563,6 +568,8 @@ impl CqEditorApp {
             inspector: InspectorState::default(),
             measurements: MeasurementState::default(),
             selector: SelectorState::default(),
+            parameters: ParametersState::default(),
+            parameter_render_at: None,
             console: ConsoleState::default(),
             log_view: LogView::default(),
             status: None,

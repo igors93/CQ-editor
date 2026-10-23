@@ -84,6 +84,12 @@ pub enum Action {
         key: NodeKey,
         visible: bool,
     },
+    /// A new value for the parameter `name` assigned on `line` (1-based).
+    SetParameter {
+        name: String,
+        line: usize,
+        value: f64,
+    },
     RemoveSelected,
     ClearObjects,
     InspectEntry {

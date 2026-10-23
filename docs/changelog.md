@@ -20,6 +20,9 @@ tracked in the compatibility matrix instead of being assumed.
   the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: Parameters panel; the script's top-level numbers as spin boxes and
+  sliders that rewrite their literal and render again, with ranges from
+  `# [min, max, step]` comments and one Undo step per drag
 * New: `selected()` in the console returns the picked faces, edges and
   vertices (or the selected objects' shapes) as live CadQuery shapes, for
   measurements and experiments

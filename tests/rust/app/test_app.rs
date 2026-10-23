@@ -59,6 +59,8 @@ pub(super) fn test_state(text: &str) -> AppState {
         inspector: InspectorState::default(),
         measurements: MeasurementState::default(),
         selector: SelectorState::default(),
+        parameters: ParametersState::default(),
+        parameter_render_at: None,
         console: ConsoleState::default(),
         log_view: LogView::default(),
         status: None,
@@ -252,4 +254,53 @@ fn the_console_gets_the_picked_entities_and_the_selected_objects() {
         (entity.key.as_str(), entity.kind, entity.identifier),
         ("n1", TopologyKind::Face, 6)
     );
+}
+
+#[test]
+fn a_parameter_change_rewrites_its_literal_and_renders_once_it_settles() {
+    let script = "width = 40  # [10, 100]\nheight = 12.5\nresult = box(width, height)\n";
+    let mut state = test_state(script);
+
+    state.set_parameter("height", 2, 20.25);
+    assert_eq!(
+        state.document.text,
+        "width = 40  # [10, 100]\nheight = 20.2\nresult = box(width, height)\n"
+    );
+    assert!(state.document.is_modified());
+    let due = state.parameter_render_at.expect("a render is scheduled");
+
+    // Not yet: the drag may go on.
+    state.parameter_render_at = Some(f64::MAX);
+    let ctx = state.ctx.clone();
+    state.poll_parameter_render(&ctx);
+    assert!(state.parameter_render_at.is_some());
+    assert!(state.status.is_none());
+
+    // Once due, it renders (here: reports that Python is not running).
+    state.parameter_render_at = Some(due - 10.0);
+    state.poll_parameter_render(&ctx);
+    assert!(state.parameter_render_at.is_none());
+    assert!(state.status.as_ref().unwrap().text.contains("Python"));
+}
+
+#[test]
+fn a_parameter_is_found_again_by_line_and_name() {
+    let mut state = test_state("width = 40\n");
+    state.set_parameter("width", 1, 55.0);
+    assert_eq!(state.document.text, "width = 55\n");
+    // Edited meanwhile into something that is no longer a parameter.
+    state.document.text = "width = w0\n".to_owned();
+    state.set_parameter("width", 1, 60.0);
+    assert_eq!(state.document.text, "width = w0\n");
+    // Another name on that line is another parameter.
+    state.document.text = "depth = 3\n".to_owned();
+    state.set_parameter("width", 1, 60.0);
+    assert_eq!(state.document.text, "depth = 3\n");
+}
+
+#[test]
+fn a_commented_range_bounds_the_written_value() {
+    let mut state = test_state("width = 40  # [10, 100]\n");
+    state.set_parameter("width", 1, 400.0);
+    assert_eq!(state.document.text, "width = 100  # [10, 100]\n");
 }

@@ -222,3 +222,49 @@ fn old_steps_are_dropped_beyond_the_limit() {
     assert_eq!(count, MAX_STEPS);
     assert_eq!(text.len(), 10);
 }
+
+/// Sets the literal at `start` to `value` as an adjustment.
+fn adjust(
+    history: &mut History,
+    text: &mut String,
+    start: usize,
+    end: usize,
+    value: &str,
+    time: f64,
+) -> usize {
+    text.replace_range(start..end, value);
+    history.record(text, &caret(0), &caret(0), EditKind::Adjust(start), time);
+    start + value.len()
+}
+
+#[test]
+fn successive_values_of_one_literal_are_one_step() {
+    let mut text = String::from("width = 40\nheight = 12\n");
+    let mut history = seen(&text);
+    history.record(&text, &caret(0), &caret(0), EditKind::Command, 0.0);
+    let mut end = 10;
+    for (value, time) in [("41", 1.0), ("45", 1.2), ("100", 1.4), ("90", 1.6)] {
+        end = adjust(&mut history, &mut text, 8, end, value, time);
+    }
+    assert_eq!(text, "width = 90\nheight = 12\n");
+
+    let (undone, _) = history.undo(&text).unwrap();
+    assert_eq!(undone, "width = 40\nheight = 12\n");
+    assert!(!history.can_undo());
+}
+
+#[test]
+fn another_literal_or_a_pause_starts_a_new_adjustment_step() {
+    let mut text = String::from("width = 40\nheight = 12\n");
+    let mut history = seen(&text);
+    adjust(&mut history, &mut text, 8, 10, "41", 1.0);
+    adjust(&mut history, &mut text, 20, 22, "13", 1.1);
+    adjust(&mut history, &mut text, 20, 22, "14", 9.0);
+
+    let (text, _) = history.undo(&text).unwrap();
+    assert_eq!(text, "width = 41\nheight = 13\n", "after the pause");
+    let (text, _) = history.undo(&text).unwrap();
+    assert_eq!(text, "width = 41\nheight = 12\n", "the other literal");
+    let (text, _) = history.undo(&text).unwrap();
+    assert_eq!(text, "width = 40\nheight = 12\n");
+}

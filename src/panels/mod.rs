@@ -5,6 +5,7 @@ mod inspector;
 mod log;
 mod measurements;
 mod objects;
+mod parameters;
 mod traceback;
 mod variables;
 
@@ -12,6 +13,7 @@ pub use console::{ConsoleState, EntryKind};
 pub use inspector::InspectorState;
 pub use log::LogView;
 pub use measurements::{MeasurementState, SelectorState, SelectorUse};
+pub use parameters::ParametersState;
 
 use egui_dock::{DockState, NodeIndex, TabViewer};
 use egui_phosphor::regular as icon;
@@ -25,6 +27,7 @@ pub enum Tab {
     Viewer,
     Objects,
     Measurements,
+    Parameters,
     Variables,
     Inspector,
     Console,
@@ -33,11 +36,12 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 9] = [
+    pub const ALL: [Tab; 10] = [
         Tab::Editor,
         Tab::Viewer,
         Tab::Objects,
         Tab::Measurements,
+        Tab::Parameters,
         Tab::Variables,
         Tab::Inspector,
         Tab::Console,
@@ -51,6 +55,7 @@ impl Tab {
             Tab::Viewer => "3D View",
             Tab::Objects => "Objects",
             Tab::Measurements => "Measurements",
+            Tab::Parameters => "Parameters",
             Tab::Variables => "Variables",
             Tab::Inspector => "CQ Inspector",
             Tab::Console => "Console",
@@ -65,6 +70,7 @@ impl Tab {
             Tab::Viewer => icon::CUBE,
             Tab::Objects => icon::TREE_STRUCTURE,
             Tab::Measurements => icon::RULER,
+            Tab::Parameters => icon::SLIDERS_HORIZONTAL,
             Tab::Variables => icon::BRACKETS_CURLY,
             Tab::Inspector => icon::STACK,
             Tab::Console => icon::TERMINAL_WINDOW,
@@ -87,7 +93,12 @@ pub fn default_layout() -> DockState<Tab> {
     tree.split_below(
         objects,
         0.6,
-        vec![Tab::Variables, Tab::Inspector, Tab::Measurements],
+        vec![
+            Tab::Variables,
+            Tab::Parameters,
+            Tab::Inspector,
+            Tab::Measurements,
+        ],
     );
     dock
 }
@@ -126,6 +137,7 @@ impl TabViewer for TabContext<'_> {
             Tab::Viewer => self.state.viewer_ui(ui, self.frame),
             Tab::Objects => objects::ui(ui, self.state),
             Tab::Measurements => measurements::ui(ui, self.state),
+            Tab::Parameters => parameters::ui(ui, self.state),
             Tab::Variables => variables::ui(ui, self.state),
             Tab::Inspector => inspector::ui(ui, self.state),
             Tab::Console => console::ui(ui, self.state),

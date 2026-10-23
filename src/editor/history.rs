@@ -12,7 +12,9 @@
 //!   one after another, or deleted one after another, without a pause, a
 //!   caret move or a new line;
 //! * every editor command (indent, comment, completion, replace) and every
-//!   change made outside the editor (a reload from disk) is one step.
+//!   change made outside the editor (a reload from disk) is one step;
+//! * adjusting one value, such as dragging a parameter, is one step while
+//!   it continues without a pause.
 
 use std::collections::VecDeque;
 
@@ -31,6 +33,9 @@ pub enum EditKind {
     Typing,
     /// An editor command or a change from outside the editor.
     Command,
+    /// A new value for the literal starting at this byte; successive
+    /// values of the same literal are grouped.
+    Adjust(usize),
 }
 
 /// `removed`, at byte `start`, was replaced by `inserted`.
@@ -47,11 +52,12 @@ impl Change {
     }
 }
 
-/// The keystrokes a typing step groups.
+/// The changes a step groups: typing, or the values of one literal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Keystrokes {
     Insert,
     Delete,
+    Adjust(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -116,9 +122,11 @@ impl History {
         self.bytes -= self.redo.drain(..).map(|step| step.bytes()).sum::<usize>();
         self.bytes += change.bytes();
 
-        let keystrokes = (kind == EditKind::Typing)
-            .then(|| keystrokes(&change))
-            .flatten();
+        let keystrokes = match kind {
+            EditKind::Typing => keystrokes(&change),
+            EditKind::Command => None,
+            EditKind::Adjust(literal) => Some(Keystrokes::Adjust(literal)),
+        };
         if let Some(keystrokes) = keystrokes
             && let Some(last) = self.undo.back_mut()
             && last.keystrokes == Some(keystrokes)
