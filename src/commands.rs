@@ -62,6 +62,8 @@ pub enum Action {
     Display(DisplayMode),
     SelectionMode(SelectionMode),
     ToggleProjection,
+    /// Turns the section plane on or off.
+    ToggleSection,
     TogglePanel(Tab),
     ResetLayout,
     // Tools

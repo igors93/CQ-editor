@@ -440,16 +440,16 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 ### C. 3D view
 
-| Status | Id | Feature |
-| :---: | --- | --- |
-| | FEAT-C1 ⚪ | Section / clipping planes, with the cut face filled |
-| | FEAT-C2 ⚪ | Exploded view and isolate / hide others for assemblies |
-| | FEAT-C3 ⚪ | X-ray and hidden-line display modes; per-object edge visibility |
-| | FEAT-C4 🔵 | Named views (saved cameras) and view presets per file |
-| | FEAT-C5 ⚪ | High-resolution and transparent-background screenshots, turntable animation export |
-| | FEAT-C6 🔵 | Large-model mode: frustum culling, level of detail, progress and cancellation for tessellation |
-| | FEAT-C7 ⚪ | Ground grid with units and a scale bar |
-| | FEAT-C8 🔵 | **Stereo compatibility**: dual-camera rendering and tested composition for selected legacy modes, with a clear fallback when the GPU/platform cannot provide them |
+| Status | Id | Feature | Notes |
+| :---: | --- | --- | --- |
+| ✅ | FEAT-C1 ⚪ | Section / clipping planes, with the cut face filled | Done: View > Section View; a plane across X, Y or Z, flippable, with a position slider; the cut faces of solids are filled with stencil caps; what the plane removes cannot be picked. Tests: `a_section_plane_cuts_the_model_and_fills_the_cut_on_the_gpu`, `a_section_plane_hides_what_it_removes_from_picking`, `the_scene_shaders_are_valid_wgsl_with_every_entry_point` |
+| | FEAT-C2 ⚪ | Exploded view and isolate / hide others for assemblies | |
+| | FEAT-C3 ⚪ | X-ray and hidden-line display modes; per-object edge visibility | |
+| | FEAT-C4 🔵 | Named views (saved cameras) and view presets per file | |
+| | FEAT-C5 ⚪ | High-resolution and transparent-background screenshots, turntable animation export | |
+| | FEAT-C6 🔵 | Large-model mode: frustum culling, level of detail, progress and cancellation for tessellation | |
+| | FEAT-C7 ⚪ | Ground grid with units and a scale bar | |
+| | FEAT-C8 🔵 | **Stereo compatibility**: dual-camera rendering and tested composition for selected legacy modes, with a clear fallback when the GPU/platform cannot provide them | |
 
 ### D. Projects and files (advanced path)
 

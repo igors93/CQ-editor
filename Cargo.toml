@@ -51,6 +51,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
 ] }
 
+[dev-dependencies]
+# wgpu's own WGSL front end: the tests validate the shaders without a GPU.
+naga = { version = "30.0.1", features = ["wgsl-in"] }
+
 [profile.dev]
 # Line tables keep panic backtraces useful at a fraction of full debug info's size.
 debug = "line-tables-only"

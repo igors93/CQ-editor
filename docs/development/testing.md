@@ -32,10 +32,16 @@ The test folders follow the parts of the application they protect:
 | `tests/rust/panels/` | Console behavior and the Objects panel layout |
 | `tests/rust/protocol/` | JSON messages, binary mesh decoding and interpreter discovery |
 | `tests/rust/scene/` | Scene tree, visibility, selection, colors and bounds |
-| `tests/rust/viewer/` | Camera, navigation overlays and picking |
+| `tests/rust/viewer/` | Camera, navigation overlays, picking, section planes, WGSL validation and GPU rendering |
 | `tests/worker/execution/` | Script environment, debugger, console and completion |
 | `tests/worker/geometry/` | Scene building, display options, colors, registry, glTF reading, tessellation and inspection |
 | `tests/worker/protocol/` | Request handling, transport, uploads, releases and real worker processes |
+
+The shaders are parsed and validated with naga, wgpu's WGSL front end, and
+their uniform layouts are compared with the Rust structs, so these tests need
+no GPU. The rendering tests in `test_renderer.rs` draw offscreen on whatever
+adapter wgpu finds, software adapters included, and pass without checking
+anything (with a message on stderr) on a machine that has none.
 
 Rust tests live in `tests/rust/` but are **included from the source module
 they test** with `#[cfg(test)] #[path = "…"] mod tests;`. They can therefore

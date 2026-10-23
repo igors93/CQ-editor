@@ -71,6 +71,30 @@ The default projection is **orthographic**, the usual choice for CAD because
 parallel lines stay parallel. The menu toggle and *Preferences > 3D View >
 Projection* change the same setting, which is remembered.
 
+## Section view
+
+**View > Section View** (toolbar scissors icon) cuts the model with a plane
+to show its inside. The plane starts in the middle of the visible objects,
+and a bar at the bottom left of the view controls it:
+
+| Control | Effect |
+| --- | --- |
+| X · Y · Z | The axis the plane is perpendicular to; changing it recenters the plane |
+| ⇅ | Keep the other side (by default the side towards +X, +Y or +Z is removed) |
+| Slider | Position of the plane along the axis, in model units; the range covers the visible objects and any value can be typed |
+| Fill | Fill the cut faces of solids with a darker shade of their color |
+| ✕ | Remove the section |
+
+What the plane removes cannot be selected: clicks go through to what is
+behind the plane, so faces and edges inside the model can be picked. The
+axes, the grid and the CQ Inspector overlay are not cut.
+
+The cut faces are filled wherever the cut goes through material, which
+assumes closed solids. An open shell or a face shows no fill, and so do
+places where several solids overlap each other an even number of times.
+The section is a view setting: it is not saved, and exports always contain
+the whole model.
+
 ## Selection
 
 Selection works at two levels.

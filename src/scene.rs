@@ -236,11 +236,18 @@ impl Mesh {
         }
     }
 
-    pub(crate) fn nearest_triangle(&self, origin: Vec3, direction: Vec3) -> Option<(f32, usize)> {
+    /// The nearest triangle hit with a ray parameter in `range`.
+    pub(crate) fn nearest_triangle_within(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        range: (f32, f32),
+    ) -> Option<(f32, usize)> {
         let (positions, indices) = self.pick_triangles();
         self.triangle_bvh
             .get_or_init(|| TriangleBvh::build(positions, indices))
-            .nearest(origin, direction, positions, indices)
+            .nearest_within(origin, direction, positions, indices, range)
+            .0
     }
 
     pub(crate) fn edge_bvh(&self) -> &BoundsBvh {

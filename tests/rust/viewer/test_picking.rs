@@ -973,3 +973,88 @@ fn pick_latency_on_growing_assemblies() {
         );
     }
 }
+
+#[test]
+fn a_section_plane_hides_what_it_removes_from_picking() {
+    use crate::viewer::section::ClipPlane;
+    let (low, high) = (square(0.0, 5.0), square(3.0, 5.0));
+    let candidates = || {
+        [
+            Candidate {
+                id: "low",
+                mesh: &low,
+                transform: Mat4::IDENTITY,
+            },
+            Candidate {
+                id: "high",
+                mesh: &high,
+                transform: Mat4::IDENTITY,
+            },
+        ]
+    };
+    let camera = top_camera();
+    let viewport = Vec2::splat(800.0);
+    let pick_with = |clip, mode| {
+        pick_clipped(
+            &camera,
+            1.0,
+            Vec2::new(0.1, 0.1),
+            viewport,
+            mode,
+            candidates(),
+            clip,
+        )
+        .map(|hit| hit.id)
+    };
+
+    assert_eq!(pick_with(None, SelectionMode::Face), Some("high"));
+    // Everything above z = 1 is removed: the low square is picked.
+    let top_off = Some(ClipPlane {
+        normal: Vec3::Z,
+        offset: 1.0,
+    });
+    assert_eq!(pick_with(top_off, SelectionMode::Face), Some("low"));
+    // Everything below z = 1 removed instead.
+    let bottom_off = Some(ClipPlane {
+        normal: Vec3::NEG_Z,
+        offset: -1.0,
+    });
+    assert_eq!(pick_with(bottom_off, SelectionMode::Face), Some("high"));
+    // Removing everything leaves nothing to pick, edges included.
+    let all_off = Some(ClipPlane {
+        normal: Vec3::Z,
+        offset: -10.0,
+    });
+    assert_eq!(pick_with(all_off, SelectionMode::Auto), None);
+}
+
+#[test]
+fn removed_edges_and_vertices_cannot_be_picked() {
+    use crate::viewer::section::ClipPlane;
+    let mesh = square(3.0, 5.0);
+    let camera = top_camera();
+    let viewport = Vec2::splat(1000.0);
+    let corner = Vec2::new(0.5, 0.5);
+    let pick_at = |clip| {
+        pick_clipped(
+            &camera,
+            1.0,
+            corner,
+            viewport,
+            SelectionMode::Vertex,
+            [Candidate {
+                id: (),
+                mesh: &mesh,
+                transform: Mat4::IDENTITY,
+            }],
+            clip,
+        )
+        .and_then(|hit| hit.entity)
+    };
+    assert_eq!(pick_at(None), Some(TopologyEntity::Vertex(3)));
+    let removed = Some(ClipPlane {
+        normal: Vec3::Z,
+        offset: 1.0,
+    });
+    assert_eq!(pick_at(removed), None);
+}

@@ -10,6 +10,7 @@ pub mod camera;
 mod overlays;
 mod picking;
 mod renderer;
+mod section;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,12 +19,13 @@ use egui::{Color32, Pos2, Rect, Sense, Vec2};
 use egui_phosphor::regular as icon;
 use glam::{Mat4 as GMat4, Vec2 as GVec2, Vec3};
 
-use crate::scene::{Grid, Mesh, NodeKey, Scene, TopologySelection};
+use crate::scene::{Aabb, Grid, Mesh, NodeKey, Scene, TopologySelection};
 use crate::settings::{self, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
+pub use section::{Section, SectionAxis};
 
 /// Zoom factor per point of scrolling (a wheel notch is about 50 points).
 const ZOOM_PER_SCROLL_POINT: f32 = 0.9978;
@@ -38,6 +40,7 @@ const ZOOM_CONTROLS_MARGIN: f32 = 12.0;
 const ZOOM_CONTROLS_HEIGHT: f32 = 42.0;
 const ZOOM_CONTROLS_WIDTH: f32 = 280.0;
 const MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS: f32 = 220.0;
+const SECTION_CONTROLS_WIDTH: f32 = 430.0;
 /// Duration of camera transitions, seconds.
 const ANIMATION_SECONDS: f64 = 0.25;
 const POINT_SIZE: f32 = 7.0;
@@ -181,6 +184,7 @@ pub struct Viewer {
     pub camera: Camera,
     pub display_mode: DisplayMode,
     pub selection_mode: SelectionMode,
+    pub section: Section,
     animation: Option<Animation>,
     renderer: Option<SceneRenderer>,
     nav_cube: NavigationCube,
@@ -206,6 +210,7 @@ impl Default for Viewer {
             camera: Camera::default(),
             display_mode: DisplayMode::Shaded,
             selection_mode: SelectionMode::Auto,
+            section: Section::default(),
             animation: None,
             renderer: None,
             nav_cube: NavigationCube::default(),
@@ -253,6 +258,14 @@ impl Viewer {
         self.screenshot = Some(path);
     }
 
+    /// Turns the section plane on, inside the model, or off.
+    pub fn toggle_section(&mut self, scene: &Scene) {
+        self.section.enabled = !self.section.enabled;
+        if self.section.enabled {
+            self.section.center_in(scene.visible_bounds());
+        }
+    }
+
     /// The pose the camera is heading to (the current one when idle).
     fn settled_pose(&self) -> camera::Pose {
         self.animation
@@ -286,9 +299,16 @@ impl Viewer {
         self.aspect = (rect.width() / rect.height().max(1.0)).max(1e-3);
 
         self.apply_settings(input.settings);
-        self.update_scene_extent(input.scene);
+        let bounds = input.scene.visible_bounds();
+        self.update_scene_extent(input.scene, bounds);
         let zoom_controls = zoom_controls_rect(rect);
-        let mut events = self.handle_input(ui, &response, rect, zoom_controls, &input, now);
+        let section_controls = self
+            .section
+            .enabled
+            .then(|| section_controls_rect(rect))
+            .flatten();
+        let controls: Vec<Rect> = zoom_controls.into_iter().chain(section_controls).collect();
+        let mut events = self.handle_input(ui, &response, rect, &controls, &input, now);
 
         if let Some(animation) = &self.animation {
             let (pose, done) = animation.sample(now);
@@ -319,18 +339,17 @@ impl Viewer {
                 } else {
                     top
                 };
+                let frame_input = FrameInput {
+                    camera: &self.camera,
+                    size,
+                    background_top: top,
+                    background_bottom: bottom,
+                    items: &items,
+                    section: self.section.renderer_plane(bounds),
+                };
                 let texture = {
                     let mut egui_renderer = render_state.renderer.write();
-                    renderer.render(
-                        &mut egui_renderer,
-                        &FrameInput {
-                            camera: &self.camera,
-                            size,
-                            background_top: top,
-                            background_bottom: bottom,
-                            items: &items,
-                        },
-                    )
+                    renderer.render(&mut egui_renderer, &frame_input)
                 };
                 painter.image(
                     texture,
@@ -339,7 +358,8 @@ impl Viewer {
                     Color32::WHITE,
                 );
                 if let Some(path) = self.screenshot.take() {
-                    events.push(ViewerEvent::Screenshot(save_screenshot(renderer, path)));
+                    let pixels = renderer.render_pixels(&frame_input);
+                    events.push(ViewerEvent::Screenshot(save_screenshot(pixels, path)));
                 }
             }
             None => {
@@ -358,6 +378,9 @@ impl Viewer {
         if let Some(controls) = zoom_controls {
             self.show_zoom_controls(ui, rect, controls);
         }
+        if let Some(controls) = section_controls {
+            self.show_section_controls(ui, rect, controls, bounds);
+        }
         events
     }
 
@@ -372,8 +395,7 @@ impl Viewer {
     }
 
     /// Keeps the clipping planes around everything that can be drawn.
-    fn update_scene_extent(&mut self, scene: &Scene) {
-        let bounds = scene.visible_bounds();
+    fn update_scene_extent(&mut self, scene: &Scene, bounds: Aabb) {
         let mut radius = if bounds.is_empty() {
             10.0
         } else {
@@ -402,7 +424,7 @@ impl Viewer {
         ui: &egui::Ui,
         response: &egui::Response,
         rect: Rect,
-        zoom_controls: Option<Rect>,
+        controls: &[Rect],
         input: &ViewInput<'_>,
         now: f64,
     ) -> Vec<ViewerEvent> {
@@ -410,7 +432,8 @@ impl Viewer {
         let show_cube = input.settings.show_navigation_cube;
         let pointer = response.hover_pos();
         let over_cube = |p: Pos2| show_cube && NavigationCube::contains(rect, p);
-        let over_zoom_controls = |p: Pos2| zoom_controls.is_some_and(|area| area.contains(p));
+        // The floating controls (zoom, section) take their own input.
+        let over_zoom_controls = |p: Pos2| controls.iter().any(|area| area.contains(p));
 
         if show_cube {
             let hover_pos = pointer.filter(|_| self.drag.is_none());
@@ -661,6 +684,65 @@ impl Viewer {
         }
     }
 
+    fn show_section_controls(
+        &mut self,
+        parent: &mut egui::Ui,
+        view: Rect,
+        controls: Rect,
+        bounds: Aabb,
+    ) {
+        let mut controls_ui = parent.new_child(
+            egui::UiBuilder::new()
+                .max_rect(controls)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        controls_ui.set_clip_rect(view);
+        let section = &mut self.section;
+        let before = section.clone();
+        egui::Frame::popup(parent.style())
+            .corner_radius(6)
+            .inner_margin(egui::Margin::symmetric(6, 5))
+            .show(&mut controls_ui, |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(format!("{} Section", icon::SCISSORS));
+                for axis in SectionAxis::ALL {
+                    if ui
+                        .selectable_label(section.axis == axis, axis.label())
+                        .on_hover_text(format!("Cut across the {} axis", axis.label()))
+                        .clicked()
+                        && section.axis != axis
+                    {
+                        section.axis = axis;
+                        section.offset = f32::NAN;
+                        section.center_in(bounds);
+                    }
+                }
+                ui.toggle_value(&mut section.flipped, icon::ARROWS_DOWN_UP)
+                    .on_hover_text("Keep the other side");
+                let range = section.range(bounds);
+                ui.add_sized(
+                    [(ui.available_width() - 90.0).max(60.0), 24.0],
+                    egui::Slider::new(&mut section.offset, range)
+                        .show_value(true)
+                        .max_decimals(3)
+                        .clamping(egui::SliderClamping::Never),
+                )
+                .on_hover_text("Position of the plane along the axis");
+                ui.checkbox(&mut section.caps, "Fill")
+                    .on_hover_text("Fill the cut faces of solids");
+                if ui
+                    .small_button(icon::X)
+                    .on_hover_text("Remove the section (View > Section View)")
+                    .clicked()
+                {
+                    section.enabled = false;
+                }
+            });
+        if self.section != before {
+            parent.ctx().request_repaint();
+        }
+    }
+
     fn pick(
         &mut self,
         scene: &Scene,
@@ -678,13 +760,14 @@ impl Viewer {
         let candidates = candidate_indices
             .into_iter()
             .filter_map(|index| self.pick_index.candidate(scene, index));
-        picking::pick(
+        picking::pick_clipped(
             &self.camera,
             self.aspect,
             ndc(rect, pos),
             GVec2::new(rect.width(), rect.height()),
             self.selection_mode,
             candidates,
+            self.section.clip_plane(),
         )
         .map(|hit| {
             let (node, part) = hit.id;
@@ -757,6 +840,7 @@ impl Viewer {
                         faces: !wireframe,
                         edges: settings.show_edges || wireframe || !has_faces,
                         points: true,
+                        clipped: true,
                     },
                     layer: Layer::Scene,
                 });
@@ -777,6 +861,7 @@ impl Viewer {
                     faces: true,
                     edges: true,
                     points: true,
+                    clipped: true,
                 },
                 layer: Layer::Overlay,
             });
@@ -841,6 +926,7 @@ impl Viewer {
                     faces: true,
                     edges: true,
                     points: true,
+                    clipped: false,
                 },
                 layer: Layer::Overlay,
             });
@@ -936,6 +1022,26 @@ fn zoom_controls_rect(view: Rect) -> Option<Rect> {
     ))
 }
 
+/// The section controls, along the bottom of the view.
+fn section_controls_rect(view: Rect) -> Option<Rect> {
+    if view.width() < MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS
+        || view.height() < 2.0 * ZOOM_CONTROLS_HEIGHT + 3.0 * ZOOM_CONTROLS_MARGIN
+    {
+        return None;
+    }
+    let size = Vec2::new(
+        SECTION_CONTROLS_WIDTH.min(view.width() - 2.0 * ZOOM_CONTROLS_MARGIN),
+        ZOOM_CONTROLS_HEIGHT,
+    );
+    Some(Rect::from_min_size(
+        Pos2::new(
+            view.left() + ZOOM_CONTROLS_MARGIN,
+            view.bottom() - ZOOM_CONTROLS_MARGIN - size.y,
+        ),
+        size,
+    ))
+}
+
 fn collect_keys<'a>(
     node: &'a crate::scene::SceneNode,
     out: &mut std::collections::HashSet<&'a NodeKey>,
@@ -959,6 +1065,7 @@ fn line_item(mesh: Arc<Mesh>, color: [f32; 4], width: f32, layer: Layer) -> Draw
             faces: false,
             edges: true,
             points: false,
+            clipped: false,
         },
         layer,
     }
@@ -1035,10 +1142,9 @@ fn paint_spinner(painter: &egui::Painter, center: Pos2, radius: f32, color: Colo
 #[path = "../../tests/rust/viewer/test_navigation.rs"]
 mod tests;
 
-fn save_screenshot(renderer: &SceneRenderer, path: PathBuf) -> Result<PathBuf, String> {
-    let ([width, height], pixels) = renderer
-        .read_pixels()
-        .ok_or_else(|| "the GPU did not return the image".to_owned())?;
+fn save_screenshot(pixels: Option<([u32; 2], Vec<u8>)>, path: PathBuf) -> Result<PathBuf, String> {
+    let ([width, height], pixels) =
+        pixels.ok_or_else(|| "the GPU did not return the image".to_owned())?;
     image::save_buffer(
         &path,
         &pixels,

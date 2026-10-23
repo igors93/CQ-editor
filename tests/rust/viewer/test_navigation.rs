@@ -161,7 +161,7 @@ fn pressing_the_view_uses_a_closed_hand_cursor_for_navigation() {
                 ui,
                 &response,
                 rect,
-                zoom_controls_rect(rect),
+                &zoom_controls_rect(rect).into_iter().collect::<Vec<_>>(),
                 &ViewInput {
                     scene: &scene,
                     settings: &settings,

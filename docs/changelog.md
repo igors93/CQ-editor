@@ -20,6 +20,9 @@ tracked in the compatibility matrix instead of being assumed.
   the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: section view (View > Section View); a plane across X, Y or Z, with a
+  position slider and a flip, cuts the model and fills the cut faces of
+  solids; picking goes through what the plane removes
 * New: the Measurements panel reports exact bounding boxes, measures the
   selected objects (volume, area, center of mass) when no entity is picked,
   and copies a measurement as Python using the script's variables and

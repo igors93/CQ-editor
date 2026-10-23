@@ -197,6 +197,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         tool(
             ui,
             actions,
+            icon::SCISSORS,
+            "Section view: cut the model with a plane",
+            Action::ToggleSection,
+            true,
+            state.viewer.section.enabled,
+        );
+        tool(
+            ui,
+            actions,
             icon::CAMERA,
             "Screenshot",
             Action::Screenshot,

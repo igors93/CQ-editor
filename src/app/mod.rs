@@ -392,6 +392,7 @@ impl AppState {
             Action::View(view) => self.viewer.set_standard_view(view, animate, now),
             Action::Display(mode) => self.viewer.display_mode = mode,
             Action::SelectionMode(mode) => self.viewer.selection_mode = mode,
+            Action::ToggleSection => self.viewer.toggle_section(&self.scene),
             Action::ToggleProjection => {
                 self.settings.viewer.projection = match self.settings.viewer.projection {
                     Projection::Orthographic => Projection::Perspective,

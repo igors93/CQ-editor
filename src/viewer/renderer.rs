@@ -4,8 +4,9 @@
 //! texture that egui then shows like an image. egui samples textures as
 //! gamma-encoded values, so it is handed a non-sRGB view of the same texture.
 //!
-//! Draw order: background, opaque faces, edges and points, transparent faces
-//! (back to front), then the inspector overlay, which is drawn on top.
+//! Draw order: background, opaque faces (each followed by its section cap),
+//! edges and points, transparent faces (back to front, with their caps),
+//! then the inspector overlay, which is drawn on top.
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -23,7 +24,8 @@ use crate::scene::Mesh;
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Same texels as `COLOR_FORMAT`, read without sRGB decoding (for egui).
 const EGUI_VIEW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// With a stencil, for the caps of section planes.
+const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 const PREFERRED_SAMPLES: u32 = 4;
 const OBJECT_UNIFORM_SIZE: u64 = std::mem::size_of::<ObjectUniform>() as u64;
 
@@ -38,6 +40,9 @@ struct CameraUniform {
     viewport: [f32; 4],
     background_top: [f32; 4],
     background_bottom: [f32; 4],
+    clip_plane: [f32; 4],
+    section: [f32; 4],
+    cap_corners: [[f32; 4]; 4],
 }
 
 #[repr(C)]
@@ -62,6 +67,8 @@ pub struct Style {
     pub faces: bool,
     pub edges: bool,
     pub points: bool,
+    /// The section plane cuts it (helpers such as the axes are not cut).
+    pub clipped: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +86,18 @@ pub struct DrawItem {
     pub layer: Layer,
 }
 
+/// A section plane as the renderer draws it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SectionPlane {
+    /// Unit normal; everything with `normal · p > offset` is removed.
+    pub normal: Vec3,
+    pub offset: f32,
+    /// Fill the cut faces of solids.
+    pub caps: bool,
+    /// A quad on the plane around the whole scene, for the caps.
+    pub cap_corners: [Vec3; 4],
+}
+
 /// Everything needed to draw one frame.
 pub struct FrameInput<'a> {
     pub camera: &'a Camera,
@@ -88,6 +107,7 @@ pub struct FrameInput<'a> {
     pub background_top: [f32; 4],
     pub background_bottom: [f32; 4],
     pub items: &'a [DrawItem],
+    pub section: Option<SectionPlane>,
 }
 
 struct GpuMesh {
@@ -114,6 +134,11 @@ struct Pipelines {
     background: wgpu::RenderPipeline,
     faces: wgpu::RenderPipeline,
     transparent_faces: wgpu::RenderPipeline,
+    /// Inverts the stencil per remaining surface of a clipped object.
+    section_count: wgpu::RenderPipeline,
+    /// Fills the plane where the stencil is set, and clears it.
+    caps: wgpu::RenderPipeline,
+    transparent_caps: wgpu::RenderPipeline,
     overlay_faces: wgpu::RenderPipeline,
     edges: wgpu::RenderPipeline,
     overlay_edges: wgpu::RenderPipeline,
@@ -140,12 +165,16 @@ pub struct SceneRenderer {
 
 impl SceneRenderer {
     pub fn new(render_state: &egui_wgpu::RenderState) -> Self {
-        let device = render_state.device.clone();
-        let queue = render_state.queue.clone();
+        Self::with_device(
+            render_state.device.clone(),
+            render_state.queue.clone(),
+            &render_state.adapter,
+        )
+    }
 
-        let format_features = render_state
-            .adapter
-            .get_texture_format_features(COLOR_FORMAT);
+    /// A renderer on any device, including one without a window.
+    pub fn with_device(device: wgpu::Device, queue: wgpu::Queue, adapter: &wgpu::Adapter) -> Self {
+        let format_features = adapter.get_texture_format_features(COLOR_FORMAT);
         let samples = if format_features
             .flags
             .sample_count_supported(PREFERRED_SAMPLES)
@@ -238,7 +267,29 @@ impl SceneRenderer {
     ) -> egui::TextureId {
         let size = [input.size[0].max(1), input.size[1].max(1)];
         let texture_id = self.ensure_target(egui_renderer, size);
+        self.prepare(input, size);
+        let target = self.target.as_ref().expect("target created above");
+        self.draw(target, input);
+        texture_id
+    }
 
+    /// Draws a frame into a texture of its own and reads it back, so the
+    /// result does not depend on the size of the viewport. `None` when the
+    /// size exceeds what the device supports or the read-back fails.
+    pub fn render_pixels(&mut self, input: &FrameInput<'_>) -> Option<([u32; 2], Vec<u8>)> {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let limit = self.device.limits().max_texture_dimension_2d;
+        if size[0] > limit || size[1] > limit {
+            return None;
+        }
+        let target = create_target(&self.device, size, self.samples);
+        self.prepare(input, size);
+        self.draw(&target, input);
+        self.read_target(&target)
+    }
+
+    /// Uploads new meshes and the frame's uniforms.
+    fn prepare(&mut self, input: &FrameInput<'_>, size: [u32; 2]) {
         self.meshes.retain(|_, mesh| mesh.source.strong_count() > 0);
         let uploading = Instant::now();
         let (mut uploaded, mut bytes) = (0, 0);
@@ -260,8 +311,9 @@ impl SceneRenderer {
 
         self.write_camera(input, size);
         self.write_objects(input.items);
+    }
 
-        let target = self.target.as_ref().expect("target created above");
+    fn draw(&self, target: &Target, input: &FrameInput<'_>) {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -289,13 +341,18 @@ impl SceneRenderer {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Discard,
                     }),
-                    stencil_ops: None,
+                    // The section caps count surfaces in the stencil.
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_stencil_reference(0);
 
             pass.set_pipeline(&self.pipelines.background);
             pass.set_bind_group(1, &self.object_bind_group, &[0]);
@@ -310,8 +367,12 @@ impl SceneRenderer {
                     .filter(move |&(_, layer)| layer == pass_layer)
             };
 
+            let caps = input.section.is_some_and(|section| section.caps);
             for (index, _) in scene(Layer::Scene).filter(|&(i, _)| is_opaque(&input.items[i])) {
                 self.draw_faces(&mut pass, &self.pipelines.faces, input, index);
+                if caps {
+                    self.draw_cap(&mut pass, &self.pipelines.caps, input, index);
+                }
             }
             for (index, _) in scene(Layer::Scene) {
                 self.draw_edges(&mut pass, &self.pipelines.edges, input, index);
@@ -319,6 +380,9 @@ impl SceneRenderer {
             }
             for (index, _) in scene(Layer::Scene).filter(|&(i, _)| !is_opaque(&input.items[i])) {
                 self.draw_faces(&mut pass, &self.pipelines.transparent_faces, input, index);
+                if caps {
+                    self.draw_cap(&mut pass, &self.pipelines.transparent_caps, input, index);
+                }
             }
             for (index, _) in scene(Layer::Overlay) {
                 self.draw_faces(&mut pass, &self.pipelines.overlay_faces, input, index);
@@ -327,12 +391,10 @@ impl SceneRenderer {
             }
         }
         self.queue.submit([encoder.finish()]);
-        texture_id
     }
 
-    /// Reads back the last rendered frame as tightly packed sRGB RGBA rows.
-    pub fn read_pixels(&self) -> Option<([u32; 2], Vec<u8>)> {
-        let target = self.target.as_ref()?;
+    /// Reads a target back as tightly packed sRGB RGBA rows.
+    fn read_target(&self, target: &Target) -> Option<([u32; 2], Vec<u8>)> {
         let [width, height] = target.size;
         let row_bytes = width * 4;
         let padded_row = row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
@@ -425,7 +487,11 @@ impl SceneRenderer {
         let camera = input.camera;
         let (width, height) = (size[0] as f32, size[1] as f32);
         let vec4 = |v: Vec3, w: f32| [v.x, v.y, v.z, w];
+        let section = input.section;
         let uniform = CameraUniform {
+            clip_plane: section.map_or([0.0; 4], |s| vec4(s.normal, s.offset)),
+            section: [f32::from(u8::from(section.is_some())), 0.0, 0.0, 0.0],
+            cap_corners: section.map_or([[0.0; 4]; 4], |s| s.cap_corners.map(|c| vec4(c, 1.0))),
             view_proj: camera.view_projection(width / height).to_cols_array_2d(),
             eye: vec4(
                 camera.eye(),
@@ -466,7 +532,12 @@ impl SceneRenderer {
                 face_color: style.face_color,
                 edge_color: style.edge_color,
                 highlight: style.highlight,
-                params: [style.edge_width, style.point_size, 0.0, 0.0],
+                params: [
+                    style.edge_width,
+                    style.point_size,
+                    f32::from(u8::from(style.clipped)),
+                    0.0,
+                ],
             };
             let offset = (slot + 1) * stride;
             data[offset..offset + OBJECT_UNIFORM_SIZE as usize]
@@ -501,6 +572,37 @@ impl SceneRenderer {
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+    }
+
+    /// Fills where the section plane cuts a clipped item: counts its
+    /// remaining surfaces into the stencil, then draws the plane there.
+    fn draw_cap(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        cap: &wgpu::RenderPipeline,
+        input: &FrameInput<'_>,
+        index: usize,
+    ) {
+        let item = &input.items[index];
+        if !item.style.clipped {
+            return;
+        }
+        let Some(mesh) = self.meshes.get(&item.mesh.id) else {
+            return;
+        };
+        let (Some(vertices), Some(indices)) = (&mesh.vertices, &mesh.indices) else {
+            return;
+        };
+        if !item.style.faces || mesh.index_count == 0 {
+            return;
+        }
+        pass.set_bind_group(1, &self.object_bind_group, &[self.object_offset(index)]);
+        pass.set_pipeline(&self.pipelines.section_count);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        pass.set_pipeline(cap);
+        pass.draw(0..6, 0..1);
     }
 
     fn draw_edges(
@@ -765,9 +867,58 @@ impl Pipelines {
             clamp: 0.0,
         };
         let no_bias = wgpu::DepthBiasState::default();
-        use wgpu::CompareFunction::{Always, Less, LessEqual};
+        use wgpu::CompareFunction::{Always, Less, LessEqual, NotEqual};
+        use wgpu::StencilOperation::{Invert, Keep, Zero};
+
+        // Section caps: parity of the remaining surfaces, then a quad where
+        // it is odd that also resets the stencil, even where it is hidden.
+        let face = |compare, depth_fail_op, pass_op| wgpu::StencilFaceState {
+            compare,
+            fail_op: Keep,
+            depth_fail_op,
+            pass_op,
+        };
+        let stencil = |face: wgpu::StencilFaceState| wgpu::StencilState {
+            front: face,
+            back: face,
+            read_mask: 0xff,
+            write_mask: 0xff,
+        };
+        let count = stencil(face(Always, Invert, Invert));
+        let fill = stencil(face(NotEqual, Zero, Zero));
 
         Self {
+            section_count: builder.build_with(Spec {
+                stencil: count,
+                write_mask: wgpu::ColorWrites::empty(),
+                ..Spec::new(
+                    "section count",
+                    "vs_mesh",
+                    "fs_section_count",
+                    &mesh_buffers,
+                    None,
+                    Always,
+                    false,
+                    no_bias,
+                )
+            }),
+            caps: builder.build_with(Spec {
+                stencil: fill.clone(),
+                ..Spec::new("caps", "vs_cap", "fs_cap", &[], None, Less, true, push_back)
+            }),
+            transparent_caps: builder.build_with(Spec {
+                stencil: fill.clone(),
+                ..Spec::new(
+                    "transparent caps",
+                    "vs_cap",
+                    "fs_cap",
+                    &[],
+                    Some(wgpu::BlendState::ALPHA_BLENDING),
+                    Less,
+                    false,
+                    push_back,
+                )
+            }),
             background: builder.build(
                 "background",
                 "vs_background",
@@ -859,6 +1010,47 @@ struct PipelineBuilder<'a> {
     samples: u32,
 }
 
+/// One pipeline's state.
+struct Spec<'a> {
+    label: &'a str,
+    vertex: &'a str,
+    fragment: &'a str,
+    buffers: &'a [Option<wgpu::VertexBufferLayout<'a>>],
+    blend: Option<wgpu::BlendState>,
+    depth_compare: wgpu::CompareFunction,
+    depth_write: bool,
+    bias: wgpu::DepthBiasState,
+    stencil: wgpu::StencilState,
+    write_mask: wgpu::ColorWrites,
+}
+
+impl<'a> Spec<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        label: &'a str,
+        vertex: &'a str,
+        fragment: &'a str,
+        buffers: &'a [Option<wgpu::VertexBufferLayout<'a>>],
+        blend: Option<wgpu::BlendState>,
+        depth_compare: wgpu::CompareFunction,
+        depth_write: bool,
+        bias: wgpu::DepthBiasState,
+    ) -> Self {
+        Self {
+            label,
+            vertex,
+            fragment,
+            buffers,
+            blend,
+            depth_compare,
+            depth_write,
+            bias,
+            stencil: wgpu::StencilState::default(),
+            write_mask: wgpu::ColorWrites::ALL,
+        }
+    }
+}
+
 impl PipelineBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     fn build(
@@ -872,6 +1064,31 @@ impl PipelineBuilder<'_> {
         depth_write: bool,
         bias: wgpu::DepthBiasState,
     ) -> wgpu::RenderPipeline {
+        self.build_with(Spec::new(
+            label,
+            vertex_entry,
+            fragment_entry,
+            buffers,
+            blend,
+            depth_compare,
+            depth_write,
+            bias,
+        ))
+    }
+
+    fn build_with(&self, spec: Spec<'_>) -> wgpu::RenderPipeline {
+        let Spec {
+            label,
+            vertex: vertex_entry,
+            fragment: fragment_entry,
+            buffers,
+            blend,
+            depth_compare,
+            depth_write,
+            bias,
+            stencil,
+            write_mask,
+        } = spec;
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
@@ -891,7 +1108,7 @@ impl PipelineBuilder<'_> {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: Some(depth_write),
                     depth_compare: Some(depth_compare),
-                    stencil: wgpu::StencilState::default(),
+                    stencil,
                     bias,
                 }),
                 multisample: wgpu::MultisampleState {
@@ -906,7 +1123,7 @@ impl PipelineBuilder<'_> {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: COLOR_FORMAT,
                         blend: blend.or(Some(wgpu::BlendState::REPLACE)),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask,
                     })],
                 }),
                 multiview_mask: None,
@@ -914,3 +1131,7 @@ impl PipelineBuilder<'_> {
             })
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/rust/viewer/test_renderer.rs"]
+mod tests;

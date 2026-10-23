@@ -8,6 +8,7 @@ use glam::{Mat4, Vec2, Vec3};
 
 use super::SelectionMode;
 use super::camera::{Camera, project_with};
+use super::section::ClipPlane;
 use crate::scene::{Aabb, Mesh, NodeKey, Scene, TopologyEntity};
 use crate::spatial::{BoundsBvh, QueryStats};
 
@@ -182,6 +183,7 @@ struct RankedHit<T> {
 
 /// Picks the candidate closest to the viewer under `pointer_ndc`
 /// (normalized device coordinates; `viewport_px` converts to pixels).
+#[cfg(test)]
 pub fn pick<'a, T: Clone>(
     camera: &Camera,
     aspect: f32,
@@ -190,7 +192,38 @@ pub fn pick<'a, T: Clone>(
     mode: SelectionMode,
     candidates: impl IntoIterator<Item = Candidate<'a, T>>,
 ) -> Option<Hit<T>> {
+    pick_clipped(
+        camera,
+        aspect,
+        pointer_ndc,
+        viewport_px,
+        mode,
+        candidates,
+        None,
+    )
+}
+
+/// [`pick`] when a section plane removes part of the model: what it
+/// removes can neither be picked nor hide what lies behind it.
+pub fn pick_clipped<'a, T: Clone>(
+    camera: &Camera,
+    aspect: f32,
+    pointer_ndc: Vec2,
+    viewport_px: Vec2,
+    mode: SelectionMode,
+    candidates: impl IntoIterator<Item = Candidate<'a, T>>,
+    clip: Option<ClipPlane>,
+) -> Option<Hit<T>> {
     let (origin, dir) = camera.ray(pointer_ndc, aspect);
+    // In world ray parameters, which local rays share (affine transforms).
+    let kept = match clip {
+        Some(plane) => match plane.kept_range(origin, dir) {
+            Some((start, end)) => (start.max(0.0), end),
+            None => (f32::INFINITY, f32::NEG_INFINITY),
+        },
+        None => (0.0, f32::INFINITY),
+    };
+    let removed = |point: Vec3| clip.is_some_and(|plane| plane.removes(point));
     // Computed once: projecting thousands of points per pick dominates the
     // cost when every projection rebuilds the camera matrices.
     let view_projection = camera.view_projection(aspect);
@@ -210,7 +243,9 @@ pub fn pick<'a, T: Clone>(
 
         if ray_hits_box(local_origin, local_dir, mesh.bounds.min, mesh.bounds.max) {
             let topology_faces = !mesh.topology.triangle_faces.is_empty();
-            if let Some((distance, triangle)) = mesh.nearest_triangle(local_origin, local_dir) {
+            if let Some((distance, triangle)) =
+                mesh.nearest_triangle_within(local_origin, local_dir, kept)
+            {
                 let local_position = local_origin + local_dir * distance;
                 let position = candidate.transform.transform_point3(local_position);
                 if let Some(depth) = projected_depth(view_projection, position) {
@@ -266,7 +301,7 @@ pub fn pick<'a, T: Clone>(
                 continue;
             };
             let (distance, t) = distance_to_segment(pointer_px, a, b);
-            if distance <= PICK_TOLERANCE_PX {
+            if distance <= PICK_TOLERANCE_PX && !removed(wa.lerp(wb, t)) {
                 let position = wa.lerp(wb, t);
                 if let Some(depth) = projected_depth(view_projection, position) {
                     let entity = mesh
@@ -315,6 +350,7 @@ pub fn pick<'a, T: Clone>(
             if let Some((screen_pos, position, depth)) = screen(point)
                 && let distance = screen_pos.distance(pointer_px)
                 && distance <= PICK_TOLERANCE_PX
+                && !removed(position)
             {
                 let entity = topology_vertices.then_some(TopologyEntity::Vertex(index as u32 + 1));
                 if mode.accepts(entity) {

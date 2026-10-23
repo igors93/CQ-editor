@@ -101,7 +101,18 @@ covers its transitions without a window or a process.
 MSAA when available. egui then shows it like an image, through a non-sRGB
 view of the same texture so colors are not encoded twice. Draw order:
 background (flat or gradient), opaque faces, edges and points, transparent
-faces back to front, then the inspector overlay on top.
+faces back to front, then the inspector overlay on top. The same code renders
+into a texture of its own for screenshots (`render_pixels`), which also lets
+the tests draw on any adapter without a window.
+
+A **section plane** (`viewer/section.rs`) is a uniform: the fragment shaders
+discard what lies on the removed side of it for objects marked `clipped`. The
+cut is filled per object with the stencil buffer: every remaining surface of
+the object inverts the stencil, without depth test, so the count is odd
+exactly where the plane passes through material; a quad on the plane is then
+drawn where the stencil is set, and resets it (pass and depth-fail) for the
+next object. Picking applies the same plane to the ray (`ClipPlane::kept_range`)
+and ignores edges and vertices it removes.
 
 `shaders.wgsl` lights faces with a camera-attached three-point setup (key,
 fill, rim) and lights both sides of a face, so open shells look right.

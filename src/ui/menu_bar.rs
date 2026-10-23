@@ -345,6 +345,13 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
         "Perspective Projection",
         Action::ToggleProjection,
     );
+    check_item(
+        ui,
+        actions,
+        state.viewer.section.enabled,
+        "Section View",
+        Action::ToggleSection,
+    );
     ui.separator();
     for tab in Tab::ALL.into_iter().filter(|t| *t != Tab::Viewer) {
         check_item(

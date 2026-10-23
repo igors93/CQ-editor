@@ -81,7 +81,7 @@ From left to right:
 | Run | Render, Debug, Step, Step in, Step out, Continue, Stop |
 | Inspect | Inspect CQ object |
 | View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right |
-| Display | Wireframe, Shaded, Screenshot |
+| Display | Wireframe, Shaded, Section view, Screenshot |
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
@@ -95,7 +95,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · panel toggles · Reset Layout |
+| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · Section View · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Check for CadQuery Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).

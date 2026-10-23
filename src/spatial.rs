@@ -192,23 +192,26 @@ impl TriangleBvh {
         result
     }
 
-    pub(crate) fn nearest(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        positions: &[[f32; 3]],
-        indices: &[u32],
-    ) -> Option<(f32, usize)> {
-        self.nearest_with_count(origin, direction, positions, indices)
-            .0
-    }
-
+    #[cfg(test)]
     pub(crate) fn nearest_with_count(
         &self,
         origin: Vec3,
         direction: Vec3,
         positions: &[[f32; 3]],
         indices: &[u32],
+    ) -> (Option<(f32, usize)>, usize) {
+        self.nearest_within(origin, direction, positions, indices, (0.0, f32::INFINITY))
+    }
+
+    /// The nearest hit whose ray parameter lies in `range` (inclusive), e.g.
+    /// the part of the ray a section plane keeps, and the triangles tested.
+    pub(crate) fn nearest_within(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        positions: &[[f32; 3]],
+        indices: &[u32],
+        range: (f32, f32),
     ) -> (Option<(f32, usize)>, usize) {
         if self.nodes.is_empty() {
             return (None, 0);
@@ -218,7 +221,7 @@ impl TriangleBvh {
         let mut tested = 0;
         while let Some(node_index) = stack.pop() {
             let node = &self.nodes[node_index];
-            let limit = nearest.map_or(f32::INFINITY, |(distance, _)| distance);
+            let limit = nearest.map_or(range.1, |(distance, _)| distance);
             if ray_box(origin, direction, node.bounds).is_none_or(|near| near > limit) {
                 continue;
             }
@@ -243,7 +246,8 @@ impl TriangleBvh {
                             continue;
                         };
                         if let Some(distance) = ray_triangle(origin, direction, a, b, c)
-                            && distance < nearest.map_or(f32::INFINITY, |hit| hit.0)
+                            && (range.0..=range.1).contains(&distance)
+                            && nearest.is_none_or(|hit| distance < hit.0)
                         {
                             nearest = Some((distance, triangle_index));
                         }

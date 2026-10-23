@@ -3,6 +3,13 @@
 // Colors arrive in linear space; the render target is sRGB, so the hardware
 // encodes on write. Edges and points are camera-facing quads expanded in
 // screen space, which gives constant pixel widths at any zoom.
+//
+// A section plane removes everything in front of it (dot(n, p) > d) from
+// the objects that are clipped. The cut faces are filled ("capped") with
+// the stencil buffer: each clipped object is drawn once more into the
+// stencil only, inverting it per surface, so the pixels where the plane
+// lies inside the solid end with an odd count; a quad on the plane is then
+// drawn where the stencil is set, which also clears it.
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -15,6 +22,12 @@ struct Camera {
     viewport: vec4<f32>,
     background_top: vec4<f32>,
     background_bottom: vec4<f32>,
+    // xyz: normal of the section plane; w: its offset d.
+    clip_plane: vec4<f32>,
+    // x: 1 while a section plane is active.
+    section: vec4<f32>,
+    // Corners of the quad covering the section plane around the scene.
+    cap_corners: array<vec4<f32>, 4>,
 };
 
 struct Object {
@@ -23,12 +36,58 @@ struct Object {
     edge_color: vec4<f32>,
     // rgb: highlight color; a: how strongly faces are tinted with it.
     highlight: vec4<f32>,
-    // x: edge width (px); y: point diameter (px).
+    // x: edge width (px); y: point diameter (px); z: 1 when the section
+    // plane clips this object.
     params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var<uniform> object: Object;
+
+// Whether the section plane removes this point of the current object.
+fn is_cut_away(world: vec3<f32>) -> bool {
+    return camera.section.x > 0.5 && object.params.z > 0.5
+        && dot(camera.clip_plane.xyz, world) > camera.clip_plane.w;
+}
+
+// Normal facing the viewer, for two-sided lighting.
+fn facing_normal(normal: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    var to_eye = -camera.forward.xyz;
+    if (camera.eye.w > 0.5) {
+        to_eye = normalize(camera.eye.xyz - world);
+    }
+    var n = normal;
+    let length_n = length(n);
+    if (length_n < 1e-6) {
+        n = to_eye;
+    } else {
+        n = n / length_n;
+    }
+    // Light both sides: open shells and inverted faces look the same as
+    // closed solids.
+    if (dot(n, to_eye) < 0.0) {
+        n = -n;
+    }
+    return n;
+}
+
+// Three-point lighting attached to the camera: key light from the upper
+// left, a dimmer fill from the lower right and a little rim light.
+fn lit(base: vec3<f32>, n: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    var to_eye = -camera.forward.xyz;
+    if (camera.eye.w > 0.5) {
+        to_eye = normalize(camera.eye.xyz - world);
+    }
+    let back = -camera.forward.xyz;
+    let key = normalize(-0.35 * camera.right.xyz + 0.55 * camera.up.xyz + 0.76 * back);
+    let fill = normalize(0.65 * camera.right.xyz - 0.25 * camera.up.xyz + 0.72 * back);
+    let diffuse = 0.62 * max(dot(n, key), 0.0) + 0.24 * max(dot(n, fill), 0.0);
+    let rim = 0.10 * pow(1.0 - max(dot(n, to_eye), 0.0), 3.0);
+    let ambient = 0.24;
+    let half_vector = normalize(key + to_eye);
+    let specular = 0.22 * pow(max(dot(n, half_vector), 0.0), 48.0);
+    return base * (ambient + diffuse) + vec3<f32>(specular + rim);
+}
 
 // --- Background ---------------------------------------------------------
 
@@ -78,38 +137,45 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
 
 @fragment
 fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
-    var to_eye = -camera.forward.xyz;
-    if (camera.eye.w > 0.5) {
-        to_eye = normalize(camera.eye.xyz - in.world);
+    if (is_cut_away(in.world)) {
+        discard;
     }
-
-    var n = in.normal;
-    let length_n = length(n);
-    if (length_n < 1e-6) {
-        n = to_eye;
-    } else {
-        n = n / length_n;
-    }
-    // Light both sides: open shells and inverted faces look the same as
-    // closed solids.
-    if (dot(n, to_eye) < 0.0) {
-        n = -n;
-    }
-
-    // Three-point lighting attached to the camera: key light from the upper
-    // left, a dimmer fill from the lower right and a little rim light.
-    let back = -camera.forward.xyz;
-    let key = normalize(-0.35 * camera.right.xyz + 0.55 * camera.up.xyz + 0.76 * back);
-    let fill = normalize(0.65 * camera.right.xyz - 0.25 * camera.up.xyz + 0.72 * back);
-    let diffuse = 0.62 * max(dot(n, key), 0.0) + 0.24 * max(dot(n, fill), 0.0);
-    let rim = 0.10 * pow(1.0 - max(dot(n, to_eye), 0.0), 3.0);
-    let ambient = 0.24;
-    let half_vector = normalize(key + to_eye);
-    let specular = 0.22 * pow(max(dot(n, half_vector), 0.0), 48.0);
-
+    let n = facing_normal(in.normal, in.world);
     let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a);
-    let color = base * (ambient + diffuse) + vec3<f32>(specular + rim);
-    return vec4<f32>(color, object.face_color.a);
+    return vec4<f32>(lit(base, n, in.world), object.face_color.a);
+}
+
+// Counts the object's remaining surfaces into the stencil; no color.
+@fragment
+fn fs_section_count(in: MeshOut) {
+    if (is_cut_away(in.world)) {
+        discard;
+    }
+}
+
+// --- Section caps -------------------------------------------------------
+
+struct CapOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) world: vec3<f32>,
+};
+
+@vertex
+fn vs_cap(@builtin(vertex_index) index: u32) -> CapOut {
+    var corner_of = array<u32, 6>(0u, 1u, 2u, 0u, 2u, 3u);
+    let world = camera.cap_corners[corner_of[index]].xyz;
+    var out: CapOut;
+    out.clip = camera.view_proj * vec4<f32>(world, 1.0);
+    out.world = world;
+    return out;
+}
+
+@fragment
+fn fs_cap(in: CapOut) -> @location(0) vec4<f32> {
+    // A little darker than the outside, so the cut reads as a cut.
+    let n = facing_normal(camera.clip_plane.xyz, in.world);
+    let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a) * 0.78;
+    return vec4<f32>(lit(base, n, in.world), object.face_color.a);
 }
 
 // --- Edges --------------------------------------------------------------
@@ -129,10 +195,17 @@ fn clip_to_near(point: vec4<f32>, other: vec4<f32>) -> vec4<f32> {
     return mix(point, other, t);
 }
 
+struct EdgeOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) world: vec3<f32>,
+};
+
 @vertex
-fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> @builtin(position) vec4<f32> {
-    let start_raw = camera.view_proj * object.model * vec4<f32>(in.start, 1.0);
-    let end_raw = camera.view_proj * object.model * vec4<f32>(in.end, 1.0);
+fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> EdgeOut {
+    let start_world = object.model * vec4<f32>(in.start, 1.0);
+    let end_world = object.model * vec4<f32>(in.end, 1.0);
+    let start_raw = camera.view_proj * start_world;
+    let end_raw = camera.view_proj * end_world;
     let start = clip_to_near(start_raw, end_raw);
     let end = clip_to_near(end_raw, start_raw);
 
@@ -158,11 +231,17 @@ fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> @builtin(positio
     // close the gaps between consecutive segments.
     let offset_px = across * side[index] * half_width + along * (t * 2.0 - 1.0) * half_width;
     clip = vec4<f32>(clip.xy + offset_px * camera.viewport.zw * 2.0 * clip.w, clip.zw);
-    return clip;
+    var out: EdgeOut;
+    out.clip = clip;
+    out.world = mix(start_world.xyz, end_world.xyz, t);
+    return out;
 }
 
 @fragment
-fn fs_edge() -> @location(0) vec4<f32> {
+fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
+    if (is_cut_away(in.world)) {
+        discard;
+    }
     return object.edge_color;
 }
 
@@ -171,6 +250,7 @@ fn fs_edge() -> @location(0) vec4<f32> {
 struct PointOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) local: vec2<f32>,
+    @location(1) world: vec3<f32>,
 };
 
 @vertex
@@ -180,18 +260,20 @@ fn vs_point(@builtin(vertex_index) index: u32, @location(0) position: vec3<f32>)
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
     );
     let corner = corners[index];
-    var clip = camera.view_proj * object.model * vec4<f32>(position, 1.0);
+    let world = object.model * vec4<f32>(position, 1.0);
+    var clip = camera.view_proj * world;
     let radius_px = object.params.y * 0.5;
     clip = vec4<f32>(clip.xy + corner * radius_px * camera.viewport.zw * 2.0 * clip.w, clip.zw);
     var out: PointOut;
     out.clip = clip;
     out.local = corner;
+    out.world = world.xyz;
     return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
-    if (dot(in.local, in.local) > 1.0) {
+    if (dot(in.local, in.local) > 1.0 || is_cut_away(in.world)) {
         discard;
     }
     return object.edge_color;
