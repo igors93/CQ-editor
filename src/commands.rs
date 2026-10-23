@@ -84,6 +84,14 @@ pub enum Action {
         key: NodeKey,
         visible: bool,
     },
+    /// The script line that created an object, or one step of its
+    /// construction stack as (frame, item) in the CQ Inspector.
+    GoToSource {
+        key: NodeKey,
+        step: Option<(usize, Option<usize>)>,
+    },
+    /// The script line that created the current object.
+    GoToSelectionSource,
     /// A new value for the parameter `name` assigned on `line` (1-based).
     SetParameter {
         name: String,
@@ -159,6 +167,7 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::Replace, ctrl(Key::H)),
         (Action::GoToLinePrompt, ctrl(Key::G)),
         (Action::InsertSelector, ctrl_shift(Key::I)),
+        (Action::GoToSelectionSource, ctrl_shift(Key::G)),
         (Action::FindPrevious, alt(Key::F3)),
         (Action::FindNext, key(Key::F3)),
         (Action::Preferences, ctrl(Key::Comma)),

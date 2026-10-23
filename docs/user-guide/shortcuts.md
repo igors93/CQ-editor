@@ -21,6 +21,7 @@ On macOS, **Ctrl** means **Cmd**.
 | Replace | Ctrl+H |
 | Go to Line… | Ctrl+G |
 | Insert Selector (of the picked entities) | Ctrl+Shift+I |
+| Go to Source (of the selected object) | Ctrl+Shift+G |
 | Next / previous match | F3 / Alt+F3 |
 | Preferences… | Ctrl+, |
 | Zoom the interface | Ctrl + plus / Ctrl + minus |

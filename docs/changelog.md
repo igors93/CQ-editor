@@ -20,6 +20,9 @@ tracked in the compatibility matrix instead of being assumed.
   the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: Go to Source (Ctrl+Shift+G) from an object, its property sheet or a
+  CQ Inspector step to the script line that created it, following the
+  edits made since the run
 * New: Parameters panel; the script's top-level numbers as spin boxes and
   sliders that rewrite their literal and render again, with ranges from
   `# [min, max, step]` comments and one Undo step per drag

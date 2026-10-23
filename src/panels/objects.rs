@@ -192,6 +192,21 @@ fn node_row(
                 actions.push(Action::FitSelection);
                 ui.close();
             }
+            if ui
+                .add_enabled(
+                    node.line.is_some(),
+                    egui::Button::new(format!("{} Go to Source", icon::ARROW_SQUARE_OUT)),
+                )
+                .on_hover_text("The script line that created it")
+                .on_disabled_hover_text("No script line is known (shown from the console?)")
+                .clicked()
+            {
+                actions.push(Action::GoToSource {
+                    key: node.key.clone(),
+                    step: None,
+                });
+                ui.close();
+            }
             let (label, visible) = if node.visible {
                 ("Hide", false)
             } else {
@@ -307,6 +322,21 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
             ui.label("Type");
             ui.weak(&node.kind);
             ui.end_row();
+
+            if let Some(line) = node.line {
+                ui.label("Source");
+                if ui
+                    .link(format!("line {line} {}", icon::ARROW_SQUARE_OUT))
+                    .on_hover_text("Go to the script line that created it (Ctrl+Shift+G)")
+                    .clicked()
+                {
+                    actions.push(Action::GoToSource {
+                        key: key.clone(),
+                        step: None,
+                    });
+                }
+                ui.end_row();
+            }
 
             ui.label("Visible");
             let mut visible = node.visible;

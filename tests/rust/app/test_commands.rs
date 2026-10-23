@@ -70,3 +70,16 @@ fn legacy_shortcuts_are_preserved() {
     has(Action::Display(DisplayMode::Wireframe), shift(Key::F9));
     has(Action::Display(DisplayMode::Shaded), shift(Key::F10));
 }
+
+#[test]
+fn go_to_source_has_its_own_shortcut() {
+    assert_eq!(
+        shortcut(&Action::GoToSelectionSource),
+        Some(ctrl_shift(Key::G))
+    );
+    let taken = shortcuts()
+        .iter()
+        .filter(|(_, binding)| *binding == ctrl_shift(Key::G))
+        .count();
+    assert_eq!(taken, 1);
+}

@@ -172,6 +172,7 @@ impl AppState {
         if keep_scene {
             return;
         }
+        self.document_generation += 1;
         if self.execution.abandon() {
             self.debug_command(DebugAction::Stop);
         }

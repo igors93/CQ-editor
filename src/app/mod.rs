@@ -27,6 +27,7 @@ mod watching;
 mod worker_events;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use egui::ViewportCommand;
@@ -44,11 +45,11 @@ use crate::panels::{
     SelectorState, SelectorUse, Tab, TabContext,
 };
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
-use crate::scene::{Overlay, Rgb, Scene};
+use crate::scene::{Overlay, Rgb, RunScript, Scene};
 use crate::settings::{self, Projection, Settings};
 use crate::theme::{self, Palette};
 use crate::viewer::{ViewInput, Viewer, ViewerEvent};
-use crate::worker::protocol::{Request, Variable};
+use crate::worker::protocol::{Request, RequestId, Variable};
 use crate::worker::{self, Worker};
 
 use execution::{Execution, Pending, Phase};
@@ -101,6 +102,11 @@ pub struct AppState {
     pub parameters: ParametersState,
     /// When to render after a parameter changed (`ctx` time, seconds).
     parameter_render_at: Option<f64>,
+    /// Counts documents opened or created; a reload of the same file keeps
+    /// the count, so the lines of its objects still apply.
+    document_generation: u64,
+    /// The script the current run executes, for its objects' lines.
+    run_script: Option<(RequestId, Arc<RunScript>)>,
     pub console: ConsoleState,
     pub log_view: LogView,
     pub status: Option<Status>,
@@ -419,6 +425,14 @@ impl AppState {
             } => self.select(key, topology, extend),
             Action::SetVisible { key, visible } => self.scene.set_visible(&key, visible),
             Action::SetParameter { name, line, value } => self.set_parameter(&name, line, value),
+            Action::GoToSource { key, step } => self.go_to_source(&key, step),
+            Action::GoToSelectionSource => {
+                if let Some(key) = self.scene.current().map(|node| node.key.clone()) {
+                    self.go_to_source(&key, None);
+                } else {
+                    self.set_status(StatusKind::Info, "Select an object to go to its source");
+                }
+            }
             Action::RemoveSelected => {
                 let keys = self.scene.selected_top_level();
                 let removed = self.scene.remove_top_level(&keys);
@@ -570,6 +584,8 @@ impl CqEditorApp {
             selector: SelectorState::default(),
             parameters: ParametersState::default(),
             parameter_render_at: None,
+            document_generation: 0,
+            run_script: None,
             console: ConsoleState::default(),
             log_view: LogView::default(),
             status: None,
@@ -610,6 +626,13 @@ impl CqEditorApp {
                 None => self.dock.push_to_focused_leaf(tab),
             },
             Action::ResetLayout => self.dock = panels::default_layout(),
+            Action::GoToSource { .. } | Action::GoToSelectionSource => {
+                // The line is shown in the editor, wherever its tab is.
+                if let Some(path) = self.dock.find_tab(&Tab::Editor) {
+                    let _ = self.dock.set_active_tab(path);
+                }
+                self.state.execute(action);
+            }
             other => self.state.execute(other),
         }
     }

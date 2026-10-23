@@ -35,6 +35,7 @@ from typing import Any
 
 import cadquery as cq
 
+from . import provenance
 from .debugger import DebugStop
 from .scene import ShownObject
 
@@ -85,18 +86,18 @@ class ShownObjects(dict[str, ShownObject]):
 
     def show(self, obj: Any, name: str | None = None, options=None, **kwargs) -> None:
         merged = {**(options or {}), **kwargs}
+        caller = currentframe().f_back.f_back
         if not name:
-            name = _variable_name(
-                obj, currentframe().f_back.f_back
-            ) or self._unique_name(obj)
-        self[str(name)] = ShownObject(obj, merged)
+            name = _variable_name(obj, caller) or self._unique_name(obj)
+        self[str(name)] = ShownObject(obj, merged, _script_line(caller))
 
     def debug(self, obj: Any, name: str | None = None) -> None:
+        caller = currentframe().f_back.f_back
         if not name:
-            name = _variable_name(
-                obj, currentframe().f_back.f_back
-            ) or self._unique_name(obj)
-        self[str(name)] = ShownObject(obj, {"color": "red", "alpha": 0.2})
+            name = _variable_name(obj, caller) or self._unique_name(obj)
+        self[str(name)] = ShownObject(
+            obj, {"color": "red", "alpha": 0.2}, _script_line(caller)
+        )
 
     def _unique_name(self, obj: Any) -> str:
         base = type(obj).__name__
@@ -104,6 +105,14 @@ class ShownObjects(dict[str, ShownObject]):
         while f"{base} {index}" in self:
             index += 1
         return f"{base} {index}"
+
+
+def _script_line(frame) -> int | None:
+    """The line of ``frame`` when it runs the editor buffer."""
+
+    if frame is not None and frame.f_code.co_filename == SCRIPT_FILENAME:
+        return frame.f_lineno
+    return None
 
 
 def _variable_name(obj: Any, frame) -> str | None:
@@ -350,7 +359,8 @@ class Execution:
         self.namespace.update(self.api)
         try:
             with script_environment(self.path, self.settings):
-                (executor or _exec)(code, self.namespace)
+                with provenance.recording(SCRIPT_FILENAME):
+                    (executor or _exec)(code, self.namespace)
         except DebugStop:
             self.stopped = True
         except SystemExit:

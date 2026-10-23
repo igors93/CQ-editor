@@ -246,3 +246,33 @@ fn breakpoints_are_relocated_by_the_text_of_their_line() {
     // Gone, or a blank line.
     assert!(relocate_lines(text, &[saved(1, "d = 4"), saved(3, "")]).is_empty());
 }
+
+#[test]
+fn a_line_of_the_run_is_found_again_after_edits() {
+    let ran = "import cadquery as cq\nplate = cq.Workplane().box(4, 4, 1)\nhole = plate.hole(1)\n";
+    // Unchanged.
+    assert_eq!(locate_line(ran, 2, ran), Some(Located::Unchanged(2)));
+    // Lines added above move it.
+    let added = format!("# A plate\n\n{ran}");
+    assert_eq!(locate_line(ran, 2, &added), Some(Located::Moved(4)));
+    // Its own text was edited: where the edit left it.
+    let edited = ran.replace("box(4, 4, 1)", "box(5, 4, 1)");
+    assert_eq!(locate_line(ran, 2, &edited), Some(Located::Changed(2)));
+    // Moved elsewhere by a cut and paste: found by its text.
+    let pasted =
+        "import cadquery as cq\nhole = plate.hole(1)\nplate = cq.Workplane().box(4, 4, 1)\n";
+    assert_eq!(locate_line(ran, 2, pasted), Some(Located::Moved(3)));
+    // Deleted with its neighbours.
+    assert_eq!(locate_line(ran, 2, "import cadquery as cq\n"), None);
+    // Not a line of the run.
+    assert_eq!(locate_line(ran, 0, ran), None);
+    assert_eq!(locate_line(ran, 99, ran), None);
+}
+
+#[test]
+fn a_repeated_line_is_found_nearest_to_where_it_was() {
+    let ran = "a = f()\nb = 1\na = f()\nc = 2\n";
+    let edited = "a = f()\nb = 10\nx = 0\na = f()\nc = 2\n";
+    assert_eq!(locate_line(ran, 3, edited), Some(Located::Moved(4)));
+    assert_eq!(locate_line(ran, 1, edited), Some(Located::Unchanged(1)));
+}

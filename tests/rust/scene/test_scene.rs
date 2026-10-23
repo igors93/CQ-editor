@@ -18,6 +18,8 @@ fn node(key: &str, name: &str, children: Vec<SceneNode>) -> SceneNode {
         alpha: None,
         edge_color: None,
         overrides: Overrides::default(),
+        line: None,
+        script: None,
     }
 }
 
@@ -301,6 +303,7 @@ fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::Sc
         name: key.into(),
         kind: "Shape".into(),
         inspectable: false,
+        line: None,
         color: None,
         alpha: None,
         edge_color: None,

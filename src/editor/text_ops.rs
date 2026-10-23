@@ -381,6 +381,59 @@ pub fn go_to_target(text: &str, input: &str) -> Option<(usize, usize)> {
     Some((line, offset))
 }
 
+/// Where a line of an earlier version of the text is now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Located {
+    /// The same line, with the same text.
+    Unchanged(usize),
+    /// The same text, on another line.
+    Moved(usize),
+    /// Its text was edited; this is where the edits put the line.
+    Changed(usize),
+}
+
+impl Located {
+    pub fn line(self) -> usize {
+        match self {
+            Self::Unchanged(line) | Self::Moved(line) | Self::Changed(line) => line,
+        }
+    }
+}
+
+/// Where 1-based `line` of `old` is in `new`: on the line the edits moved
+/// it to if its text is there, else on the nearest line with its text, else
+/// where the edits put it. `None` if the line no longer exists.
+pub fn locate_line(old: &str, line: usize, new: &str) -> Option<Located> {
+    let content = old.split('\n').nth(line.checked_sub(1)?)?.trim();
+    let lines: Vec<&str> = new.split('\n').map(str::trim).collect();
+    let mapped = LineMap::new(old, new).map(line);
+    if let Some(at) = mapped
+        && lines.get(at - 1) == Some(&content)
+    {
+        return Some(if at == line {
+            Located::Unchanged(at)
+        } else {
+            Located::Moved(at)
+        });
+    }
+    if !content.is_empty() {
+        let near = mapped.unwrap_or(line) - 1;
+        let same = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| **candidate == content)
+            .min_by_key(|(index, _)| index.abs_diff(near));
+        if let Some((index, _)) = same {
+            return Some(if index + 1 == line {
+                Located::Unchanged(line)
+            } else {
+                Located::Moved(index + 1)
+            });
+        }
+    }
+    mapped.map(Located::Changed)
+}
+
 /// Places breakpoints saved with the text of their lines (1-based line,
 /// line text) in `text`: on the same line when its text is unchanged,
 /// otherwise on the nearest line with that text, otherwise nowhere.

@@ -379,6 +379,8 @@ fn node(key: &str, parts: Vec<Part>, children: Vec<SceneNode>) -> SceneNode {
         alpha: None,
         edge_color: None,
         overrides: Overrides::default(),
+        line: None,
+        script: None,
     }
 }
 

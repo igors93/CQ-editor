@@ -189,6 +189,17 @@ fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         Action::InsertSelector,
         picked,
     );
+    item_enabled(
+        ui,
+        actions,
+        icon::ARROW_SQUARE_OUT,
+        "Go to Source",
+        Action::GoToSelectionSource,
+        state
+            .scene
+            .current()
+            .is_some_and(|node| node.line.is_some()),
+    );
     ui.separator();
     item(
         ui,

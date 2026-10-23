@@ -413,9 +413,27 @@ pub struct SceneNode {
     pub alpha: Option<f32>,
     pub edge_color: Option<Rgb>,
     pub overrides: Overrides,
+    /// The script line that created the object, 1-based, in `script`.
+    pub line: Option<usize>,
+    /// The script as the run that made this node executed it.
+    pub script: Option<Arc<RunScript>>,
+}
+
+/// The script a run executed: the lines of its objects refer to this text,
+/// which the editor may have changed since.
+#[derive(Debug)]
+pub struct RunScript {
+    /// The document that ran; lines of another one mean nothing in it.
+    pub document: u64,
+    pub text: String,
 }
 
 impl SceneNode {
+    /// Gives the node and its subtree the script their lines refer to.
+    pub fn attach_script(&mut self, script: &Arc<RunScript>) {
+        self.visit_mut(&mut |node| node.script = Some(script.clone()));
+    }
+
     fn from_message(
         message: protocol::SceneNode,
         library: &mut MeshLibrary,
@@ -446,6 +464,8 @@ impl SceneNode {
             alpha: message.alpha,
             edge_color: message.edge_color,
             overrides: Overrides::default(),
+            line: message.line,
+            script: None,
         })
     }
 

@@ -178,9 +178,10 @@ impl AppState {
                 }
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
-                let Some(nodes) = self.decode_scene_nodes(Some(id), objects) else {
+                let Some(mut nodes) = self.decode_scene_nodes(Some(id), objects) else {
                     return;
                 };
+                self.attach_run_script(id, &mut nodes);
                 let removed = self.scene.replace(nodes, None);
                 self.release(removed);
                 self.measurements.clear();

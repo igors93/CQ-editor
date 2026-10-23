@@ -389,3 +389,31 @@ def test_a_worker_remeshes_only_edited_parts_even_without_gui_geometry(
     assert first["timings"]["meshed"] == 3
     timings = second["timings"]
     assert (timings["meshed"], timings["cached"], timings["referenced"]) == (1, 2, 0)
+
+
+def test_objects_and_inspector_steps_report_their_script_lines(conversation):
+    script = (
+        "import cadquery as cq\n"
+        "plate = (\n"
+        "    cq.Workplane()\n"
+        "    .box(4, 4, 1)\n"
+        "    .faces('>Z')\n"
+        ")\n"
+        "show_object(plate)\n"
+    )
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {"cmd": "inspect", "id": 2, "key": "n1"},
+        {"cmd": "console", "id": 3, "source": "show_object(cq.Workplane().sphere(1))"},
+    )
+    talk.serve()
+
+    (finished,) = talk.of_type("run_finished")
+    assert finished["objects"][0]["line"] == 5
+    (inspection,) = talk.of_type("inspection")
+    # Newest first; the root Workplane() is not a step.
+    assert [frame["line"] for frame in inspection["frames"]] == [5, 4]
+    assert inspection["frames"][1]["items"][0]["line"] == 4
+    # Objects made in the console have no script line.
+    (added,) = talk.of_type("scene_add")
+    assert added["objects"][0]["line"] is None

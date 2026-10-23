@@ -18,6 +18,7 @@ from typing import Any
 import cadquery as cq
 from OCP.TopoDS import TopoDS_Shape
 
+from .provenance import creation_line
 from .tessellation import GeometryCache, Tolerance, TopologyIndex
 
 log = logging.getLogger(__name__)
@@ -165,6 +166,8 @@ class DisplayOptions:
 class ShownObject:
     obj: Any
     options: Mapping[str, Any] = field(default_factory=dict)
+    #: The script line of the ``show_object`` call, if made by the script.
+    line: int | None = None
 
 
 @dataclass(frozen=True)
@@ -301,7 +304,9 @@ class SceneBuilder:
         nodes = []
         for name, shown in objects.items():
             try:
-                node = self.node(name, shown.obj, DisplayOptions.parse(shown.options))
+                node = self.node(
+                    name, shown.obj, DisplayOptions.parse(shown.options), shown.line
+                )
             except Exception as error:
                 log.error(
                     "Cannot display %s: %s: %s", name, type(error).__name__, error
@@ -311,7 +316,22 @@ class SceneBuilder:
                 nodes.append(node)
         return nodes
 
-    def node(self, name: str, obj: Any, options: DisplayOptions) -> dict | None:
+    def node(
+        self,
+        name: str,
+        obj: Any,
+        options: DisplayOptions,
+        shown_line: int | None = None,
+    ) -> dict | None:
+        """The node of a shown object. Its ``line`` is where the script
+        created the object, else where it showed it."""
+
+        message = self._node(name, obj, options)
+        if message is not None and message["line"] is None:
+            message["line"] = shown_line
+        return message
+
+    def _node(self, name: str, obj: Any, options: DisplayOptions) -> dict | None:
         if isinstance(obj, cq.Assembly):
             if self.merge_assemblies:
                 return self._merged_assembly_node(name, obj, options)
@@ -485,10 +505,14 @@ class SceneBuilder:
 
     @staticmethod
     def _message(key, name, obj, options, parts, children) -> dict:
+        line = creation_line(obj)
+        if line is None and isinstance(obj, cq.Assembly):
+            line = creation_line(obj.obj)
         return {
             "key": key,
             "name": str(name),
             "kind": type(obj).__name__,
+            "line": line,
             "inspectable": isinstance(obj, cq.Workplane) and obj.parent is not None,
             **options.to_message(),
             "parts": parts,

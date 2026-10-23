@@ -46,8 +46,14 @@ between sessions.
 * The checkbox toggles visibility. The color square is the object's color.
 * Click to select, Ctrl+click to add to the selection, double-click to zoom
   to the object.
-* Right-click opens a menu with **Zoom to**, **Show/Hide**, export and
-  removal.
+* Right-click opens a menu with **Zoom to**, **Go to Source**,
+  **Show/Hide**, export and removal. **Go to Source** (also *Edit > Go to
+  Source*, Ctrl+Shift+G, and the **Source** row of the property sheet)
+  shows the script line that created the object: the line of the last
+  operation of a chain, the line inside a function of the script that made
+  it, or the line of the `add` call for an assembly part. Lines follow the
+  edits made since the run; when the line itself was edited, the status
+  bar says so.
 * The toolbar at the top has **Clear all**, **Remove selected** (×) and
   **Export** (the selection, or everything when nothing is selected).
 * The property sheet below the tree edits the selected object: visibility,
@@ -86,7 +92,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | Menu | Items |
 | --- | --- |
 | **File** | New · Open… · Open Recent · Save · Save As… · Local History… · Automatic Reload and Preview · Examples · Quit |
-| **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Preferences… |
+| **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
 | **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · panel toggles · Reset Layout |

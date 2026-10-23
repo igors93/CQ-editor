@@ -61,6 +61,8 @@ pub(super) fn test_state(text: &str) -> AppState {
         selector: SelectorState::default(),
         parameters: ParametersState::default(),
         parameter_render_at: None,
+        document_generation: 0,
+        run_script: None,
         console: ConsoleState::default(),
         log_view: LogView::default(),
         status: None,
@@ -130,6 +132,8 @@ fn pick_face(state: &mut AppState) {
         alpha: None,
         edge_color: None,
         overrides: Default::default(),
+        line: None,
+        script: None,
     };
     state.scene.append(vec![node], None);
     state.scene.select_only("n1");
@@ -303,4 +307,104 @@ fn a_commented_range_bounds_the_written_value() {
     let mut state = test_state("width = 40  # [10, 100]\n");
     state.set_parameter("width", 1, 400.0);
     assert_eq!(state.document.text, "width = 100  # [10, 100]\n");
+}
+
+/// A scene with one node made on `line` by a run of `ran`.
+fn shown_from_run(state: &mut AppState, ran: &str, line: usize) {
+    pick_face(state);
+    let script = std::sync::Arc::new(crate::scene::RunScript {
+        document: state.document_generation,
+        text: ran.to_owned(),
+    });
+    let node = state.scene.find_mut("n1").unwrap();
+    node.line = Some(line);
+    node.attach_script(&script);
+}
+
+fn status_text(state: &AppState) -> &str {
+    &state.status.as_ref().unwrap().text
+}
+
+#[test]
+fn going_to_the_source_follows_the_edits_made_since_the_run() {
+    let ran = "import cadquery as cq\nbox = cq.Workplane().box(1, 2, 3)\n";
+    let mut state = test_state(ran);
+    shown_from_run(&mut state, ran, 2);
+
+    state.go_to_source("n1", None);
+    assert_eq!(status_text(&state), "Line 2");
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Info);
+
+    state.document.text = format!("# a box\n{ran}");
+    state.go_to_source("n1", None);
+    assert_eq!(status_text(&state), "Line 3 (line 2 when the script ran)");
+
+    state.document.text = state.document.text.replace("box(1, 2, 3)", "box(1, 2, 4)");
+    state.go_to_source("n1", None);
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Warning);
+    assert!(status_text(&state).contains("edited since the last run"));
+
+    state.document.text = "import cadquery as cq\n".to_owned();
+    state.go_to_source("n1", None);
+    assert!(status_text(&state).contains("deleted"));
+}
+
+#[test]
+fn objects_of_another_document_or_the_console_have_no_source_here() {
+    let ran = "box = cq.Workplane().box(1, 1, 1)\n";
+    let mut state = test_state(ran);
+    shown_from_run(&mut state, ran, 1);
+    state.document_generation += 1;
+    state.go_to_source("n1", None);
+    assert!(status_text(&state).contains("another script"));
+
+    let node = state.scene.find_mut("n1").unwrap();
+    node.script = None;
+    state.go_to_source("n1", None);
+    assert!(status_text(&state).contains("console"));
+}
+
+#[test]
+fn inspector_steps_go_to_the_line_that_made_them() {
+    use crate::worker::protocol::{StackFrame, StackItem};
+    let ran = "plate = (\n    cq.Workplane()\n    .box(4, 4, 1)\n    .faces(\">Z\")\n)\n";
+    let mut state = test_state(ran);
+    shown_from_run(&mut state, ran, 4);
+    state.inspector.key = Some("n1".into());
+    state.inspector.frames = vec![StackFrame {
+        type_name: "Workplane".into(),
+        value: String::new(),
+        line: Some(4),
+        items: vec![StackItem {
+            type_name: "Solid".into(),
+            value: String::new(),
+            displayable: true,
+            line: Some(3),
+        }],
+    }];
+
+    state.go_to_source("n1", Some((0, Some(0))));
+    assert_eq!(status_text(&state), "Line 3");
+    state.go_to_source("n1", Some((0, None)));
+    assert_eq!(status_text(&state), "Line 4");
+    // A step of another object's stack is not this node's.
+    state.inspector.key = Some("other".into());
+    state.go_to_source("n1", Some((0, None)));
+    assert!(status_text(&state).contains("No script line"));
+}
+
+#[test]
+fn only_the_run_that_made_the_nodes_gives_them_its_script() {
+    let mut state = test_state("x = 1\n");
+    let script = std::sync::Arc::new(crate::scene::RunScript {
+        document: 0,
+        text: "x = 1\n".into(),
+    });
+    state.run_script = Some((7, script));
+    pick_face(&mut state);
+    let mut nodes = std::mem::take(&mut state.scene.nodes);
+    state.attach_run_script(6, &mut nodes);
+    assert!(nodes[0].script.is_none());
+    state.attach_run_script(7, &mut nodes);
+    assert!(nodes[0].script.is_some());
 }

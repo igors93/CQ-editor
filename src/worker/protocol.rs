@@ -412,6 +412,9 @@ pub struct StackFrame {
     pub type_name: String,
     pub value: String,
     pub items: Vec<StackItem>,
+    /// The script line that made this step.
+    #[serde(default)]
+    pub line: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -420,6 +423,8 @@ pub struct StackItem {
     pub type_name: String,
     pub value: String,
     pub displayable: bool,
+    #[serde(default)]
+    pub line: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -523,6 +528,9 @@ pub struct SceneNode {
     pub name: String,
     pub kind: String,
     pub inspectable: bool,
+    /// The script line that created the object (or showed it).
+    #[serde(default)]
+    pub line: Option<usize>,
     pub color: Option<[f32; 3]>,
     pub alpha: Option<f32>,
     pub edge_color: Option<[f32; 3]>,

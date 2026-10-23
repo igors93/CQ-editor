@@ -392,3 +392,26 @@ fn run_results_without_timings_still_decode() {
 fn unknown_worker_message_is_rejected() {
     assert!(serde_json::from_str::<Message>(r#"{"type":"unknown"}"#).is_err());
 }
+
+#[test]
+fn nodes_and_stack_frames_carry_their_script_lines() {
+    let node: SceneNode = serde_json::from_str(
+        r#"{"key":"n1","name":"plate","kind":"Workplane","inspectable":true,"line":4,
+            "color":null,"alpha":null,"edge_color":null,"parts":[],"children":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(node.line, Some(4));
+    let older: SceneNode = serde_json::from_str(
+        r#"{"key":"n1","name":"plate","kind":"Workplane","inspectable":true,
+            "color":null,"alpha":null,"edge_color":null,"parts":[],"children":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(older.line, None);
+
+    let frame: StackFrame = serde_json::from_str(
+        r#"{"type":"Workplane","value":"origin (0, 0, 0)","line":2,
+            "items":[{"type":"Solid","value":"1 solid(s)","displayable":true,"line":2}]}"#,
+    )
+    .unwrap();
+    assert_eq!((frame.line, frame.items[0].line), (Some(2), Some(2)));
+}

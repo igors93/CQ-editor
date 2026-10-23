@@ -79,6 +79,9 @@ option.
   **workplane**;
 * click a single **object** to draw only that object.
 
+The **line N** button of a step or an object goes to the script line that
+made it, so the chain can be followed in the code.
+
 This is the quickest way to understand selectors such as
 `.faces(">Z").workplane()` or `.vertices()`: you see which plane the next
 operation is relative to, and which entities it acts on.

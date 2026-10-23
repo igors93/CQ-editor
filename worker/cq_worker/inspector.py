@@ -12,6 +12,7 @@ from typing import Any
 
 import cadquery as cq
 
+from .provenance import creation_line
 from .tessellation import Tolerance, tessellate
 
 MAX_VALUE_LENGTH = 200
@@ -31,11 +32,13 @@ def describe_stack(frames: list[cq.Workplane]) -> list[dict]:
         {
             "type": type(frame).__name__,
             "value": f"origin {_point(frame.plane.origin)}",
+            "line": creation_line(frame),
             "items": [
                 {
                     "type": type(obj).__name__,
                     "value": describe(obj),
                     "displayable": is_displayable(obj),
+                    "line": creation_line(obj),
                 }
                 for obj in frame.objects
             ],

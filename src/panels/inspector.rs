@@ -36,6 +36,18 @@ impl InspectorState {
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     let mut actions = Vec::new();
     let inspector = &mut state.inspector;
+    let source = |actions: &mut Vec<Action>, ui: &mut egui::Ui, key: &NodeKey, line, step| {
+        if ui
+            .small_button(format!("line {line}"))
+            .on_hover_text("Go to the script line that made it")
+            .clicked()
+        {
+            actions.push(Action::GoToSource {
+                key: key.clone(),
+                step: Some(step),
+            });
+        }
+    };
 
     egui::Frame::NONE
         .inner_margin(egui::Margin::symmetric(6, 4))
@@ -73,6 +85,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         return;
     }
 
+    let key = inspector.key.clone().unwrap_or_default();
     egui::ScrollArea::both()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -97,21 +110,35 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                         });
                     }
                     ui.weak(format!("{} objects", frame.items.len()));
+                    if let Some(line) = frame.line {
+                        source(&mut actions, ui, &key, line, (frame_index, None));
+                    }
                 })
                 .body(|ui| {
                     for (item_index, item) in frame.items.iter().enumerate() {
                         let selected = inspector.selected == Some((frame_index, Some(item_index)));
                         let text = RichText::new(format!("{}  {}", item.type_name, item.value));
                         let label = if item.displayable { text } else { text.weak() };
-                        if ui
-                            .add(egui::Button::selectable(selected, label).truncate())
-                            .clicked()
-                        {
-                            actions.push(Action::InspectEntry {
-                                frame: frame_index,
-                                item: Some(item_index),
-                            });
-                        }
+                        ui.horizontal(|ui| {
+                            if let Some(line) = item.line {
+                                source(
+                                    &mut actions,
+                                    ui,
+                                    &key,
+                                    line,
+                                    (frame_index, Some(item_index)),
+                                );
+                            }
+                            if ui
+                                .add(egui::Button::selectable(selected, label).truncate())
+                                .clicked()
+                            {
+                                actions.push(Action::InspectEntry {
+                                    frame: frame_index,
+                                    item: Some(item_index),
+                                });
+                            }
+                        });
                     }
                 });
             }

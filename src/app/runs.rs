@@ -1,13 +1,15 @@
 //! Rendering and debugging the script. [`Execution`](super::execution)
 //! decides; these methods send the requests and apply the results.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::execution::{RunEnd, RunRequest};
 use super::{AppState, StatusKind};
+use crate::editor::text_ops::{self, Located};
 use crate::logging::{self, Level};
 use crate::parameters;
-use crate::scene::{Overlay, SceneNode};
+use crate::scene::{Overlay, RunScript, SceneNode};
 use crate::worker::protocol::{
     DebugAction, Request, RequestId, RunFinished, SceneNode as NodeMessage,
 };
@@ -87,6 +89,13 @@ impl AppState {
         // clears the view below.
         let known_geometry = self.scene.known_geometry();
         self.scene.pin_geometry(id, &known_geometry);
+        self.run_script = Some((
+            id,
+            Arc::new(RunScript {
+                document: self.document_generation,
+                text: self.document.text.clone(),
+            }),
+        ));
         let request = Request::Run {
             id,
             script: self.document.text.clone(),
@@ -158,7 +167,8 @@ impl AppState {
             let decoding = Instant::now();
             // A scene that cannot be decoded is reported, and the rest of
             // the result (variables, a queued render) still applies.
-            if let Some(nodes) = self.decode_scene_nodes(Some(result.id), objects) {
+            if let Some(mut nodes) = self.decode_scene_nodes(Some(result.id), objects) {
+                self.attach_run_script(result.id, &mut nodes);
                 if let Some(timings) = &result.timings {
                     log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
                 }
@@ -246,6 +256,72 @@ impl AppState {
         }
         self.start_worker();
         self.set_status(StatusKind::Warning, "Execution stopped");
+    }
+
+    /// Gives the nodes of a run the script text their lines refer to.
+    pub(super) fn attach_run_script(&self, id: RequestId, nodes: &mut [SceneNode]) {
+        if let Some((run, script)) = &self.run_script
+            && *run == id
+        {
+            for node in nodes {
+                node.attach_script(script);
+            }
+        }
+    }
+
+    /// Moves the editor to the script line that created an object, or one
+    /// step of its construction stack in the CQ Inspector, following the
+    /// edits made since the run.
+    pub(super) fn go_to_source(&mut self, key: &str, step: Option<(usize, Option<usize>)>) {
+        let Some(node) = self.scene.find(key) else {
+            return;
+        };
+        let line = match step {
+            None => node.line,
+            Some(_) if self.inspector.key.as_deref() != Some(key) => None,
+            Some((frame, item)) => {
+                let frame = self.inspector.frames.get(frame);
+                match item {
+                    None => frame.and_then(|frame| frame.line),
+                    Some(item) => frame
+                        .and_then(|frame| frame.items.get(item))
+                        .and_then(|item| item.line),
+                }
+            }
+        };
+        let (Some(line), Some(script)) = (line, node.script.clone()) else {
+            self.set_status(
+                StatusKind::Info,
+                "No script line is known for this object (objects shown from the console have none)",
+            );
+            return;
+        };
+        if script.document != self.document_generation {
+            self.set_status(
+                StatusKind::Warning,
+                "This object comes from another script; render again to go to its source",
+            );
+            return;
+        }
+        let Some(located) = text_ops::locate_line(&script.text, line, &self.document.text) else {
+            self.set_status(
+                StatusKind::Warning,
+                format!("Line {line} was deleted since the last run"),
+            );
+            return;
+        };
+        self.editor.go_to_line(&self.document.text, located.line());
+        match located {
+            Located::Unchanged(at) => self.set_status(StatusKind::Info, format!("Line {at}")),
+            Located::Moved(at) => self.set_status(
+                StatusKind::Info,
+                format!("Line {at} (line {line} when the script ran)"),
+            ),
+            Located::Changed(at) => self.set_status(
+                StatusKind::Warning,
+                format!("Line {at}: edited since the last run"),
+            ),
+        }
     }
 
     pub(super) fn decode_scene_nodes(

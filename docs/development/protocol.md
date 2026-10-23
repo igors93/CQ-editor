@@ -99,7 +99,7 @@ The worker handles one request at a time, in arrival order.
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
 | `description` | `id`, `available`, `signatures` (call signatures, or `name: type` for a variable), `text` (the docstring, cut to 14 lines / 1200 characters); both empty when there is nothing to show | |
-| `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
+| `inspection` | `id`, `key`, `frames` (`type`, `value`, `line`, `items` (`type`, `value`, `displayable`, `line`)) | Workplane stack, newest first; `line` is the script line that made each step and object |
 | `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
 | `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties of each entity; `pair` (the relationship) only for exactly two |
 | `selector` | `id`, `method` (`faces`, `edges` or `vertices`), `candidates` | CadQuery selectors for the entities, best first. Each candidate has `expression` (to append to the object, e.g. `.faces(">Z")`), `selector` (`">Z"`, null for an index), `description` and `index_based`. Every candidate was verified with CadQuery on the object the script holds |
@@ -120,7 +120,7 @@ buffer appears as the file `<cq-editor>`.
 
 ```json
 {
-  "key": "s1-n4", "name": "bracket", "kind": "Workplane", "inspectable": true,
+  "key": "s1-n4", "name": "bracket", "kind": "Workplane", "inspectable": true, "line": 12,
   "color": [0.27, 0.51, 0.71], "alpha": null, "edge_color": null,
   "parts": [{ "mesh": { … }, "transform": [16 floats, column-major], "color": null, "alpha": null }],
   "children": []
@@ -136,6 +136,13 @@ buffer appears as the file `<cq-editor>`.
 * An assembly is a node whose `children` mirror the assembly tree. Each
   child carries its own parts and placement.
 * Colors are sRGB floats in 0–1. `null` means "use the default".
+* `line` is the 1-based script line that created the object (for an
+  assembly child, the line of its `add` call), or the line of the
+  `show_object` call when the object was not created by this run; `null`
+  for objects shown from the console. While a script runs, the worker
+  records the innermost script frame of every new `Workplane`, `Shape`,
+  `Assembly` and `Sketch` (`provenance.py`). Lines refer to the script text
+  of the `run` request; the GUI maps them onto the edited text.
 
 ### Meshes
 

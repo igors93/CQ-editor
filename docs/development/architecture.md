@@ -158,6 +158,7 @@ measured scene makes the CPU path the bottleneck again.
 | `scene.py` | Shown objects → scene nodes: colors, assemblies, the `Registry` of live objects by key |
 | `tessellation.py` | Meshing, the content-addressed `GeometryCache`, `TopologyIndex` |
 | `inspector.py` | Workplane stack description and per-step geometry |
+| `provenance.py` | While a script runs, records on each new Workplane, Shape, Assembly and Sketch the script line that created it, for *Go to Source* |
 | `selection.py` | Selectors for picked entities: simple selectors evaluated with CadQuery's rules on cached entity features, combined as bit masks, then verified with CadQuery itself |
 | `console.py` | The persistent interactive console |
 | `completion.py` | jedi completions, call signatures and the documentation shown on hover |
