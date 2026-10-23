@@ -226,3 +226,35 @@ fn every_reply_is_routed_once() {
     assert_eq!(execution.answer(7), None);
     assert_eq!(execution.answer(8), None, "unknown ids are ignored");
 }
+
+#[test]
+fn meshing_progress_is_kept_for_the_running_render_only() {
+    let start = std::time::Instant::now();
+    let later = start + std::time::Duration::from_millis(500);
+    let mut execution = rendering(3);
+    assert_eq!(execution.meshing(), None);
+
+    execution.meshing_progress(2, 1, 10, start);
+    assert_eq!(execution.meshing(), None, "another request");
+    execution.meshing_progress(3, 0, 10, start);
+    execution.meshing_progress(3, 4, 10, later);
+    let meshing = execution.meshing().unwrap();
+    assert_eq!((meshing.done, meshing.total), (4, 10));
+    assert_eq!(meshing.since, start, "since the first report");
+
+    execution.meshing_progress(3, 10, 10, later);
+    assert_eq!(execution.meshing(), None, "done");
+    execution.meshing_progress(3, 5, 10, later);
+    execution.ended(3);
+    assert_eq!(execution.meshing(), None);
+    assert_eq!(execution.phase().running_id(), None);
+
+    let mut execution = rendering(4);
+    execution.meshing_progress(4, 1, 10, start);
+    execution.reset();
+    assert_eq!(
+        execution.meshing(),
+        None,
+        "a restarted worker answers nothing"
+    );
+}

@@ -4,6 +4,11 @@ Requests arrive on stdin, one JSON object per line. Replies and events leave
 through a private duplicate of the original stdout descriptor, also one JSON
 object per line.
 
+The worker handles one request at a time, but a ``cancel`` request must reach
+it while it is busy: :meth:`Channel.cancel_requested` reads, without waiting,
+whatever the GUI sent meanwhile, records cancellations and keeps the other
+requests, in order, for :meth:`Channel.receive`.
+
 User scripts and native libraries are free to print: descriptor 1 is pointed
 at stderr (which the GUI shows in its log), and the Python-level
 ``sys.stdout`` / ``sys.stderr`` are replaced by :class:`OutputStream` objects
@@ -13,6 +18,7 @@ produced them.
 
 from __future__ import annotations
 
+import collections
 import io
 import json
 import os
@@ -23,7 +29,7 @@ from typing import Any, BinaryIO
 Message = dict[str, Any]
 
 #: Bumped whenever the message format changes incompatibly.
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 
 #: Captured output is sent regularly even when a script never writes ``\n``.
 OUTPUT_CHUNK_CHARS = 64 * 1024
@@ -54,6 +60,20 @@ class Channel:
         self._lock = threading.Lock()
         #: Id of the request being handled; attached to output and log messages.
         self.current_id: int | None = None
+        #: Requests the GUI asked to cancel.
+        self._cancelled: set[Any] = set()
+        #: Requests (or the errors parsing them) read ahead while polling
+        #: for cancellations, in arrival order.
+        self._pending: collections.deque[Message | Exception] = collections.deque()
+        self._partial = b""
+        self._ended = False
+        # Streams with a descriptor are read with os.read, so that what was
+        # read is never hidden in a buffered reader's buffer; others (tests)
+        # are read line by line and never polled.
+        try:
+            self._fd: int | None = reader.fileno()
+        except (AttributeError, OSError, io.UnsupportedOperation):
+            self._fd = None
 
     @classmethod
     def from_std_streams(cls) -> Channel:
@@ -79,12 +99,90 @@ class Channel:
         """Block until the next request arrives; ``None`` once the GUI is gone."""
 
         while True:
-            line = self._reader.readline()
-            if not line:
+            if self._pending:
+                message = self._pending.popleft()
+                if isinstance(message, Exception):
+                    raise message
+                return message
+            if self._ended:
                 return None
-            line = line.strip()
-            if line:
-                return json.loads(line)
+            if self._fd is None:
+                line = self._reader.readline()
+                if line:
+                    self._take_line(line)
+                else:
+                    self._ended = True
+            else:
+                self._take(os.read(self._fd, 65536))
+
+    def cancel_requested(self, request_id: Any) -> bool:
+        """Whether the GUI cancelled ``request_id``, reading without waiting
+        whatever it has sent meanwhile."""
+
+        self._poll()
+        return request_id in self._cancelled
+
+    def forget_cancel(self, request_id: Any) -> None:
+        self._cancelled.discard(request_id)
+
+    def _poll(self) -> None:
+        while not self._ended and self._fd is not None:
+            available = _bytes_available(self._fd)
+            if available == 0:
+                return
+            self._take(os.read(self._fd, max(available, 1)))
+
+    def _take(self, data: bytes) -> None:
+        if not data:
+            self._ended = True
+            if self._partial.strip():
+                self._take_line(self._partial)
+            self._partial = b""
+            return
+        *lines, self._partial = (self._partial + data).split(b"\n")
+        for line in lines:
+            self._take_line(line)
+
+    def _take_line(self, line: bytes) -> None:
+        """Records a cancellation at once; queues anything else."""
+
+        line = line.strip()
+        if not line:
+            return
+        try:
+            message = json.loads(line)
+        except ValueError as error:
+            self._pending.append(error)
+            return
+        if isinstance(message, dict) and message.get("cmd") == "cancel":
+            self._cancelled.add(message.get("target"))
+        else:
+            self._pending.append(message)
+
+
+def _bytes_available(fd: int) -> int:
+    """How much can be read from ``fd`` right away (1 at the end of the
+    stream, which reads as empty); 0 when that cannot be told. A thread
+    blocked reading stdin is not an option on Windows: loading a DLL then
+    waits for that read to finish."""
+
+    if os.name == "nt":
+        try:
+            import _winapi
+            import msvcrt
+
+            available, _ = _winapi.PeekNamedPipe(msvcrt.get_osfhandle(fd), 0)
+            return available
+        except OSError as error:
+            # The other end is closed: the next read reports the end.
+            return 1 if getattr(error, "winerror", None) == 109 else 0
+    import select
+
+    try:
+        readable, _, _ = select.select([fd], [], [], 0)
+    except (OSError, ValueError):
+        return 0
+    return 1 if readable else 0
 
 
 class OutputStream(io.TextIOBase):

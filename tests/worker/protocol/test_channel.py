@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 
 import pytest
 
@@ -126,3 +127,49 @@ def test_output_stream_survives_disconnected_gui(error):
     stream = OutputStream(Channel(io.BytesIO(), BrokenWriter()), "stdout")
     stream.write("done\n")
     stream.flush()
+
+
+def test_cancellations_are_seen_while_a_request_is_handled():
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, "rb", buffering=0) as reader:
+        channel = Channel(reader, io.BytesIO())
+        os.write(write_fd, b'{"cmd":"run","id":1}\n')
+        assert channel.receive() == {"cmd": "run", "id": 1}
+        # Nothing more has arrived: asking does not wait.
+        assert not channel.cancel_requested(1)
+
+        os.write(
+            write_fd,
+            b'{"cmd":"inspect","id":2}\n{"cmd":"cancel","target":1}\n{"cmd":"canc',
+        )
+        assert channel.cancel_requested(1)
+        os.write(write_fd, b'el","target":2}\n')
+        assert channel.cancel_requested(2)
+        channel.forget_cancel(1)
+        assert not channel.cancel_requested(1)
+
+        # What was read meanwhile is served in order, then the end.
+        assert channel.receive() == {"cmd": "inspect", "id": 2}
+        os.write(write_fd, b'{"cmd":"shutdown"}')
+        os.close(write_fd)
+        assert not channel.cancel_requested(3)
+        assert channel.receive() == {"cmd": "shutdown"}
+        assert channel.receive() is None
+        assert channel.receive() is None
+
+
+def test_malformed_requests_are_raised_in_order():
+    payload = b'{"cmd":"a"}\n{broken}\n{"cmd":"b"}\n'
+    channel = Channel(io.BytesIO(payload), io.BytesIO())
+
+    assert channel.receive() == {"cmd": "a"}
+    with pytest.raises(json.JSONDecodeError):
+        channel.receive()
+    assert channel.receive() == {"cmd": "b"}
+
+
+def test_cancellations_are_recorded_between_requests_too():
+    payload = b'{"cmd":"cancel","target":9}\n{"cmd":"run","id":9}\n'
+    channel = Channel(io.BytesIO(payload), io.BytesIO())
+    assert channel.receive() == {"cmd": "run", "id": 9}
+    assert channel.cancel_requested(9)

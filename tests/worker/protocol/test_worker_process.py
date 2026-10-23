@@ -100,3 +100,53 @@ def test_worker_can_be_restarted_after_a_native_process_exit():
     assert restarted.returncode == 0
     (finished,) = [m for m in messages if m["type"] == "run_finished"]
     assert finished["id"] == 2 and finished["ok"]
+
+
+def test_a_running_worker_stops_meshing_when_cancelled():
+    """The cancellation arrives while the worker is busy meshing: its reader
+    thread sees it, and meshing stops at the next shape."""
+
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(PROJECT_ROOT / "worker")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "cq_worker"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        cwd=PROJECT_ROOT,
+        env=environment,
+    )
+    script = (
+        "for i in range(400):\n"
+        "    show_object(cq.Workplane().sphere(1 + i / 100).translate((3 * i, 0, 0)))\n"
+    )
+
+    def send(request):
+        process.stdin.write(json.dumps(request) + "\n")
+        process.stdin.flush()
+
+    try:
+        send({"cmd": "run", "id": 1, "script": script})
+        progress = []
+        finished = None
+        for line in process.stdout:
+            message = json.loads(line)
+            if message["type"] == "progress":
+                progress.append(message)
+                if len(progress) == 2:
+                    send({"cmd": "cancel", "target": 1})
+            elif message["type"] == "run_finished":
+                finished = message
+                break
+        send({"cmd": "shutdown"})
+        assert process.wait(timeout=30) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+
+    assert finished is not None and finished["cancelled"] is True
+    assert finished["objects"] is None
+    assert progress[0]["total"] == 400
+    assert progress[-1]["done"] < 400, "stopped before the end"

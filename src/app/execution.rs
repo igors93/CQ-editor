@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::scene::NodeKey;
 use crate::worker::{self, protocol::RequestId};
@@ -25,6 +26,16 @@ pub enum Phase {
 }
 
 /// What an outstanding request was for, so replies and errors can be routed.
+impl Phase {
+    /// The run going on, unless it is paused in the debugger.
+    pub fn running_id(self) -> Option<RequestId> {
+        match self {
+            Phase::Running { id, .. } => Some(id),
+            Phase::Idle | Phase::Paused { .. } => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
     Run,
@@ -109,6 +120,16 @@ pub struct Execution {
     /// Render as soon as the worker is ready (`Some(debug)`).
     run_when_ready: Option<bool>,
     pending: HashMap<RequestId, Pending>,
+    meshing: Option<Meshing>,
+}
+
+/// How far the worker is in meshing the running run's objects.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Meshing {
+    pub done: u32,
+    pub total: u32,
+    /// When the first progress report arrived.
+    pub since: Instant,
 }
 
 impl Execution {
@@ -177,6 +198,21 @@ impl Execution {
     pub fn started(&mut self, id: RequestId, debug: bool) {
         self.pending.insert(id, Pending::Run);
         self.phase = Phase::Running { id, debug };
+        self.meshing = None;
+    }
+
+    /// The worker meshed `done` of the `total` parts of run `id`. Reports
+    /// for anything but the running run are ignored.
+    pub fn meshing_progress(&mut self, id: RequestId, done: u32, total: u32, now: Instant) {
+        if self.phase.running_id() == Some(id) {
+            let since = self.meshing.map_or(now, |meshing| meshing.since);
+            self.meshing = Some(Meshing { done, total, since });
+        }
+    }
+
+    /// The meshing of the running run, while it goes on.
+    pub fn meshing(&self) -> Option<Meshing> {
+        self.meshing.filter(|meshing| meshing.done < meshing.total)
     }
 
     /// The debugger stopped the run `id`. Returns whether the run is stale,
@@ -199,6 +235,7 @@ impl Execution {
     pub fn ended(&mut self, id: RequestId) -> RunEnd {
         self.pending.remove(&id);
         self.phase = Phase::Idle;
+        self.meshing = None;
         RunEnd {
             stale: self.stale_run.take() == Some(id),
             rerun: std::mem::take(&mut self.rerun),
@@ -236,6 +273,7 @@ impl Execution {
         self.rerun = false;
         self.stale_run = None;
         self.pending.clear();
+        self.meshing = None;
     }
 }
 

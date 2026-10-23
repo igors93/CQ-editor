@@ -154,6 +154,7 @@ pub struct Mesh {
     triangle_bvh: OnceLock<TriangleBvh>,
     edge_bvh: OnceLock<BoundsBvh>,
     vertex_bvh: OnceLock<BoundsBvh>,
+    simplified: OnceLock<Option<Arc<Mesh>>>,
 }
 
 /// Pick geometry and its association with the worker's OCCT topology index.
@@ -200,7 +201,111 @@ impl Mesh {
             triangle_bvh: OnceLock::new(),
             edge_bvh: OnceLock::new(),
             vertex_bvh: OnceLock::new(),
+            simplified: OnceLock::new(),
         }
+    }
+
+    /// A coarser copy for drawing the mesh small, made once: vertices are
+    /// merged per cell of a grid of [`SIMPLIFIED_CELLS`] cells along the
+    /// longest side, and triangles and edges that collapse are dropped.
+    /// `None` for small meshes and when that would not halve the triangles.
+    /// It is for drawing only: picking always uses the full mesh.
+    pub fn simplified(&self) -> Option<&Arc<Mesh>> {
+        self.simplified
+            .get_or_init(|| self.simplify().map(Arc::new))
+            .as_ref()
+    }
+
+    fn simplify(&self) -> Option<Mesh> {
+        let triangles = self.triangle_count();
+        let size = self.bounds.size().max_element();
+        if triangles < SIMPLIFY_FROM_TRIANGLES || !size.is_finite() || size <= 0.0 {
+            return None;
+        }
+        let cell_size = size / SIMPLIFIED_CELLS;
+        let origin = self.bounds.min;
+        let cell_of = |point: [f32; 3]| {
+            let cell = ((Vec3::from_array(point) - origin) / cell_size).floor();
+            (cell.x as i32, cell.y as i32, cell.z as i32)
+        };
+
+        // One vertex per occupied cell: the mean of its positions and
+        // normals.
+        let mut cells: HashMap<(i32, i32, i32), u32> = HashMap::new();
+        let mut sums: Vec<(Vec3, Vec3, f32)> = Vec::new();
+        let merged: Vec<u32> = self
+            .positions
+            .iter()
+            .zip(&self.normals)
+            .map(|(&position, &normal)| {
+                let index = *cells.entry(cell_of(position)).or_insert_with(|| {
+                    sums.push((Vec3::ZERO, Vec3::ZERO, 0.0));
+                    (sums.len() - 1) as u32
+                });
+                let sum = &mut sums[index as usize];
+                sum.0 += Vec3::from_array(position);
+                sum.1 += Vec3::from_array(normal);
+                sum.2 += 1.0;
+                index
+            })
+            .collect();
+
+        let mut seen = HashSet::new();
+        let mut indices = Vec::new();
+        for triangle in self.indices.as_chunks::<3>().0 {
+            let Some(corners) = triangle
+                .iter()
+                .map(|&index| merged.get(index as usize).copied())
+                .collect::<Option<Vec<u32>>>()
+            else {
+                continue;
+            };
+            let [a, b, c] = [corners[0], corners[1], corners[2]];
+            let mut key = [a, b, c];
+            key.sort_unstable();
+            if a != b && b != c && a != c && seen.insert(key) {
+                indices.extend([a, b, c]);
+            }
+        }
+        if indices.len() / 3 * 2 > triangles {
+            return None;
+        }
+
+        let positions: Vec<[f32; 3]> = sums
+            .iter()
+            .map(|(position, _, count)| (*position / *count).to_array())
+            .collect();
+        let normals = sums
+            .iter()
+            .map(|(_, normal, _)| normal.normalize_or_zero().to_array())
+            .collect();
+        // Edges join the vertices of the cells their ends fall in.
+        let mut seen = HashSet::new();
+        let mut edges = Vec::new();
+        for segment in self.edges.as_chunks::<2>().0 {
+            let ends = segment.map(|point| {
+                cells
+                    .get(&cell_of(point))
+                    .map_or(point, |&index| positions[index as usize])
+            });
+            let (start, end) = (cell_of(ends[0]), cell_of(ends[1]));
+            if start != end
+                && seen.insert(if start < end {
+                    (start, end)
+                } else {
+                    (end, start)
+                })
+            {
+                edges.extend(ends);
+            }
+        }
+        Some(Mesh::new(
+            positions,
+            normals,
+            indices,
+            edges,
+            self.points.clone(),
+        ))
     }
 
     /// Only edges, e.g. for helper lines and grids.
@@ -572,6 +677,10 @@ pub struct Overlay {
 
 /// Entities Ctrl+click can gather, e.g. for one selector of many edges.
 pub const MAX_TOPOLOGY_SELECTIONS: usize = 64;
+/// Meshes with fewer triangles are never simplified.
+const SIMPLIFY_FROM_TRIANGLES: usize = 2_000;
+/// Cells along the longest side of a mesh when it is simplified.
+const SIMPLIFIED_CELLS: f32 = 40.0;
 
 /// Default half length of the axis helpers when nothing is shown.
 const DEFAULT_AXIS_HALF_LENGTH: f32 = 100.0;

@@ -8,6 +8,7 @@
 
 pub mod camera;
 pub mod capture;
+mod culling;
 mod overlays;
 mod picking;
 mod renderer;
@@ -26,6 +27,7 @@ use crate::scene::{Aabb, Grid, MAX_EXPLODE, Mesh, NodeKey, Scene, TopologySelect
 use crate::settings::{self, NamedView, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 use capture::{CaptureOptions, TurntableExport, TurntableOptions};
+use culling::Detail;
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
@@ -48,6 +50,7 @@ const SECTION_CONTROLS_WIDTH: f32 = 430.0;
 const EXPLODE_CONTROLS_WIDTH: f32 = 340.0;
 const ISOLATION_CONTROLS_WIDTH: f32 = 330.0;
 const CAPTURE_CONTROLS_WIDTH: f32 = 360.0;
+const MESHING_CONTROLS_WIDTH: f32 = 360.0;
 /// How far the exploded view first spreads the parts.
 const DEFAULT_EXPLODE: f32 = 0.5;
 /// Duration of camera transitions, seconds.
@@ -232,6 +235,8 @@ pub struct ViewInput<'a> {
     pub busy: Option<&'a str>,
     /// Shown in the middle of an empty view.
     pub empty_hint: Option<&'a str>,
+    /// Parts meshed and parts in all, while a render's meshing takes long.
+    pub meshing: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -287,6 +292,8 @@ pub struct Viewer {
     capture: Option<Capture>,
     /// Size of the view in physical pixels, as last drawn.
     view_px: [u32; 2],
+    /// Small parts are drawn simplified (large-model mode).
+    simplifying: bool,
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
     pick_index: picking::SceneIndex,
@@ -315,6 +322,7 @@ impl Default for Viewer {
             zoom_reference_extent: Camera::default().extent,
             capture: None,
             view_px: [1, 1],
+            simplifying: false,
             axis_meshes: None,
             grid_mesh: None,
             pick_index: picking::SceneIndex::default(),
@@ -458,12 +466,14 @@ impl Viewer {
         let explode_controls = bar(self.explode_controls, EXPLODE_CONTROLS_WIDTH);
         let isolation_controls = bar(input.scene.is_isolating(), ISOLATION_CONTROLS_WIDTH);
         let capture_controls = bar(self.turntable_progress().is_some(), CAPTURE_CONTROLS_WIDTH);
+        let meshing_controls = bar(input.meshing.is_some(), MESHING_CONTROLS_WIDTH);
         let controls: Vec<Rect> = [
             zoom_controls,
             section_controls,
             explode_controls,
             isolation_controls,
             capture_controls,
+            meshing_controls,
         ]
         .into_iter()
         .flatten()
@@ -483,7 +493,18 @@ impl Viewer {
         let painter = ui.painter_at(rect);
         match frame.wgpu_render_state() {
             Some(render_state) => {
-                let items = self.draw_items(&input);
+                let shown_triangles = input
+                    .scene
+                    .visible_nodes()
+                    .iter()
+                    .flat_map(|node| &node.parts)
+                    .map(|part| part.mesh.triangle_count())
+                    .sum();
+                self.simplifying = input.settings.large_models.active(shown_triangles);
+                let items = self.draw_items(&input, self.simplifying);
+                // Captures show every part in full, whatever its size here.
+                let full_items = (self.simplifying && self.capture.is_some())
+                    .then(|| self.draw_items(&input, false));
                 let renderer = self
                     .renderer
                     .get_or_insert_with(|| SceneRenderer::new(render_state));
@@ -519,12 +540,16 @@ impl Viewer {
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
+                let capture_frame = FrameInput {
+                    items: full_items.as_deref().unwrap_or(&items),
+                    ..frame_input
+                };
                 match self.capture.take() {
                     Some(Capture::Image { path, options }) => {
                         let image = FrameInput {
                             size: options.image_size(size),
                             pixel_scale: options.pixel_scale(size),
-                            ..capture_input(frame_input, options.transparent)
+                            ..capture_input(capture_frame, options.transparent)
                         };
                         let saved = renderer
                             .render_pixels(&image)
@@ -542,7 +567,7 @@ impl Viewer {
                             camera: &camera,
                             size: export.size(),
                             pixel_scale: export.pixel_scale(),
-                            ..capture_input(frame_input, export.transparent())
+                            ..capture_input(capture_frame, export.transparent())
                         };
                         let written = renderer
                             .render_pixels(&frame)
@@ -590,6 +615,9 @@ impl Viewer {
         }
         if let (Some(controls), Some(progress)) = (capture_controls, self.turntable_progress()) {
             show_capture_controls(ui, rect, controls, progress, &mut events);
+        }
+        if let (Some(controls), Some(progress)) = (meshing_controls, input.meshing) {
+            show_meshing_controls(ui, rect, controls, progress, &mut events);
         }
         events
     }
@@ -981,7 +1009,10 @@ impl Viewer {
         })
     }
 
-    fn draw_items(&mut self, input: &ViewInput<'_>) -> Vec<DrawItem> {
+    /// What to draw; `simplify` draws parts that are small on screen with
+    /// their simplified meshes (large-model mode), unless they are selected
+    /// or hovered.
+    fn draw_items(&mut self, input: &ViewInput<'_>, simplify: bool) -> Vec<DrawItem> {
         let (scene, settings, colors) = (input.scene, input.settings, input.colors);
         let default_color = srgb_unit(settings.default_color);
         let default_edge = linear_rgba(settings.edge_color, 1.0);
@@ -1031,10 +1062,29 @@ impl Viewer {
                     emphasized: selected || hovered,
                     edges: node.overrides.edges,
                 };
+                let transform = scene.part_transform(part);
+                let mut mesh = &part.mesh;
+                let mut style = self.display_mode.style(look, settings);
+                if simplify && !selected && !hovered {
+                    let bounds = part.mesh.bounds.transformed(transform);
+                    let size =
+                        culling::projected_size(&self.camera, self.view_px[1] as f32, bounds);
+                    let detail = Detail::for_size(size);
+                    if detail != Detail::Full
+                        && let Some(simplified) = part.mesh.simplified()
+                    {
+                        mesh = simplified;
+                    }
+                    if detail == Detail::Faint {
+                        // Specks: their edges would only add noise.
+                        style.edges &= !has_faces;
+                        style.points = false;
+                    }
+                }
                 items.push(DrawItem {
-                    mesh: part.mesh.clone(),
-                    transform: scene.part_transform(part),
-                    style: self.display_mode.style(look, settings),
+                    mesh: mesh.clone(),
+                    transform,
+                    style,
                     layer: Layer::Scene,
                 });
             }
@@ -1148,6 +1198,16 @@ impl Viewer {
                     Color32::from_rgb(70, 120, 240),
                 ],
                 colors.overlay_text,
+            );
+        }
+
+        if self.simplifying {
+            painter.text(
+                rect.right_bottom() + Vec2::new(-10.0, -8.0),
+                egui::Align2::RIGHT_BOTTOM,
+                "Large model: small parts simplified",
+                egui::FontId::proportional(11.0),
+                colors.overlay_text.gamma_multiply(0.7),
             );
         }
 
@@ -1314,6 +1374,29 @@ fn show_capture_controls(
             .clicked()
         {
             events.push(ViewerEvent::Command(Action::CancelTurntable));
+        }
+    });
+}
+
+fn show_meshing_controls(
+    parent: &mut egui::Ui,
+    view: Rect,
+    rect: Rect,
+    (done, total): (u32, u32),
+    events: &mut Vec<ViewerEvent>,
+) {
+    control_bar(parent, view, rect, |ui| {
+        ui.label(format!("{} Meshing {done}/{total}", icon::POLYGON));
+        ui.add(
+            egui::ProgressBar::new(done as f32 / total.max(1) as f32)
+                .desired_width((ui.available_width() - 30.0).max(40.0)),
+        );
+        if ui
+            .small_button(icon::X)
+            .on_hover_text("Stop meshing and keep the model shown now")
+            .clicked()
+        {
+            events.push(ViewerEvent::Command(Action::CancelMeshing));
         }
     });
 }

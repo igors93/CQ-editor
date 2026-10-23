@@ -684,3 +684,92 @@ fn isolation_survives_a_new_run_by_name_and_ends_without_a_match() {
     assert!(!scene.is_isolating());
     assert_eq!(shown(&scene), ["3a", "3a1", "3a2", "3b"]);
 }
+
+// -- simplified meshes ---------------------------------------------------------
+
+/// A sphere of `rings` × `segments` quads, each corner with its own normal.
+fn sphere(radius: f32, rings: u32, segments: u32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    for ring in 0..=rings {
+        let polar = std::f32::consts::PI * ring as f32 / rings as f32;
+        for segment in 0..=segments {
+            let azimuth = std::f32::consts::TAU * segment as f32 / segments as f32;
+            let normal = Vec3::new(
+                polar.sin() * azimuth.cos(),
+                polar.sin() * azimuth.sin(),
+                polar.cos(),
+            );
+            positions.push((normal * radius).to_array());
+            normals.push(normal.to_array());
+        }
+    }
+    let mut indices = Vec::new();
+    let row = segments + 1;
+    for ring in 0..rings {
+        for segment in 0..segments {
+            let a = ring * row + segment;
+            let (b, c, d) = (a + 1, a + row, a + row + 1);
+            indices.extend([a, c, b, b, c, d]);
+        }
+    }
+    let edges = (0..segments)
+        .flat_map(|segment| {
+            let at = |s: u32| {
+                let azimuth = std::f32::consts::TAU * s as f32 / segments as f32;
+                [radius * azimuth.cos(), radius * azimuth.sin(), 0.0]
+            };
+            [at(segment), at(segment + 1)]
+        })
+        .collect();
+    Mesh::new(positions, normals, indices, edges, vec![[0.0, 0.0, radius]])
+}
+
+#[test]
+fn fine_meshes_get_a_coarser_copy_for_drawing_small() {
+    let fine = sphere(10.0, 120, 240);
+    let simplified = fine.simplified().expect("a fine mesh is simplified");
+    assert!(
+        std::ptr::eq(simplified, fine.simplified().unwrap()),
+        "made once"
+    );
+    assert!(simplified.triangle_count() * 4 < fine.triangle_count());
+    assert!(simplified.triangle_count() > 100, "still a sphere");
+
+    // Within a cell of the original everywhere, with valid indices and
+    // unit or zero normals.
+    let cell = 20.0 / 40.0;
+    assert!(
+        (simplified.bounds.min - fine.bounds.min)
+            .abs()
+            .max_element()
+            <= cell
+    );
+    assert!(
+        (simplified.bounds.max - fine.bounds.max)
+            .abs()
+            .max_element()
+            <= cell
+    );
+    for position in &simplified.positions {
+        let radius = Vec3::from_array(*position).length();
+        assert!((radius - 10.0).abs() <= cell, "{radius}");
+    }
+    assert!(
+        simplified
+            .indices
+            .iter()
+            .all(|&index| (index as usize) < simplified.positions.len())
+    );
+    for normal in &simplified.normals {
+        let length = Vec3::from_array(*normal).length();
+        assert!(length < 1e-6 || (length - 1.0).abs() < 1e-4);
+    }
+    assert!(!simplified.edges.is_empty() && simplified.edges.len() <= fine.edges.len());
+    assert_eq!(simplified.points, fine.points);
+    // Only for drawing: no picking data.
+    assert!(simplified.topology.triangle_faces.is_empty());
+
+    // Small meshes are left alone.
+    assert!(sphere(10.0, 10, 20).simplified().is_none());
+}

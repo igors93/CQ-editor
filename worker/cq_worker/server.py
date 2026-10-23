@@ -47,10 +47,19 @@ from .protocol import (
     Message,
     truncate_text,
 )
-from .scene import Registry, SceneBuilder, find_cq_objects, to_compound
+from .scene import (
+    BuildCancelled,
+    Registry,
+    SceneBuilder,
+    find_cq_objects,
+    to_compound,
+)
 from .tessellation import GeometryCache, Tolerance
 
 log = logging.getLogger(__name__)
+
+#: Seconds between two progress messages of one request.
+PROGRESS_INTERVAL = 0.1
 
 #: Requests that are safe to serve while a debugging session is paused.
 _ALLOWED_WHILE_PAUSED = {
@@ -223,20 +232,31 @@ class Server:
 
         hidden = execution.hidden_names()
         objects = variables = None
+        cancelled = False
         if ok or debug:
             # A failed plain run keeps the previous model on screen, like the
             # original editor; a debugging session always shows where it ended.
             shown = execution.shown or find_cq_objects(execution.namespace)
-            objects = builder.build(shown)
             variables = describe_variables(execution.namespace, hidden)
             self.console.update_variables(
                 {k: v for k, v in execution.namespace.items() if k not in hidden}
             )
+            request_id = request.get("id")
+            builder.progress = self._progress_reporter(request_id)
+            builder.cancelled = lambda: self.channel.cancel_requested(request_id)
+            try:
+                objects = builder.build(shown)
+            except BuildCancelled:
+                # Like a failed run: the previous model stays on screen.
+                cancelled = True
+            finally:
+                self.channel.forget_cancel(request_id)
         return {
             "type": "run_finished",
             "ok": ok,
             "debug": debug,
             "stopped": execution.stopped,
+            "cancelled": cancelled,
             "objects": objects,
             "variables": variables,
             "error": execution.error,
@@ -249,6 +269,30 @@ class Server:
                 "sent_at": time.time(),
             },
         }
+
+    def _progress_reporter(self, request_id):
+        """Sends how far meshing is, at most every :data:`PROGRESS_INTERVAL`
+        seconds, and always the start and the end."""
+
+        last = None
+
+        def report(done: int, total: int) -> None:
+            nonlocal last
+            now = time.monotonic()
+            if last is not None and 0 < done < total and now - last < PROGRESS_INTERVAL:
+                return
+            last = now
+            self.channel.send(
+                {
+                    "type": "progress",
+                    "id": request_id,
+                    "stage": "meshing",
+                    "done": done,
+                    "total": total,
+                }
+            )
+
+        return report
 
     def _pause(
         self, frame: types.FrameType, execution: Execution, builder: SceneBuilder

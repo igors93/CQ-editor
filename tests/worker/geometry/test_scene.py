@@ -2,8 +2,10 @@ import cadquery as cq
 import pytest
 
 from cq_worker.scene import (
+    BuildCancelled,
     DisplayOptions,
     Registry,
+    RegistryEntry,
     SceneBuilder,
     ShownObject,
     find_cq_objects,
@@ -208,3 +210,42 @@ def test_repeated_assembly_parts_share_local_geometry():
     assert right_part["mesh"] == {"id": left_part["mesh"]["id"]}
     assert left_part["transform"][12:15] == pytest.approx([0, 0, 0])
     assert right_part["transform"][12:15] == pytest.approx([5000, 0, 0])
+
+
+def test_building_reports_progress_per_part():
+    registry = Registry()
+    builder = SceneBuilder(registry, Tolerance())
+    reports = []
+    builder.progress = lambda done, total: reports.append((done, total))
+    assembly = (
+        cq.Assembly()
+        .add(cq.Workplane().box(1, 1, 1), name="a")
+        .add(cq.Workplane().sphere(1), name="b")
+    )
+    builder.build(
+        {
+            "box": ShownObject(cq.Workplane().box(1, 2, 3)),
+            "assembly": ShownObject(assembly),
+        }
+    )
+    assert reports == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_a_cancelled_build_frees_what_it_registered():
+    registry = Registry()
+    kept = registry.add(RegistryEntry(cq.Workplane(), None))
+    builder = SceneBuilder(registry, Tolerance())
+    asked = []
+
+    def cancelled():
+        asked.append(True)
+        return len(asked) > 2
+
+    builder.cancelled = cancelled
+    objects = {
+        f"box{i}": ShownObject(cq.Workplane().box(1 + i, 1, 1)) for i in range(4)
+    }
+    with pytest.raises(BuildCancelled):
+        builder.build(objects)
+    assert len(asked) == 3, "asked before each part, stopped at the third"
+    assert registry.keys() == [kept], "the two finished nodes are released"

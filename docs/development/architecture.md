@@ -129,6 +129,13 @@ Edges and points are camera-facing quads expanded in screen space, which
 gives constant pixel widths at any zoom. Faces get a depth bias so edges
 stay visible on top of them.
 
+`viewer/culling.rs` decides what is drawn of a large model. Every pass skips
+items whose bounds are outside its view frustum (per tile in a tiled
+capture), widened by the widest edge or point, which are expanded on
+screen. In large-model mode `Viewer::draw_items` swaps the mesh of a part
+that is small on screen for `Mesh::simplified`, a vertex-clustered copy made
+once per mesh, and drops the edges of specks; picking keeps the full mesh.
+
 Display modes are styles, not separate renderers (`DisplayMode::style`):
 X-ray lowers the face opacity, so faces take the transparent path and
 write no depth; hidden-line fills faces with the background color

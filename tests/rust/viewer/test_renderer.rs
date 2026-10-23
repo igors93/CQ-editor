@@ -507,3 +507,62 @@ fn captures_leave_out_a_transparent_background_and_scale_edges() {
         assert!((thick / thin - 2.0).abs() < 0.25, "{thin} then {thick}");
     });
 }
+
+#[test]
+fn parts_out_of_view_are_not_drawn() {
+    with_gpu(|renderer| {
+        let mesh = Arc::new(cube(1.0));
+        let mut camera = Camera {
+            scene_radius: 2.0,
+            ..Camera::default()
+        };
+        camera.set_pose(Pose {
+            target: Vec3::ZERO,
+            rotation: StandardView::Iso.rotation(),
+            extent: 2.0,
+        });
+        let at = |offset: Vec3| DrawItem {
+            mesh: mesh.clone(),
+            transform: Mat4::from_translation(offset),
+            style: in_mode(DisplayMode::Shaded),
+            layer: Layer::Scene,
+        };
+        let mut render = |items: &[DrawItem]| {
+            let pixels = renderer
+                .render_pixels(&FrameInput {
+                    camera: &camera,
+                    size: [SIZE, SIZE],
+                    background_top: BACKGROUND,
+                    background_bottom: BACKGROUND,
+                    items,
+                    section: None,
+                    pixel_scale: 1.0,
+                })
+                .unwrap()
+                .1;
+            (pixels, renderer.last_stats())
+        };
+        let (alone, stats) = render(&[at(Vec3::ZERO)]);
+        assert_eq!(
+            stats,
+            RenderStats {
+                drawn: 1,
+                culled: 0
+            }
+        );
+        let far = [
+            at(Vec3::ZERO),
+            at(Vec3::new(100.0, 0.0, 0.0)),
+            at(Vec3::new(0.0, -50.0, 30.0)),
+        ];
+        let (with_far, stats) = render(&far);
+        assert_eq!(
+            stats,
+            RenderStats {
+                drawn: 1,
+                culled: 2
+            }
+        );
+        assert!(alone == with_far, "skipping them changes nothing on screen");
+    });
+}

@@ -11,7 +11,7 @@ from __future__ import annotations
 import itertools
 import logging
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -236,6 +236,9 @@ class Registry:
             if entry is not None:
                 self.release(entry.children)
 
+    def keys(self) -> list[str]:
+        return list(self._entries)
+
     def clear(self) -> None:
         self._entries.clear()
 
@@ -279,6 +282,19 @@ class SceneStats:
         return asdict(self)
 
 
+class BuildCancelled(Exception):
+    """The GUI cancelled the request while its scene was being built."""
+
+
+def count_parts(obj: Any) -> int:
+    """How many meshes showing ``obj`` takes: one per shape of an assembly."""
+
+    if isinstance(obj, cq.Assembly):
+        own = 0 if obj.obj is None else 1
+        return own + sum(count_parts(child) for child in obj.children)
+    return 1
+
+
 class SceneBuilder:
     def __init__(
         self,
@@ -299,14 +315,37 @@ class SceneBuilder:
         # by source object so reuse within one run is unaffected by that.
         self._source_geometry: dict[int, str] = {}
         self.stats = SceneStats()
+        #: Told (parts done, parts in all) as :meth:`build` goes.
+        self.progress: Callable[[int, int], None] | None = None
+        #: Asked before each part; true stops :meth:`build`.
+        self.cancelled: Callable[[], bool] | None = None
+        self._done = 0
+        self._total = 0
 
     def build(self, objects: Mapping[str, ShownObject]) -> list[dict]:
+        """The scene nodes of ``objects``. Raises :class:`BuildCancelled`,
+        having released what it registered, when :attr:`cancelled` says so."""
+
+        self._total = sum(count_parts(shown.obj) for shown in objects.values())
+        self._done = 0
+        if self.progress is not None:
+            self.progress(0, self._total)
+        registered = set(self.registry.keys())
+        try:
+            return self._build(objects)
+        except BuildCancelled:
+            self.registry.release(set(self.registry.keys()) - registered)
+            raise
+
+    def _build(self, objects: Mapping[str, ShownObject]) -> list[dict]:
         nodes = []
         for name, shown in objects.items():
             try:
                 node = self.node(
                     name, shown.obj, DisplayOptions.parse(shown.options), shown.line
                 )
+            except BuildCancelled:
+                raise
             except Exception as error:
                 log.error(
                     "Cannot display %s: %s: %s", name, type(error).__name__, error
@@ -456,6 +495,24 @@ class SceneBuilder:
         return rgb, alpha
 
     def _part(
+        self,
+        shape: cq.Shape,
+        topology: TopologyIndex | None,
+        color: Color | None,
+        alpha: float | None,
+        location: cq.Location,
+        source: Any,
+    ) -> dict | None:
+        if self.cancelled is not None and self.cancelled():
+            raise BuildCancelled()
+        try:
+            return self._mesh_part(shape, topology, color, alpha, location, source)
+        finally:
+            self._done += 1
+            if self.progress is not None:
+                self.progress(min(self._done, self._total), self._total)
+
+    def _mesh_part(
         self,
         shape: cq.Shape,
         topology: TopologyIndex | None,

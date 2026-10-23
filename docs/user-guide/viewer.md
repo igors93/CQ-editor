@@ -271,6 +271,33 @@ These options live in *Preferences > 3D View*:
 Individual objects can be recolored from the script (`show_object` options)
 or in the Objects panel.
 
+## Large models
+
+Parts outside the view are never drawn, so zooming in on a detail of a big
+assembly is fast. The *Large models* preference (*Preferences > 3D View*)
+also lets the view draw parts that are small on screen with fewer triangles:
+
+| Setting | Effect |
+| --- | --- |
+| Automatic (default) | From 2 million triangles shown |
+| Always | At any size of model |
+| Off | Every part in full |
+
+While it is on, a part less than 80 pixels across is drawn from a coarser
+copy of its mesh (vertices merged on a grid of 40 cells along its longest
+side), and a part less than 6 pixels across also without its edges and
+vertices. Selected and hovered parts are always drawn in full, and so are
+screenshots and animations. Picking and measurements always use the full
+mesh. *Large model: small parts simplified* at the bottom right of the view
+says when this is happening.
+
+When meshing the objects of a render takes more than a moment, a bar at the
+bottom left of the view counts the parts meshed (one per shape of an
+assembly); ✕ cancels the meshing. The model shown before stays, and the
+script's variables are still updated. To stop a script that runs too long,
+or the meshing of one huge shape, use **Run > Stop** (Ctrl+Shift+F5), which
+restarts Python.
+
 ## Mesh quality
 
 The view displays a triangle mesh of the exact CAD geometry. Two settings

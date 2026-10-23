@@ -1,4 +1,4 @@
-# Worker protocol (version 4)
+# Worker protocol (version 5)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":4,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":5,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -80,6 +80,7 @@ The worker handles one request at a time, in arrival order.
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
 | `check_updates` | `id` | `updates` |
 | `imports` | `id`, `path` | `imports` (local module files imported by the script) |
+| `cancel` | `target` (the id of a `run`) | None. Read even while the worker is busy; meshing stops at the next part and the run finishes with `cancelled` |
 | `shutdown` | | The worker exits |
 
 **RunSettings:** `reload_cq`, `add_script_dir_to_path`, `change_working_dir`,
@@ -96,7 +97,8 @@ The worker handles one request at a time, in arrival order.
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed plain run should keep the current scene. `timings` is described below |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed or cancelled run should keep the current scene. `timings` is described below |
+| `progress` | `id`, `stage` (`meshing`), `done`, `total` | How many of the run's parts (one per shape of an assembly) are meshed: first `0`, at most every 0.1 s, and `total` at the end |
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
 | `description` | `id`, `available`, `signatures` (call signatures, or `name: type` for a variable), `text` (the docstring, cut to 14 lines / 1200 characters); both empty when there is nothing to show | |
@@ -248,6 +250,14 @@ first*).
 
 ## Stopping
 
-There is no "cancel" request: Python cannot interrupt arbitrary C++ code
-safely. **Stop** kills the worker process and starts a new one. Events from
-the old process are discarded by their generation number.
+**Cancelling** only stops meshing: before each part the worker reads, without
+waiting, whatever the GUI has sent (`PeekNamedPipe` on Windows, `select`
+elsewhere), records `cancel` requests and keeps the other requests, in order,
+for later. A thread blocked reading stdin is not used: on Windows, loading a
+DLL (an `import` of a native module) would wait for that read. The parts
+meshed so far are dropped and their registry entries released.
+
+Python cannot interrupt arbitrary C++ code safely, so there is no way to
+cancel the script itself or the meshing of one huge shape. **Stop** kills the
+worker process and starts a new one. Events from the old process are
+discarded by their generation number.

@@ -205,6 +205,12 @@ impl AppState {
         if result.stopped {
             self.set_status(StatusKind::Info, "Debugging stopped");
         }
+        if result.cancelled {
+            self.set_status(
+                StatusKind::Info,
+                "Meshing cancelled; the model shown before stays",
+            );
+        }
         if ok {
             // The script may have started importing other modules.
             self.request_imports();

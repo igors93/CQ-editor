@@ -464,3 +464,27 @@ fn object_measurements_bounding_boxes_and_measurement_code_decode() {
     assert!(!verified);
     assert!(problem.unwrap().contains("variable"));
 }
+
+#[test]
+fn meshing_progress_and_cancellation_cross_the_protocol() {
+    let message: Message =
+        serde_json::from_str(r#"{"type":"progress","id":7,"stage":"meshing","done":3,"total":40}"#)
+            .unwrap();
+    let Message::Progress {
+        id,
+        stage,
+        done,
+        total,
+    } = message
+    else {
+        panic!("not progress: {message:?}");
+    };
+    assert_eq!((id, stage.as_str(), done, total), (7, "meshing", 3, 40));
+
+    assert_eq!(
+        serde_json::to_value(Request::Cancel { target: 7 }).unwrap(),
+        serde_json::json!({"cmd": "cancel", "target": 7})
+    );
+    assert!(run_finished(r#","cancelled":true"#).cancelled);
+    assert!(!run_finished("").cancelled, "older workers never cancel");
+}

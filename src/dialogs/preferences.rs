@@ -256,6 +256,20 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
         },
     );
     color_row(ui, "Edge color", &mut viewer.edge_color);
+    row(
+        ui,
+        "Large models",
+        "Draw parts that are small on screen with a simplified mesh: automatically from 2 million triangles shown, always, or never",
+        |ui| {
+            egui::ComboBox::from_id_salt("large_models")
+                .selected_text(viewer.large_models.label())
+                .show_ui(ui, |ui| {
+                    for mode in crate::settings::LargeModels::ALL {
+                        ui.selectable_value(&mut viewer.large_models, mode, mode.label());
+                    }
+                });
+        },
+    );
     row(ui, "Edge width", "In pixels", |ui| {
         ui.add(egui::Slider::new(&mut viewer.edge_width, 0.5..=5.0).step_by(0.25));
     });

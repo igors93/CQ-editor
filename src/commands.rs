@@ -49,6 +49,8 @@ pub enum Action {
     Debug(DebugAction),
     /// Aborts whatever the worker is doing (by restarting it).
     Stop,
+    /// Stops meshing the running render's objects; the model shown stays.
+    CancelMeshing,
     ClearConsole,
     ClearLog,
     RestartPython,

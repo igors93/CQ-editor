@@ -417,3 +417,46 @@ def test_objects_and_inspector_steps_report_their_script_lines(conversation):
     # Objects made in the console have no script line.
     (added,) = talk.of_type("scene_add")
     assert added["objects"][0]["line"] is None
+
+
+def test_meshing_progress_is_reported_before_the_result(conversation):
+    script = (
+        "for i in range(3):\n"
+        "    show_object(cq.Workplane().box(1 + i, 1, 1), name=f'box{i}')\n"
+    )
+    talk = conversation({"cmd": "run", "id": 3, "script": script})
+    talk.serve()
+
+    progress = talk.of_type("progress")
+    assert progress[0] == {
+        "type": "progress",
+        "id": 3,
+        "stage": "meshing",
+        "done": 0,
+        "total": 3,
+    }
+    assert progress[-1]["done"] == 3
+    done = [message["done"] for message in progress]
+    assert done == sorted(done)
+    types = [message["type"] for message in talk.messages]
+    assert types.index("run_finished") > types.index("progress")
+    (finished,) = talk.of_type("run_finished")
+    assert finished["cancelled"] is False
+
+
+def test_a_cancelled_run_keeps_the_previous_scene(conversation):
+    talk = conversation(
+        # The GUI's cancellation is recorded as soon as it is read.
+        {"cmd": "cancel", "target": 5},
+        {"cmd": "run", "id": 5, "script": BOX_SCRIPT},
+        {"cmd": "run", "id": 6, "script": BOX_SCRIPT},
+    )
+    talk.serve()
+
+    cancelled, finished = talk.of_type("run_finished")
+    assert cancelled["id"] == 5 and cancelled["cancelled"] is True
+    assert cancelled["ok"] is True and cancelled["objects"] is None
+    assert "result" in {row["name"] for row in cancelled["variables"]}
+    # Only that request was cancelled.
+    assert finished["cancelled"] is False
+    assert [o["name"] for o in finished["objects"]] == ["result"]

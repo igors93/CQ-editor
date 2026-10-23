@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 pub type RequestId = u64;
 
@@ -122,6 +122,11 @@ pub enum Request {
         id: RequestId,
         path: String,
     },
+    /// Stops the meshing of the run `target` (the worker reads it while
+    /// busy); the run then finishes as `cancelled`.
+    Cancel {
+        target: RequestId,
+    },
     Shutdown,
 }
 
@@ -206,6 +211,13 @@ pub enum Message {
         message: String,
     },
     RunFinished(Box<RunFinished>),
+    /// How far a request is, e.g. parts meshed of all.
+    Progress {
+        id: RequestId,
+        stage: String,
+        done: u32,
+        total: u32,
+    },
     DebugPaused {
         id: RequestId,
         line: usize,
@@ -304,6 +316,9 @@ pub struct RunFinished {
     pub ok: bool,
     pub debug: bool,
     pub stopped: bool,
+    /// Meshing was cancelled; the current scene stays.
+    #[serde(default)]
+    pub cancelled: bool,
     /// `None` when a failed run should keep the current scene.
     pub objects: Option<Vec<SceneNode>>,
     pub variables: Option<Vec<Variable>>,

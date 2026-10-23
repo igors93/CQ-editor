@@ -168,6 +168,7 @@ fn pressing_the_view_uses_a_closed_hand_cursor_for_navigation() {
                     colors: &colors,
                     busy: None,
                     empty_hint: None,
+                    meshing: None,
                 },
                 0.0,
             );
@@ -299,4 +300,86 @@ fn display_modes_and_object_edges_shape_how_parts_are_drawn() {
         ..settings.clone()
     };
     assert!(!HiddenLine.style(red_look(None), &solid_only).hidden_edges);
+}
+
+/// A grid of `side` × `side` vertices: 2 (side - 1)² triangles, enough to be
+/// simplified when `side` is large.
+fn fine_plate(side: u32) -> Mesh {
+    let mut positions = Vec::new();
+    for y in 0..side {
+        for x in 0..side {
+            positions.push([x as f32 / side as f32, y as f32 / side as f32, 0.0]);
+        }
+    }
+    let mut indices = Vec::new();
+    for y in 0..side - 1 {
+        for x in 0..side - 1 {
+            let a = y * side + x;
+            indices.extend([a, a + 1, a + side, a + 1, a + side + 1, a + side]);
+        }
+    }
+    let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let edges = vec![[0.0; 3], [1.0, 0.0, 0.0]];
+    Mesh::new(positions, normals, indices, edges, Vec::new())
+}
+
+#[test]
+fn large_models_draw_small_parts_simplified_but_never_the_selection() {
+    use crate::scene::{Part, SceneNode};
+    let mesh = Arc::new(fine_plate(80));
+    let simplified_id = mesh.simplified().expect("fine enough").id;
+    let node = SceneNode {
+        key: "plate".into(),
+        name: "plate".into(),
+        kind: "Workplane".into(),
+        inspectable: false,
+        parts: vec![Part {
+            mesh: mesh.clone(),
+            transform: GMat4::IDENTITY,
+            color: None,
+            alpha: None,
+        }],
+        children: Vec::new(),
+        visible: true,
+        color: None,
+        alpha: None,
+        edge_color: None,
+        overrides: Default::default(),
+        line: None,
+        script: None,
+    };
+    let mut scene = Scene::default();
+    scene.append(vec![node], None);
+    let settings = crate::settings::Viewer::default();
+    let colors = crate::theme::Palette::DARK.viewer();
+    let mut viewer = Viewer {
+        view_px: [1000, 1000],
+        ..Viewer::default()
+    };
+    let drawn = |viewer: &mut Viewer, scene: &Scene, simplify: bool| {
+        let input = ViewInput {
+            scene,
+            settings: &settings,
+            colors: &colors,
+            busy: None,
+            empty_hint: None,
+            meshing: None,
+        };
+        let item = viewer.draw_items(&input, simplify).remove(0);
+        (item.mesh.id, item.style.edges)
+    };
+
+    // The 1.4-unit plate seen 2 units high: hundreds of pixels, in full.
+    viewer.camera.extent = 1.0;
+    assert_eq!(drawn(&mut viewer, &scene, true), (mesh.id, true));
+    // 50 units high: about 28 pixels, simplified with its edges.
+    viewer.camera.extent = 25.0;
+    assert_eq!(drawn(&mut viewer, &scene, true), (simplified_id, true));
+    assert_eq!(drawn(&mut viewer, &scene, false), (mesh.id, true));
+    // 1000 units high: a speck, without edges.
+    viewer.camera.extent = 500.0;
+    assert_eq!(drawn(&mut viewer, &scene, true), (simplified_id, false));
+    // Selected, it is drawn as it is.
+    scene.select_only("plate");
+    assert_eq!(drawn(&mut viewer, &scene, true), (mesh.id, true));
 }

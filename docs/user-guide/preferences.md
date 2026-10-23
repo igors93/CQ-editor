@@ -34,6 +34,7 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Default object color | (255, 215, 0) gold | For objects without a color |
 | Show edges | on | Each object can override it (Objects panel, **Edges**) |
 | Hidden edges | on | Faint dashed edges behind faces in the Hidden Line display mode |
+| Large models | Automatic | Draw parts that are small on screen with a simplified mesh: from 2 million triangles shown, always, or never (see [Large models](viewer.md#large-models)) |
 | Edge color | black | |
 | Edge width | 1.5 px | 0.5–5 |
 | Deviation | 0.001 | Display mesh chordal deviation, relative to the object size (1e-5 to 0.05). Smaller is finer. Applies on the next run |

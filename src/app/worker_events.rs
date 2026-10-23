@@ -164,6 +164,17 @@ impl AppState {
                 logging::push(Level::from_python(&level), &source, &message);
             }
             Message::RunFinished(result) => self.finish_run(*result),
+            Message::Progress {
+                id,
+                stage,
+                done,
+                total,
+            } => {
+                if stage == "meshing" {
+                    self.execution
+                        .meshing_progress(id, done, total, std::time::Instant::now());
+                }
+            }
             Message::DebugPaused {
                 id,
                 line,

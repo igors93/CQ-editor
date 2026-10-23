@@ -55,6 +55,8 @@ use crate::worker::{self, Worker};
 use execution::{Execution, Pending, Phase};
 
 const SETTINGS_KEY: &str = "settings";
+/// Meshing shows its progress bar only once it has taken this long.
+const MESHING_BAR_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
 const LAYOUT_KEY: &str = "dock_layout";
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/icons/cadquery_logo_dark.ico");
 /// The documentation of this editor, not the wiki of the PyQt one.
@@ -286,6 +288,11 @@ impl AppState {
                 colors: &colors,
                 busy,
                 empty_hint: hint.as_deref(),
+                meshing: self
+                    .execution
+                    .meshing()
+                    .filter(|meshing| meshing.since.elapsed() >= MESHING_BAR_DELAY)
+                    .map(|meshing| (meshing.done, meshing.total)),
             },
         );
         for event in events {
@@ -372,6 +379,14 @@ impl AppState {
                 }
             }
             Action::Debug(action) => self.debug_command(action),
+            Action::CancelMeshing => {
+                if let Some(id) = self.execution.phase().running_id()
+                    && self.execution.meshing().is_some()
+                    && self.worker.send(&Request::Cancel { target: id })
+                {
+                    self.set_status(StatusKind::Info, "Cancelling the meshing…");
+                }
+            }
             Action::Stop => self.stop(),
             Action::ClearConsole => self.console.clear(),
             Action::ClearLog => logging::clear(),

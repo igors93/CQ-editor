@@ -16,10 +16,11 @@ use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::{self, wgpu};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::util::DeviceExt as _;
 
 use super::camera::Camera;
+use super::culling::Frustum;
 use crate::scene::Mesh;
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -216,6 +217,14 @@ pub struct SceneRenderer {
     texture_id: Option<egui::TextureId>,
     /// Largest side of one pass of `render_pixels`.
     tile_side: u32,
+    stats: std::cell::Cell<RenderStats>,
+}
+
+/// Items of the last pass drawn, and skipped as out of view.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderStats {
+    pub drawn: usize,
+    pub culled: usize,
 }
 
 impl SceneRenderer {
@@ -312,6 +321,7 @@ impl SceneRenderer {
             target: None,
             texture_id: None,
             tile_side: TILE_SIDE,
+            stats: Default::default(),
         }
     }
 
@@ -325,9 +335,9 @@ impl SceneRenderer {
         let texture_id = self.ensure_target(egui_renderer, size);
         self.upload_meshes(input);
         self.write_objects(input.items, input.pixel_scale);
-        self.write_camera(input, Tile::whole(size));
+        let view_projection = self.write_camera(input, Tile::whole(size));
         let target = self.target.as_ref().expect("target created above");
-        self.draw(target, input);
+        self.draw(target, input, view_projection);
         texture_id
     }
 
@@ -349,7 +359,7 @@ impl SceneRenderer {
         for y in (0..height).step_by(tile_size[1] as usize) {
             for x in (0..width).step_by(tile_size[0] as usize) {
                 // Edge tiles reach past the image; that part is dropped.
-                self.write_camera(
+                let view_projection = self.write_camera(
                     input,
                     Tile {
                         offset: [x, y],
@@ -357,7 +367,7 @@ impl SceneRenderer {
                         image: [width, height],
                     },
                 );
-                self.draw(&target, input);
+                self.draw(&target, input, view_projection);
                 let (_, pixels) = self.read_target(&target)?;
                 let tile_row = tile_size[0] as usize * 4;
                 let columns = (width - x).min(tile_size[0]) as usize * 4;
@@ -392,7 +402,33 @@ impl SceneRenderer {
         }
     }
 
-    fn draw(&self, target: &Target, input: &FrameInput<'_>) {
+    /// What the last pass drew, and what it skipped as out of view.
+    #[cfg(test)]
+    pub fn last_stats(&self) -> RenderStats {
+        self.stats.get()
+    }
+
+    fn draw(&self, target: &Target, input: &FrameInput<'_>, view_projection: Mat4) {
+        // Items wholly outside the view are skipped, faces, edges and caps,
+        // allowing for the widest edge or point drawn across the border.
+        let widest = input
+            .items
+            .iter()
+            .map(|item| item.style.edge_width.max(item.style.point_size))
+            .fold(0.0, f32::max);
+        let margin_px = widest * input.pixel_scale + 2.0;
+        let margin = Vec2::from_array(target.size.map(|side| margin_px * 2.0 / side as f32));
+        let frustum = Frustum::new(view_projection, margin);
+        let in_view: Vec<bool> = input
+            .items
+            .iter()
+            .map(|item| frustum.intersects(item.mesh.bounds.transformed(item.transform)))
+            .collect();
+        let drawn = in_view.iter().filter(|&&shown| shown).count();
+        self.stats.set(RenderStats {
+            drawn,
+            culled: input.items.len() - drawn,
+        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -439,11 +475,12 @@ impl SceneRenderer {
 
             let is_opaque = |item: &DrawItem| item.style.face_color[3] >= 0.999;
             let order = draw_order(input);
+            let in_view = &in_view;
             let scene = |pass_layer: Layer| {
                 order
                     .iter()
                     .copied()
-                    .filter(move |&(_, layer)| layer == pass_layer)
+                    .filter(move |&(index, layer)| layer == pass_layer && in_view[index])
             };
 
             let caps = input.section.is_some_and(|section| section.caps);
@@ -568,19 +605,21 @@ impl SceneRenderer {
         self.texture_id.expect("texture registered")
     }
 
-    fn write_camera(&self, input: &FrameInput<'_>, tile: Tile) {
+    /// Writes the camera of `tile` and returns its view-projection matrix.
+    fn write_camera(&self, input: &FrameInput<'_>, tile: Tile) -> Mat4 {
         let camera = input.camera;
         let [image_width, image_height] = tile.image.map(|v| v as f32);
         let [width, height] = tile.size.map(|v| v as f32);
         let [x, y] = tile.offset.map(|v| v as f32);
         let vec4 = |v: Vec3, w: f32| [v.x, v.y, v.z, w];
         let section = input.section;
+        let view_projection =
+            tile.projection() * camera.view_projection(image_width / image_height);
         let uniform = CameraUniform {
             clip_plane: section.map_or([0.0; 4], |s| vec4(s.normal, s.offset)),
             section: [f32::from(u8::from(section.is_some())), 0.0, 0.0, 0.0],
             cap_corners: section.map_or([[0.0; 4]; 4], |s| s.cap_corners.map(|c| vec4(c, 1.0))),
-            view_proj: (tile.projection() * camera.view_projection(image_width / image_height))
-                .to_cols_array_2d(),
+            view_proj: view_projection.to_cols_array_2d(),
             eye: vec4(
                 camera.eye(),
                 if camera.is_perspective() { 1.0 } else { 0.0 },
@@ -595,6 +634,7 @@ impl SceneRenderer {
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        view_projection
     }
 
     /// One uniform block per item, at `object_stride` intervals; slot 0 is

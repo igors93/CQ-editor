@@ -258,6 +258,34 @@ pub struct Viewer {
     pub orbit_method: OrbitMethod,
     /// Animate view changes (standard views, navigation cube, fit).
     pub animate: bool,
+    /// When parts drawn small are simplified.
+    pub large_models: LargeModels,
+}
+
+/// When the view simplifies the parts it draws small (large-model mode).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LargeModels {
+    /// From a couple of million triangles shown.
+    #[default]
+    Automatic,
+    Always,
+    Off,
+}
+
+impl LargeModels {
+    pub const ALL: [LargeModels; 3] = [
+        LargeModels::Automatic,
+        LargeModels::Always,
+        LargeModels::Off,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LargeModels::Automatic => "Automatic",
+            LargeModels::Always => "Always",
+            LargeModels::Off => "Off",
+        }
+    }
 }
 
 impl Default for Viewer {
@@ -279,6 +307,7 @@ impl Default for Viewer {
             projection: Projection::Orthographic,
             orbit_method: OrbitMethod::Turntable,
             animate: true,
+            large_models: LargeModels::Automatic,
         }
     }
 }
