@@ -6,9 +6,11 @@ use std::path::Path;
 use super::execution::Pending;
 use super::{AppState, StatusKind};
 use crate::editor::{CompletionRequest, HoverRequest};
-use crate::panels::EntryKind;
+use crate::panels::{EntryKind, SelectorUse};
 use crate::scene::{NodeKey, Overlay, TopologySelection};
-use crate::worker::protocol::{CompletionTarget, ExportFormat, Request, TopologyReference};
+use crate::worker::protocol::{
+    CompletionTarget, ExportFormat, Request, SelectorCandidate, TopologyReference,
+};
 
 impl AppState {
     // -- editor services ----------------------------------------------------------
@@ -66,16 +68,17 @@ impl AppState {
                 if self.scene.select_topology(selection, extend) {
                     let count = self.scene.topology_selections.len();
                     if count == 0 {
-                        self.set_status(StatusKind::Info, "Measurement selection cleared");
+                        self.set_status(StatusKind::Info, "Entity selection cleared");
                     } else {
                         let name = self
                             .scene
                             .find(&node)
                             .map_or(node.as_str(), |node| node.name.as_str());
+                        let plural = if count == 1 { "entity" } else { "entities" };
                         self.set_status(
                             StatusKind::Info,
                             format!(
-                                "Selected {} {} of {name} · {count}/2 measurement entities",
+                                "Selected {} {} of {name} · {count} {plural} selected",
                                 entity.kind(),
                                 entity.identifier()
                             ),
@@ -88,22 +91,13 @@ impl AppState {
             (None, _) if !extend => self.scene.clear_selection(),
             (None, _) => {}
         }
-        self.request_measurement();
+        self.request_topology_results();
         self.refresh_inspector();
     }
 
-    pub(super) fn request_measurement(&mut self) {
-        if self.scene.topology_selections.is_empty() {
-            self.measurements.clear();
-            return;
-        }
-        if !self.worker.is_ready() {
-            self.measurements.clear();
-            return;
-        }
-
-        let selections = self
-            .scene
+    /// The selected entities as the worker names them.
+    fn topology_references(&self) -> Vec<TopologyReference> {
+        self.scene
             .topology_selections
             .iter()
             .map(|selection| TopologyReference {
@@ -112,7 +106,22 @@ impl AppState {
                 kind: selection.entity.topology_kind(),
                 identifier: selection.entity.identifier(),
             })
-            .collect();
+            .collect()
+    }
+
+    /// Measures the topology selection and finds its selector, or clears
+    /// both when nothing is selected.
+    pub(super) fn request_topology_results(&mut self) {
+        self.request_measurement();
+        self.request_selector();
+    }
+
+    fn request_measurement(&mut self) {
+        if self.scene.topology_selections.is_empty() || !self.worker.is_ready() {
+            self.measurements.clear();
+            return;
+        }
+        let selections = self.topology_references();
         let id = self.worker.next_id();
         if self.worker.send(&Request::Measure { id, selections }) {
             self.execution.track(id, Pending::Measure);
@@ -123,6 +132,71 @@ impl AppState {
             self.measurements.loading = false;
             self.measurements.error = Some("Cannot reach Python".to_owned());
             self.measurements.request_id = None;
+        }
+    }
+
+    fn request_selector(&mut self) {
+        // A Copy or Insert asked for the previous selection does not apply
+        // to this one.
+        self.selector.clear();
+        if self.scene.topology_selections.is_empty() || !self.worker.is_ready() {
+            return;
+        }
+        let selections = self.topology_references();
+        let id = self.worker.next_id();
+        if self.worker.send(&Request::Selector { id, selections }) {
+            self.execution.track(id, Pending::Selector);
+            self.selector.loading = true;
+            self.selector.request_id = Some(id);
+        } else {
+            self.selector.error = Some("Cannot reach Python".to_owned());
+        }
+    }
+
+    /// Copies or inserts the selector of the topology selection, once it is
+    /// known.
+    pub(super) fn use_selector(&mut self, usage: SelectorUse) {
+        if self.scene.topology_selections.is_empty() {
+            self.set_status(
+                StatusKind::Warning,
+                "Pick faces, edges or vertices first (Face, Edge or Vertex selection mode)",
+            );
+            return;
+        }
+        if let Some(candidate) = self.selector.candidate().cloned() {
+            self.apply_selector(usage, &candidate);
+        } else if self.selector.loading {
+            self.selector.then = Some(usage);
+            self.set_status(StatusKind::Info, "Finding a selector…");
+        } else if let Some(error) = self.selector.error.clone() {
+            self.set_status(StatusKind::Warning, error);
+        } else {
+            self.request_selector();
+            if self.selector.loading {
+                self.selector.then = Some(usage);
+            }
+        }
+    }
+
+    pub(super) fn apply_selector(&mut self, usage: SelectorUse, candidate: &SelectorCandidate) {
+        let expression = &candidate.expression;
+        let caution = if candidate.index_based {
+            " (by index: it may select another entity once the model changes)"
+        } else {
+            ""
+        };
+        match usage {
+            SelectorUse::Copy => {
+                self.ctx.copy_text(expression.clone());
+                self.set_status(StatusKind::Success, format!("Copied {expression}{caution}"));
+            }
+            SelectorUse::Insert => {
+                self.editor.insert_text(&mut self.document, expression);
+                self.set_status(
+                    StatusKind::Success,
+                    format!("Inserted {expression}{caution}"),
+                );
+            }
         }
     }
 

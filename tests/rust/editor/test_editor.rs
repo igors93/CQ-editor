@@ -167,6 +167,26 @@ fn indent_comment_and_completion_are_undone_as_one_step_each() {
 }
 
 #[test]
+fn inserted_text_replaces_the_selection_as_one_step() {
+    let mut editor = CodeEditor::default();
+    let mut doc = document("top = box.faces(\"<Z\")\n");
+
+    // Replace the selector text, as Insert Selector does.
+    let start = doc.text.find(".faces").unwrap();
+    editor.selection = Selection {
+        anchor: start,
+        cursor: doc.text.len() - 1,
+    };
+    editor.insert_text(&mut doc, ".faces(\">Z\")");
+    assert_eq!(doc.text, "top = box.faces(\">Z\")\n");
+    assert_eq!(editor.selection, Selection::caret(doc.text.len() - 1));
+
+    editor.undo(&mut doc);
+    assert_eq!(doc.text, "top = box.faces(\"<Z\")\n");
+    assert!(!editor.can_undo());
+}
+
+#[test]
 fn undo_never_brings_back_another_document() {
     let mut editor = CodeEditor::default();
     let mut first = document("first");

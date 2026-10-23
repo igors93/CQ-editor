@@ -1,15 +1,19 @@
 use egui_phosphor::regular as icon;
 
 use crate::app::AppState;
+use crate::commands::Action;
 use crate::scene::TopologySelection;
-use crate::worker::protocol::{EntityMeasurement, Measurement, PairMeasurement, TopologyKind};
+use crate::worker::protocol::{
+    EntityMeasurement, Measurement, PairMeasurement, RequestId, SelectorCandidate, SelectorReply,
+    TopologyKind,
+};
 
 #[derive(Default)]
 pub struct MeasurementState {
     pub result: Option<Measurement>,
     pub loading: bool,
     pub error: Option<String>,
-    pub request_id: Option<crate::worker::protocol::RequestId>,
+    pub request_id: Option<RequestId>,
 }
 
 impl MeasurementState {
@@ -21,7 +25,39 @@ impl MeasurementState {
     }
 }
 
+/// What to do with a selector once the worker found it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectorUse {
+    Copy,
+    Insert,
+}
+
+/// The CadQuery selector of the current topology selection.
+#[derive(Default)]
+pub struct SelectorState {
+    pub reply: Option<SelectorReply>,
+    /// The candidate in use, an index into `reply.candidates`.
+    pub chosen: usize,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub request_id: Option<RequestId>,
+    /// Asked for before the reply arrived; carried out on arrival.
+    pub then: Option<SelectorUse>,
+}
+
+impl SelectorState {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn candidate(&self) -> Option<&SelectorCandidate> {
+        let candidates = &self.reply.as_ref()?.candidates;
+        candidates.get(self.chosen).or_else(|| candidates.first())
+    }
+}
+
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
+    let mut actions = Vec::new();
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.strong("Exact CAD measurements");
@@ -30,10 +66,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             }
         });
         ui.small(format!(
-            "Selection mode: {} · Ctrl+click selects the second entity",
+            "Selection mode: {} · Ctrl+click adds entities",
             state.viewer.selection_mode.label()
         ));
         ui.add_space(6.0);
+
+        if !state.scene.topology_selections.is_empty() {
+            selector_ui(ui, &mut state.selector, &mut actions);
+            ui.separator();
+        }
 
         if let Some(error) = &state.measurements.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
@@ -63,6 +104,67 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         ui.weak(
             "Topology IDs belong to this render only. Rebuilding or remodeling the object may change them.",
         );
+    });
+    state.queue(actions);
+}
+
+/// The selector of the picked entities, with Copy and Insert.
+pub fn selector_ui(ui: &mut egui::Ui, selector: &mut SelectorState, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        ui.label(format!("{} Selector", icon::SELECTION));
+        if selector.loading {
+            ui.spinner();
+        }
+    });
+    if let Some(error) = &selector.error {
+        ui.colored_label(ui.visuals().warn_fg_color, error);
+        return;
+    }
+    let Some(reply) = &selector.reply else {
+        return;
+    };
+    let Some(candidate) = selector.candidate().cloned() else {
+        return;
+    };
+    ui.add(egui::Label::new(egui::RichText::new(&candidate.expression).monospace()).wrap());
+    if !candidate.description.is_empty() {
+        ui.weak(&candidate.description);
+    }
+    if candidate.index_based {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            format!(
+                "{} No geometric selector matches exactly; this index may select another entity once the model changes",
+                icon::WARNING
+            ),
+        );
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .button(format!("{} Copy", icon::COPY))
+            .on_hover_text("Copy the selector to the clipboard")
+            .clicked()
+        {
+            actions.push(Action::CopySelector);
+        }
+        let insert = ui
+            .button(format!("{} Insert", icon::CURSOR_TEXT))
+            .on_hover_text("Insert the selector at the editor's cursor");
+        if insert.clicked() {
+            actions.push(Action::InsertSelector);
+        }
+        if reply.candidates.len() > 1 {
+            let mut chosen = selector.chosen.min(reply.candidates.len() - 1);
+            egui::ComboBox::from_id_salt("selector_alternatives")
+                .selected_text("Alternatives")
+                .show_ui(ui, |ui| {
+                    for (index, alternative) in reply.candidates.iter().enumerate() {
+                        ui.selectable_value(&mut chosen, index, &alternative.expression)
+                            .on_hover_text(&alternative.description);
+                    }
+                });
+            selector.chosen = chosen;
+        }
     });
 }
 

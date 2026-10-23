@@ -62,6 +62,7 @@ impl AppState {
             let removed = self.scene.clear();
             self.release(removed);
             self.measurements.clear();
+            self.selector.clear();
             self.set_status(
                 StatusKind::Info,
                 "Debugging — running to the first breakpoint",
@@ -120,6 +121,7 @@ impl AppState {
                     let removed = self.scene.replace(nodes, preserved.as_ref());
                     self.release(removed);
                     self.measurements.clear();
+                    self.selector.clear();
                 } else {
                     self.scene.append(nodes, preserved.as_ref());
                 }

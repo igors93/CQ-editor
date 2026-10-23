@@ -541,6 +541,9 @@ pub struct Overlay {
     pub grid: Option<Grid>,
 }
 
+/// Entities Ctrl+click can gather, e.g. for one selector of many edges.
+pub const MAX_TOPOLOGY_SELECTIONS: usize = 64;
+
 /// Default half length of the axis helpers when nothing is shown.
 const DEFAULT_AXIS_HALF_LENGTH: f32 = 100.0;
 
@@ -689,7 +692,8 @@ pub struct Scene {
     pub axes: [AxisHelper; 3],
     /// Selected node keys; the last one is the "current" object.
     pub selection: Vec<NodeKey>,
-    /// At most two exact entities, matching the interactive measurement tool.
+    /// Exact entities, at most [`MAX_TOPOLOGY_SELECTIONS`], oldest first.
+    /// Measurements relate the last two; selectors describe them all.
     pub topology_selections: Vec<TopologySelection>,
     topology_highlights: Vec<Part>,
     pub overlay: Overlay,
@@ -989,7 +993,7 @@ impl Scene {
         }
         if !extend {
             self.clear_topology_selection();
-        } else if self.topology_selections.len() == 2 {
+        } else if self.topology_selections.len() == MAX_TOPOLOGY_SELECTIONS {
             self.topology_selections.remove(0);
             self.topology_highlights.remove(0);
         }

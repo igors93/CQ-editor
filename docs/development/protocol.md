@@ -71,7 +71,8 @@ The worker handles one request at a time, in arrival order.
 | `describe` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path` | `description` |
 | `inspect` | `id`, `key` | `inspection` |
 | `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
-| `measure` | `id`, one or two `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
+| `measure` | `id`, 1 to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
+| `selector` | `id`, `selections` of one object, part and kind | `selector` |
 | `console` | `id`, `source`, `scene`, `known_geometry` | `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
@@ -100,7 +101,8 @@ The worker handles one request at a time, in arrival order.
 | `description` | `id`, `available`, `signatures` (call signatures, or `name: type` for a variable), `text` (the docstring, cut to 14 lines / 1200 characters); both empty when there is nothing to show | |
 | `inspection` | `id`, `key`, `frames` (`type`, `value`, `items` (`type`, `value`, `displayable`)) | Workplane stack, newest first |
 | `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
-| `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties and optional two-entity relationship calculated by OCCT |
+| `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties of each entity; `pair` (the relationship) only for exactly two |
+| `selector` | `id`, `method` (`faces`, `edges` or `vertices`), `candidates` | CadQuery selectors for the entities, best first. Each candidate has `expression` (to append to the object, e.g. `.faces(">Z")`), `selector` (`">Z"`, null for an index), `description` and `index_based`. Every candidate was verified with CadQuery on the object the script holds |
 | `scene_add` | `id`, `objects` | Objects shown from the console |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
@@ -230,7 +232,7 @@ GUI                                   worker
  │ ◄─────────────────────────────────── │
 ```
 
-While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `export`,
+While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `selector`, `export`,
 `imports`, `release` and `check_updates` are served. Anything else is
 answered with an `error` (*Not available while debugging; continue or stop
 first*).

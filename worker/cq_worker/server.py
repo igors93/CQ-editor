@@ -19,7 +19,7 @@ from modulefinder import ModuleFinder
 
 import cadquery as cq
 
-from . import completion, exporting, inspector, measurement, network
+from . import completion, exporting, inspector, measurement, network, selection
 from .console import ConsoleSession
 from .debugger import Action, Debugger
 from .environment import runtime_environment
@@ -50,6 +50,7 @@ _ALLOWED_WHILE_PAUSED = {
     "inspect",
     "inspect_geometry",
     "measure",
+    "selector",
     "export",
     "imports",
     "release",
@@ -130,6 +131,7 @@ class Server:
             "inspect": self.inspect,
             "inspect_geometry": self.inspect_geometry,
             "measure": self.measure,
+            "selector": self.selector,
             "console": self.run_console,
             "console_reset": self.reset_console,
             "export": self.export,
@@ -387,6 +389,15 @@ class Server:
         except measurement.MeasurementError as error:
             raise RequestError(str(error)) from None
         return {"type": "measurement", **result}
+
+    def selector(self, request: Message) -> Message:
+        try:
+            result = selection.selector_candidates(
+                self.registry, request.get("selections")
+            )
+        except measurement.MeasurementError as error:
+            raise RequestError(str(error)) from None
+        return {"type": "selector", **result}
 
     # -- files and network -------------------------------------------------
 

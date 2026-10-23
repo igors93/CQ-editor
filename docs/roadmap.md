@@ -432,7 +432,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 | Status | Id | Feature | Notes |
 | :---: | --- | --- | --- |
-| | FEAT-B1 ⚪ | **Selection to code**: after picking faces or edges, *Copy selector* / *Insert selector* generates a CadQuery expression such as `.faces(">Z")` or `.edges("\|Z and >Y")`, with an index-based fallback when no simple selector matches | The worker already holds the subshapes (PERF-04) |
+| ✅ | FEAT-B1 ⚪ | **Selection to code**: after picking faces or edges, *Copy selector* / *Insert selector* generates a CadQuery expression such as `.faces(">Z")` or `.edges("\|Z and >Y")`, with an index-based fallback when no simple selector matches | Done: direction, type, rank and inclined-direction selectors combined with `and`/`or`/`exc`, simplest first; every candidate is verified with CadQuery on the script's own object (assembly parts in their own coordinates). Ctrl+click gathers up to 64 entities. Tests: `test_every_entity_gets_a_selector_that_selects_exactly_it`, `test_simple_selectors_are_evaluated_exactly_as_cadquery_does` |
 | | FEAT-B2 🔵 | **Picked entities in the console**: `selected()` returns the selected `cq.Face` / `cq.Edge` objects for measurement and experiments | Uses `Registry.subshape` |
 | | FEAT-B3 ⚪ | **Parameter panel**: top-level numeric assignments (`width = 40`) appear as spin boxes and sliders. Changing one rewrites that line and re-renders | The script stays the source of truth; the panel only edits literals |
 | | FEAT-B4 ⚪ | **Jump to source**: from an object or a CQ Inspector step to the line that created it | Record line numbers while the script runs |

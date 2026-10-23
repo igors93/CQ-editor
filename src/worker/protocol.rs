@@ -76,6 +76,11 @@ pub enum Request {
         id: RequestId,
         selections: Vec<TopologyReference>,
     },
+    /// CadQuery selectors that select exactly these entities of one object.
+    Selector {
+        id: RequestId,
+        selections: Vec<TopologyReference>,
+    },
     Console {
         id: RequestId,
         source: String,
@@ -219,6 +224,7 @@ pub enum Message {
         plane: Option<Plane>,
     },
     Measurement(Measurement),
+    Selector(SelectorReply),
     SceneAdd {
         #[serde(default)]
         id: Option<RequestId>,
@@ -465,6 +471,30 @@ pub struct EntityMeasurement {
     pub area: Option<f64>,
     pub radius: Option<f64>,
     pub diameter: Option<f64>,
+}
+
+/// Selector expressions for a topology selection, verified by the worker
+/// against CadQuery itself.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct SelectorReply {
+    pub id: RequestId,
+    /// `faces`, `edges` or `vertices`.
+    pub method: String,
+    /// Best first; never empty.
+    pub candidates: Vec<SelectorCandidate>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct SelectorCandidate {
+    /// Ready to append to the object, e.g. `.faces(">Z")`.
+    pub expression: String,
+    /// What it means, e.g. "the faces with the largest Z".
+    #[serde(default)]
+    pub description: String,
+    /// Relies on CadQuery's entity order rather than on geometry, so it
+    /// can select another entity once the model changes.
+    #[serde(default)]
+    pub index_based: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]

@@ -113,8 +113,33 @@ The viewer's triangles and `f32` coordinates are used only to find what was
 clicked. The Measurements panel asks the Python worker to calculate every
 displayed value from the corresponding world-space OCCT geometry in double
 precision. Curved-edge length and distances are consequently independent of
-the display tessellation. Selecting a third entity keeps the two most recent;
-Ctrl+clicking a selected entity removes it.
+the display tessellation. Ctrl+click keeps adding entities (up to 64; the
+oldest makes room for the newest), and Ctrl+clicking a selected entity
+removes it. The relationship is shown when exactly two are selected.
+
+### Selection to code
+
+A picked face, edge or vertex also gets a **CadQuery selector**: the
+expression that selects exactly the picked entities in the script, such as
+`.faces(">Z")`, `.edges("|Z and >Y")` or, for several picked edges,
+`.edges("|Z")`. The Measurements panel and the Objects property sheet show
+it with **Copy** and **Insert**; *Edit > Copy Selector* and *Edit > Insert
+Selector* (Ctrl+Shift+I) do the same, and the *Alternatives* list offers
+other selectors for the same entities.
+
+Selectors are found among direction selectors (`>Z`, `<X`, `|Z`, `#Y`,
+`+X`, `-Z`), geometry types (`%CYLINDER`, `%CIRCLE`), ranks (`>Z[-2]` is the
+second highest among those parallel to Z, `>>X[-3]` the third largest X of
+all), inclined directions (`+(1,0,1)`) and their combinations with `and`,
+`or` and `exc`. Simpler and more meaningful selectors come first. Each one
+shown was applied by CadQuery to the object as the script holds it and
+selected exactly the picked entities; for an assembly part, that is the
+part's own object in its own coordinates.
+
+When no such selector exists, an index is offered instead, such as
+`.faces()[5]`, with a warning: it follows CadQuery's entity order and can
+select another entity once the model changes. Selectors are generated for
+workplanes and shapes; a picked sketch has none.
 
 Hovering an object highlights it before you click.
 

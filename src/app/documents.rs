@@ -179,6 +179,7 @@ impl AppState {
         self.release(removed);
         self.scene.overlay = Overlay::default();
         self.measurements.clear();
+        self.selector.clear();
         self.inspector.clear();
         self.variables.clear();
     }

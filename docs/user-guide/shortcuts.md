@@ -20,6 +20,7 @@ On macOS, **Ctrl** means **Cmd**.
 | Search | Ctrl+F |
 | Replace | Ctrl+H |
 | Go to Line… | Ctrl+G |
+| Insert Selector (of the picked entities) | Ctrl+Shift+I |
 | Next / previous match | F3 / Alt+F3 |
 | Preferences… | Ctrl+, |
 | Zoom the interface | Ctrl + plus / Ctrl + minus |

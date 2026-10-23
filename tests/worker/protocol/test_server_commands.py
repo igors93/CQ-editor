@@ -67,6 +67,69 @@ def test_measurement_uses_live_occt_vertices_and_rejects_stale_ids(conversation)
     assert "previous Python session" in error["message"]
 
 
+def test_selector_for_picked_faces_and_its_errors(conversation):
+    script = "box = cq.Workplane().box(2, 4, 6)\nshow_object(box)\n"
+    # Face 6 of a box is its top: OCCT's order is deterministic for one box.
+    top, bottom = 6, 5
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {
+            "cmd": "selector",
+            "id": 2,
+            "selections": [{"key": "n1", "part": 0, "kind": "face", "identifier": top}],
+        },
+        {
+            "cmd": "selector",
+            "id": 3,
+            "selections": [
+                {"key": "n1", "part": 0, "kind": "face", "identifier": top},
+                {"key": "n1", "part": 0, "kind": "face", "identifier": bottom},
+            ],
+        },
+        {
+            "cmd": "selector",
+            "id": 4,
+            "selections": [{"key": "n1", "part": 0, "kind": "face", "identifier": 99}],
+        },
+    )
+    talk.serve()
+
+    first, both = talk.of_type("selector")
+    assert first["id"] == 2 and first["method"] == "faces"
+    assert first["candidates"][0] == {
+        "expression": '.faces(">Z")',
+        "selector": ">Z",
+        "description": "largest Z",
+        "index_based": False,
+    }
+    assert both["candidates"][0]["expression"] == '.faces("|Z")'
+    (error,) = talk.of_type("error")
+    assert error["id"] == 4 and "Unknown face id 99" in error["message"]
+
+
+def test_selectors_are_available_while_debugging(conversation):
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 1,
+            "script": "box = cq.Workplane().box(1, 1, 1)\nx = 1\n",
+            "debug": True,
+            "breakpoints": [2],
+        },
+        {
+            "cmd": "selector",
+            "id": 2,
+            "selections": [{"key": "n1", "part": 0, "kind": "edge", "identifier": 1}],
+        },
+        {"cmd": "debug", "action": "continue"},
+    )
+    talk.serve()
+
+    (reply,) = talk.of_type("selector")
+    assert reply["id"] == 2 and reply["candidates"]
+    assert not talk.of_type("error")
+
+
 def test_console_reset_discards_previous_script_variables(conversation):
     talk = conversation(
         {"cmd": "run", "id": 1, "script": "value = 7"},

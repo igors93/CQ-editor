@@ -234,6 +234,43 @@ fn topology_selection_builds_and_clears_an_exact_highlight() {
 }
 
 #[test]
+fn ctrl_click_gathers_up_to_the_topology_selection_limit() {
+    // One triangle per face id, so each id has a highlight.
+    let faces = MAX_TOPOLOGY_SELECTIONS as u32 + 1;
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for i in 0..faces {
+        let x = i as f32;
+        let start = positions.len() as u32;
+        positions.extend([[x, 0.0, 0.0], [x + 0.5, 0.0, 0.0], [x, 0.5, 0.0]]);
+        indices.extend([start, start + 1, start + 2]);
+    }
+    let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let mut mesh = Mesh::new(positions, normals, indices, Vec::new(), Vec::new());
+    mesh.topology.triangle_faces = (1..=faces).collect();
+    let mut part_node = node("n", "part", vec![]);
+    part_node.parts[0].mesh = Arc::new(mesh);
+    let mut scene = Scene::default();
+    scene.append(vec![part_node], None);
+    scene.select_only("n");
+
+    let face = |id| TopologySelection {
+        node: "n".into(),
+        part: 0,
+        entity: TopologyEntity::Face(id),
+        position: Vec3::ZERO,
+    };
+    for id in 1..=faces {
+        assert!(scene.select_topology(face(id), id > 1));
+    }
+    // The oldest made room for the newest.
+    assert_eq!(scene.topology_selections.len(), MAX_TOPOLOGY_SELECTIONS);
+    assert_eq!(scene.topology_selections[0].entity, TopologyEntity::Face(2));
+    assert_eq!(scene.current_topology(), Some(&face(faces)));
+    assert_eq!(scene.topology_highlights().len(), MAX_TOPOLOGY_SELECTIONS);
+}
+
+#[test]
 fn face_highlights_use_display_triangles_without_separate_pick_triangles() {
     let mut mesh = Mesh::new(
         vec![

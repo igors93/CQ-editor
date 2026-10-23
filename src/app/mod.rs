@@ -40,7 +40,8 @@ use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
 use crate::logging;
 use crate::panels::{
-    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, Tab, TabContext,
+    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, SelectorState,
+    SelectorUse, Tab, TabContext,
 };
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
 use crate::scene::{Overlay, Rgb, Scene};
@@ -95,6 +96,8 @@ pub struct AppState {
     pub traceback: Option<crate::worker::protocol::ScriptError>,
     pub inspector: InspectorState,
     pub measurements: MeasurementState,
+    /// The CadQuery selector of the topology selection.
+    pub selector: SelectorState,
     pub console: ConsoleState,
     pub log_view: LogView,
     pub status: Option<Status>,
@@ -341,6 +344,8 @@ impl AppState {
             Action::Find => self.editor.open_search(&self.document),
             Action::Replace => self.editor.open_replace(&self.document),
             Action::GoToLinePrompt => self.editor.open_go_to_line(),
+            Action::CopySelector => self.use_selector(SelectorUse::Copy),
+            Action::InsertSelector => self.use_selector(SelectorUse::Insert),
             Action::FindNext | Action::FindPrevious => {
                 if self.editor.search_is_open() {
                     self.editor
@@ -413,13 +418,14 @@ impl AppState {
                 let keys = self.scene.selected_top_level();
                 let removed = self.scene.remove_top_level(&keys);
                 self.release(removed);
-                self.request_measurement();
+                self.request_topology_results();
                 self.refresh_inspector();
             }
             Action::ClearObjects => {
                 let removed = self.scene.clear();
                 self.release(removed);
                 self.measurements.clear();
+                self.selector.clear();
                 self.scene.overlay = Overlay::default();
                 self.refresh_inspector();
             }
@@ -556,6 +562,7 @@ impl CqEditorApp {
             traceback: None,
             inspector: InspectorState::default(),
             measurements: MeasurementState::default(),
+            selector: SelectorState::default(),
             console: ConsoleState::default(),
             log_view: LogView::default(),
             status: None,

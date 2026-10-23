@@ -8,7 +8,7 @@ use crate::app::AppState;
 use crate::commands::Action;
 use crate::panels::measurements;
 use crate::scene::{Rgb, SceneNode};
-use crate::worker::protocol::{EntityMeasurement, ExportFormat};
+use crate::worker::protocol::{EntityMeasurement, ExportFormat, SelectorCandidate};
 
 /// Height the object tree keeps while the property sheet is open.
 const TREE_MIN_HEIGHT: f32 = 80.0;
@@ -270,6 +270,9 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
             .cloned()
     });
     let measuring = state.measurements.loading;
+    let selector = topology
+        .as_ref()
+        .and_then(|_| state.selector.candidate().cloned());
     let Some(node) = state.scene.find_mut(&key) else {
         return;
     };
@@ -296,6 +299,9 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
                     ui.weak("Measuring…");
                 });
                 ui.end_row();
+            }
+            if let Some(candidate) = &selector {
+                selector_row(ui, candidate, actions);
             }
 
             ui.label("Type");
@@ -372,6 +378,39 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
             icon::STACK
         ));
     }
+}
+
+/// The selector of the picked entities, with Copy and Insert buttons.
+fn selector_row(ui: &mut egui::Ui, candidate: &SelectorCandidate, actions: &mut Vec<Action>) {
+    ui.label("Selector");
+    ui.horizontal(|ui| {
+        let text = RichText::new(&candidate.expression).monospace();
+        let label = ui.add(egui::Label::new(text).truncate());
+        let tip = if candidate.index_based {
+            format!(
+                "{} (by index: may change with the model)",
+                candidate.description
+            )
+        } else {
+            candidate.description.clone()
+        };
+        label.on_hover_text(tip);
+        if ui
+            .small_button(icon::COPY)
+            .on_hover_text("Copy the selector")
+            .clicked()
+        {
+            actions.push(Action::CopySelector);
+        }
+        if ui
+            .small_button(icon::CURSOR_TEXT)
+            .on_hover_text("Insert the selector at the editor's cursor")
+            .clicked()
+        {
+            actions.push(Action::InsertSelector);
+        }
+    });
+    ui.end_row();
 }
 
 /// The exact size and position of the selected face, edge or vertex.

@@ -19,6 +19,18 @@ fn menus_find_their_shortcuts() {
 }
 
 #[test]
+fn selector_commands_have_menu_entries_and_a_free_shortcut() {
+    assert_eq!(shortcut(&Action::InsertSelector), Some(ctrl_shift(Key::I)));
+    // Copy has none: Ctrl+Shift+C would also copy the editor's text.
+    assert_eq!(shortcut(&Action::CopySelector), None);
+    let taken = shortcuts()
+        .iter()
+        .filter(|(_, binding)| *binding == ctrl_shift(Key::I))
+        .count();
+    assert_eq!(taken, 1, "Ctrl+Shift+I is bound once");
+}
+
+#[test]
 fn legacy_shortcuts_are_preserved() {
     let all = shortcuts();
     let has = |action: Action, binding: KeyboardShortcut| {

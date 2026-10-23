@@ -20,6 +20,11 @@ tracked in the compatibility matrix instead of being assumed.
   the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: selection to code; picked faces, edges or vertices get a CadQuery
+  selector (`.faces(">Z")`, `.edges("|Z and >Y")`, `.edges("|Z")` for
+  several), verified with CadQuery, to copy or insert at the cursor
+  (Ctrl+Shift+I), with alternatives and a flagged index fallback; Ctrl+click
+  now gathers up to 64 entities
 * New: precise OCCT face, edge and vertex selection with subshape highlighting
   and live-scene topology identifiers retained by the Python worker
 * New: Auto/Object/Face/Edge/Vertex selection modes and an exact Measurements

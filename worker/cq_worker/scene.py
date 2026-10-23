@@ -167,6 +167,16 @@ class ShownObject:
     options: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PartSource:
+    """What a displayed part was made from, as the script holds it."""
+
+    #: The workplane, shape or sketch of the script, in its own coordinates.
+    obj: Any
+    #: Where an assembly places it; identity for shown objects.
+    location: cq.Location
+
+
 @dataclass
 class RegistryEntry:
     obj: Any
@@ -176,6 +186,11 @@ class RegistryEntry:
     #: Topological indices for each displayed part, in the same order as the
     #: scene node's parts. They keep picking ids tied to live OCCT subshapes.
     topologies: list[TopologyIndex] = field(default_factory=list)
+    #: The source of each part, in the same order: what selectors and code
+    #: generated for a picked entity refer to.
+    sources: list[PartSource] = field(default_factory=list)
+    #: Entity features per (part, kind), computed once for selectors.
+    selector_features: dict[tuple[int, str], Any] = field(default_factory=dict)
 
     def subshape(self, part: int, kind: str, identifier: int) -> cq.Shape:
         try:
@@ -307,7 +322,14 @@ class SceneBuilder:
         part = self._part(shape, topology, None, None, cq.Location(), obj)
         if part is None:
             return None
-        key = self.registry.add(RegistryEntry(obj, shape, topologies=[topology]))
+        key = self.registry.add(
+            RegistryEntry(
+                obj,
+                shape,
+                topologies=[topology],
+                sources=[PartSource(obj, cq.Location())],
+            )
+        )
         return self._message(key, name, obj, options, [part], [])
 
     def _assembly_node(
@@ -321,7 +343,7 @@ class SceneBuilder:
         location = parent_location * assembly.loc
         color = assembly.color if assembly.color is not None else inherited_color
 
-        shape, parts, topologies = None, [], []
+        shape, parts, topologies, sources = None, [], [], []
         if assembly.obj is not None:
             # A node can have both a shape and children.
             local_shape = to_compound(assembly.obj)
@@ -337,6 +359,7 @@ class SceneBuilder:
             if part is not None:
                 parts.append(part)
                 topologies.append(topology)
+                sources.append(PartSource(assembly.obj, location))
 
         children = [
             child_node
@@ -356,6 +379,7 @@ class SceneBuilder:
             shape,
             children=[c["key"] for c in children],
             topologies=topologies,
+            sources=sources,
         )
         key = self.registry.add(entry)
         message = self._message(key, name, assembly, options, parts, children)
@@ -367,7 +391,7 @@ class SceneBuilder:
     def _merged_assembly_node(
         self, name: str, assembly: cq.Assembly, options: DisplayOptions
     ) -> dict | None:
-        parts, shapes, topologies = [], [], []
+        parts, shapes, topologies, sources = [], [], [], []
 
         def collect(node: cq.Assembly, parent: cq.Location, inherited) -> None:
             location = parent * node.loc
@@ -387,6 +411,7 @@ class SceneBuilder:
                 if part is not None:
                     parts.append(part)
                     topologies.append(topology)
+                    sources.append(PartSource(node.obj, location))
             for child in node.children:
                 collect(child, location, color)
 
@@ -398,6 +423,7 @@ class SceneBuilder:
                 assembly,
                 cq.Compound.makeCompound(shapes),
                 topologies=topologies,
+                sources=sources,
             )
         )
         return self._message(key, name, assembly, options, parts, [])

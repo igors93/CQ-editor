@@ -38,3 +38,200 @@ fn links_clicked_in_widgets_are_taken_from_the_platform_output() {
         [egui::OutputCommand::CopyText("kept".to_owned())]
     );
 }
+
+// -- application state without a window ----------------------------------------
+
+/// An `AppState` with defaults and no Python, for exercising actions and
+/// worker replies directly.
+pub(super) fn test_state(text: &str) -> AppState {
+    let ctx = egui::Context::default();
+    let cache_dir = std::env::temp_dir().join("cq-editor-app-tests");
+    AppState {
+        worker: Worker::new(ctx.clone()),
+        ctx,
+        settings: Settings::default(),
+        document: Document::untitled(text),
+        editor: CodeEditor::default(),
+        scene: Scene::default(),
+        viewer: Viewer::default(),
+        variables: Vec::new(),
+        traceback: None,
+        inspector: InspectorState::default(),
+        measurements: MeasurementState::default(),
+        selector: SelectorState::default(),
+        console: ConsoleState::default(),
+        log_view: LogView::default(),
+        status: None,
+        dialogs: Dialogs::default(),
+        execution: Execution::default(),
+        actions: Vec::new(),
+        watcher: FileWatcher::default(),
+        watch_key: None,
+        examples: Vec::new(),
+        palette: Palette::DARK,
+        recovery: RecoveryStore::new(cache_dir.join("recovery")),
+        cache_dir,
+        next_recovery: Instant::now() + CHECKPOINT_INTERVAL,
+        recovery_error_reported: false,
+        python_override: None,
+        worker_was_ready: false,
+        allow_close: false,
+        title: String::new(),
+        applied_theme: None,
+        applied_scale: 1.0,
+        logo: None,
+    }
+}
+
+fn selector_reply(id: crate::worker::protocol::RequestId) -> crate::worker::protocol::Message {
+    use crate::worker::protocol::{Message, SelectorCandidate, SelectorReply};
+    let candidate = |expression: &str, index_based| SelectorCandidate {
+        expression: expression.to_owned(),
+        description: String::new(),
+        index_based,
+    };
+    Message::Selector(SelectorReply {
+        id,
+        method: "faces".into(),
+        candidates: vec![
+            candidate(r#".faces(">Z")"#, false),
+            candidate(".faces()[5]", true),
+        ],
+    })
+}
+
+/// A face picked in the view, as `select` records it.
+fn pick_face(state: &mut AppState) {
+    use crate::scene::{TopologyEntity, TopologySelection};
+    let mut mesh = crate::scene::Mesh::new(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        vec![[0.0, 0.0, 1.0]; 3],
+        vec![0, 1, 2],
+        Vec::new(),
+        Vec::new(),
+    );
+    mesh.topology.triangle_faces = vec![6];
+    let node = crate::scene::SceneNode {
+        key: "n1".into(),
+        name: "box".into(),
+        kind: "Workplane".into(),
+        inspectable: false,
+        parts: vec![crate::scene::Part {
+            mesh: std::sync::Arc::new(mesh),
+            transform: glam::Mat4::IDENTITY,
+            color: None,
+            alpha: None,
+        }],
+        children: Vec::new(),
+        visible: true,
+        color: None,
+        alpha: None,
+        edge_color: None,
+        overrides: Default::default(),
+    };
+    state.scene.append(vec![node], None);
+    state.scene.select_only("n1");
+    assert!(state.scene.select_topology(
+        TopologySelection {
+            node: "n1".into(),
+            part: 0,
+            entity: TopologyEntity::Face(6),
+            position: Default::default(),
+        },
+        false,
+    ));
+}
+
+/// Pretends a selector request is out, as `request_selector` sends it.
+fn awaiting_selector(state: &mut AppState, id: crate::worker::protocol::RequestId) {
+    state.execution.track(id, Pending::Selector);
+    state.selector.loading = true;
+    state.selector.request_id = Some(id);
+}
+
+#[test]
+fn a_selector_asked_for_while_loading_is_inserted_when_it_arrives() {
+    let mut state = test_state("result = cq.Workplane().box(1, 1, 1)\n");
+    pick_face(&mut state);
+    awaiting_selector(&mut state, 7);
+    state.use_selector(SelectorUse::Insert);
+    assert_eq!(state.selector.then, Some(SelectorUse::Insert));
+    assert!(!state.document.text.contains("faces"));
+
+    // A late reply to an earlier selection changes nothing.
+    state.handle_message(selector_reply(3));
+    assert!(state.selector.reply.is_none());
+
+    state.handle_message(selector_reply(7));
+    assert_eq!(state.selector.then, None);
+    assert!(!state.selector.loading);
+    assert_eq!(
+        state.document.text, ".faces(\">Z\")result = cq.Workplane().box(1, 1, 1)\n",
+        "inserted at the caret, at the start of a fresh document"
+    );
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Success);
+
+    // One undo step takes it out again.
+    state.editor.undo(&mut state.document);
+    assert_eq!(
+        state.document.text,
+        "result = cq.Workplane().box(1, 1, 1)\n"
+    );
+}
+
+#[test]
+fn copying_a_selector_puts_it_on_the_clipboard_and_flags_index_fallbacks() {
+    let mut state = test_state("");
+    pick_face(&mut state);
+    awaiting_selector(&mut state, 4);
+    state.handle_message(selector_reply(4));
+
+    let ctx = state.ctx.clone();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+        state.use_selector(SelectorUse::Copy);
+    });
+    output.textures_delta.clear();
+    assert_eq!(
+        output.platform_output.commands,
+        [egui::OutputCommand::CopyText(r#".faces(">Z")"#.to_owned())]
+    );
+    assert!(!state.status.as_ref().unwrap().text.contains("index"));
+
+    // The alternative chosen in the panel is used, with a caution.
+    state.selector.chosen = 1;
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+        state.use_selector(SelectorUse::Copy);
+    });
+    output.textures_delta.clear();
+    assert_eq!(
+        output.platform_output.commands,
+        [egui::OutputCommand::CopyText(".faces()[5]".to_owned())]
+    );
+    assert!(state.status.as_ref().unwrap().text.contains("by index"));
+}
+
+#[test]
+fn a_selector_error_is_kept_and_reported_to_a_waiting_copy() {
+    let mut state = test_state("");
+    pick_face(&mut state);
+    awaiting_selector(&mut state, 9);
+    state.use_selector(SelectorUse::Copy);
+    state.request_failed(Some(9), "Selectors are generated for workplanes".into());
+
+    assert_eq!(
+        state.selector.error.as_deref(),
+        Some("Selectors are generated for workplanes")
+    );
+    assert!(!state.selector.loading);
+    let status = state.status.as_ref().unwrap();
+    assert_eq!(status.kind, StatusKind::Warning);
+    assert!(status.text.contains("workplanes"));
+}
+
+#[test]
+fn selector_actions_need_picked_entities() {
+    let mut state = test_state("");
+    state.use_selector(SelectorUse::Insert);
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Warning);
+    assert!(state.document.text.is_empty());
+}

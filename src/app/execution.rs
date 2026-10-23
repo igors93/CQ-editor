@@ -50,6 +50,8 @@ pub enum Pending {
     /// The local modules imported by the script at this path.
     Imports(PathBuf),
     Measure,
+    /// Selector expressions for the topology selection.
+    Selector,
 }
 
 /// Whether the worker can take a run.

@@ -41,6 +41,7 @@ impl AppState {
         self.inspector.clear();
         self.scene.clear_topology_selection();
         self.measurements.clear();
+        self.selector.clear();
         self.scene.overlay = Overlay::default();
     }
 
@@ -116,7 +117,7 @@ impl AppState {
         self.scene.release_geometry(|id| execution.is_pending(id));
     }
 
-    fn handle_message(&mut self, message: Message) {
+    pub(super) fn handle_message(&mut self, message: Message) {
         match message {
             Message::Ready(info) => {
                 log::info!(
@@ -183,6 +184,7 @@ impl AppState {
                 let removed = self.scene.replace(nodes, None);
                 self.release(removed);
                 self.measurements.clear();
+                self.selector.clear();
                 self.refresh_inspector();
                 self.set_status(StatusKind::Info, format!("Paused at line {line}"));
             }
@@ -263,6 +265,22 @@ impl AppState {
                     self.measurements.result = Some(result);
                 }
             }
+            Message::Selector(reply) => {
+                let id = reply.id;
+                let tracked = matches!(self.execution.answer(id), Some(Pending::Selector));
+                // Only the reply for the current selection.
+                if tracked && self.selector.request_id == Some(id) {
+                    self.selector.loading = false;
+                    self.selector.request_id = None;
+                    self.selector.chosen = 0;
+                    self.selector.reply = Some(reply);
+                    if let Some(usage) = self.selector.then.take()
+                        && let Some(candidate) = self.selector.candidate().cloned()
+                    {
+                        self.apply_selector(usage, &candidate);
+                    }
+                }
+            }
             Message::SceneAdd { id, objects } => {
                 let was_empty = self.scene.is_empty();
                 let Some(nodes) = self.decode_scene_nodes(id, objects) else {
@@ -330,7 +348,7 @@ impl AppState {
         }
     }
 
-    fn request_failed(&mut self, id: Option<RequestId>, message: String) {
+    pub(super) fn request_failed(&mut self, id: Option<RequestId>, message: String) {
         let kind = id.and_then(|id| self.execution.answer(id).map(|kind| (id, kind)));
         match kind {
             Some((_, Pending::Console)) => {
@@ -358,6 +376,15 @@ impl AppState {
                 self.measurements.request_id = None;
             }
             Some((_, Pending::Measure)) => {}
+            Some((id, Pending::Selector)) if self.selector.request_id == Some(id) => {
+                self.selector.loading = false;
+                self.selector.request_id = None;
+                if self.selector.then.take().is_some() {
+                    self.set_status(StatusKind::Warning, message.clone());
+                }
+                self.selector.error = Some(message);
+            }
+            Some((_, Pending::Selector)) => {}
             // Hovering over a name the worker cannot describe is not news.
             Some((_, Pending::Describe | Pending::Completion { automatic: true })) => {
                 log::debug!("{message}");

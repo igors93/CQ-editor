@@ -55,7 +55,9 @@ between sessions.
   selected, its id is shown too (for example *Face 6 · part 1*) with its
   exact measurements: the surface or curve type, the **Area** of a face,
   the **Length** of an edge, a **Radius** when there is one, and the
-  **Center** (the **Position** of a vertex).
+  **Center** (the **Position** of a vertex). Its **Selector** row has
+  buttons to copy the CadQuery selector of the picked entities or insert it
+  at the editor's cursor (see [Selection to code](viewer.md#selection-to-code)).
 
 Colors and visibility changed here last until the next run. Turn on
 *Preferences > Objects > Preserve properties on reload* to keep them across
@@ -83,7 +85,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | Menu | Items |
 | --- | --- |
 | **File** | New · Open… · Open Recent · Save · Save As… · Local History… · Automatic Reload and Preview · Examples · Quit |
-| **Edit** | Toggle Comment · Auto-Complete · Search · Preferences… |
+| **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
 | **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · panel toggles · Reset Layout |

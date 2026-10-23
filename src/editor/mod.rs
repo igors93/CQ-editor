@@ -351,6 +351,23 @@ impl CodeEditor {
         self.apply(document, edited);
     }
 
+    /// Replaces the selection with `text` as one undo step and leaves the
+    /// caret after it, e.g. to insert a selector picked in the 3D view.
+    pub fn insert_text(&mut self, document: &mut Document, text: &str) {
+        let range = self.clamped_selection(&document.text).range();
+        let mut edited = document.text.clone();
+        edited.replace_range(range.clone(), text);
+        let caret = range.start + text.len();
+        self.pending_scroll_line = Some(text_ops::line_of(&edited, caret) + 1);
+        self.apply(
+            document,
+            text_ops::Edited {
+                text: edited,
+                selection: Selection::caret(caret),
+            },
+        );
+    }
+
     pub fn open_search(&mut self, document: &Document) {
         let range = self.clamped_selection(&document.text).range();
         let selected = &document.text[range];

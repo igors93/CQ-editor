@@ -252,6 +252,35 @@ fn export_formats_have_distinct_extensions_and_wire_values() {
 }
 
 #[test]
+fn selector_requests_and_replies_round_trip() {
+    let request = Request::Selector {
+        id: 3,
+        selections: vec![TopologyReference {
+            key: "s1-n2".into(),
+            part: 0,
+            kind: TopologyKind::Edge,
+            identifier: 7,
+        }],
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["cmd"], "selector");
+    assert_eq!(json["selections"][0]["kind"], "edge");
+    assert_eq!(json["selections"][0]["identifier"], 7);
+
+    let reply = r#"{"type":"selector","id":3,"method":"edges","candidates":[
+        {"expression":".edges(\"|Z and >Y\")","selector":"|Z and >Y",
+         "description":"parallel to Z, largest Y","index_based":false},
+        {"expression":".edges()[6]","selector":null,
+         "description":"by position","index_based":true}]}"#;
+    let Ok(Message::Selector(reply)) = serde_json::from_str::<Message>(reply) else {
+        panic!("not a selector reply");
+    };
+    assert_eq!(reply.method, "edges");
+    assert_eq!(reply.candidates[0].expression, r#".edges("|Z and >Y")"#);
+    assert!(reply.candidates[1].index_based);
+}
+
+#[test]
 fn scene_additions_name_their_request() {
     let added = |text| match serde_json::from_str::<Message>(text) {
         Ok(Message::SceneAdd { id, objects }) => (id, objects.len()),

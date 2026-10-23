@@ -19,6 +19,9 @@ from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Sphere
 
 from .scene import Registry
 
+#: Entities the GUI can select at once (``MAX_TOPOLOGY_SELECTIONS``).
+MAX_SELECTIONS = 64
+
 
 class MeasurementError(ValueError):
     """Invalid or stale topology selection supplied by the GUI."""
@@ -55,10 +58,15 @@ class TopologyReference:
 
 
 def measure(registry: Registry, raw_selections: Any) -> dict[str, Any]:
-    """Describe one entity, or describe two entities and their relationship."""
+    """Describe each selected entity; for exactly two, also their relationship."""
 
-    if not isinstance(raw_selections, list) or not 1 <= len(raw_selections) <= 2:
-        raise MeasurementError("Select one or two topological entities to measure")
+    if (
+        not isinstance(raw_selections, list)
+        or not 1 <= len(raw_selections) <= MAX_SELECTIONS
+    ):
+        raise MeasurementError(
+            f"Select between one and {MAX_SELECTIONS} topological entities to measure"
+        )
 
     references = [TopologyReference.from_message(value) for value in raw_selections]
     shapes = []

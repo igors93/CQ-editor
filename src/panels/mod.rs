@@ -11,7 +11,7 @@ mod variables;
 pub use console::{ConsoleState, EntryKind};
 pub use inspector::InspectorState;
 pub use log::LogView;
-pub use measurements::MeasurementState;
+pub use measurements::{MeasurementState, SelectorState, SelectorUse};
 
 use egui_dock::{DockState, NodeIndex, TabViewer};
 use egui_phosphor::regular as icon;

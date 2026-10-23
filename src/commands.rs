@@ -35,6 +35,10 @@ pub enum Action {
     Replace,
     /// Opens the *Go to line* bar.
     GoToLinePrompt,
+    /// The CadQuery selector of the picked entities, to the clipboard.
+    CopySelector,
+    /// The CadQuery selector of the picked entities, at the editor's cursor.
+    InsertSelector,
     Preferences,
     // Run
     Render,
@@ -148,6 +152,7 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::Find, ctrl(Key::F)),
         (Action::Replace, ctrl(Key::H)),
         (Action::GoToLinePrompt, ctrl(Key::G)),
+        (Action::InsertSelector, ctrl_shift(Key::I)),
         (Action::FindPrevious, alt(Key::F3)),
         (Action::FindNext, key(Key::F3)),
         (Action::Preferences, ctrl(Key::Comma)),

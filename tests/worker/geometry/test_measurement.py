@@ -105,13 +105,27 @@ def test_planar_face_angle_and_edge_to_plane_angle():
     assert edge_face["angle_degrees"] == pytest.approx(90.0)
 
 
-def test_rejects_more_than_two_or_stale_topology_references():
+def test_rejects_empty_or_oversized_selections_and_stale_references():
     registry = Registry()
     key = add_shape(registry, cq.Vertex.makeVertex(0, 0, 0))
     ref = reference(key, "vertex")
 
-    with pytest.raises(MeasurementError, match="one or two"):
+    with pytest.raises(MeasurementError, match="between one and 64"):
         measure(registry, [])
+    with pytest.raises(MeasurementError, match="between one and 64"):
+        measure(registry, [ref] * 65)
     registry.release([key])
     with pytest.raises(MeasurementError, match="previous Python session"):
         measure(registry, [ref])
+
+
+def test_more_than_two_entities_are_described_without_a_pair():
+    registry = Registry()
+    box = cq.Workplane().box(1, 2, 3).val()
+    key = add_shape(registry, box)
+
+    result = measure(registry, [reference(key, "face", i) for i in (1, 2, 3)])
+
+    assert [entity["identifier"] for entity in result["entities"]] == [1, 2, 3]
+    assert all(entity["area"] > 0 for entity in result["entities"])
+    assert result["pair"] is None

@@ -172,6 +172,24 @@ fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         Action::GoToLinePrompt,
     );
     ui.separator();
+    let picked = !state.scene.topology_selections.is_empty();
+    item_enabled(
+        ui,
+        actions,
+        icon::COPY,
+        "Copy Selector",
+        Action::CopySelector,
+        picked,
+    );
+    item_enabled(
+        ui,
+        actions,
+        icon::CURSOR_TEXT,
+        "Insert Selector",
+        Action::InsertSelector,
+        picked,
+    );
+    ui.separator();
     item(
         ui,
         actions,
