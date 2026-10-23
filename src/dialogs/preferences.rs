@@ -247,6 +247,14 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
     row(ui, "Show edges", "", |ui| {
         ui.checkbox(&mut viewer.show_edges, "");
     });
+    row(
+        ui,
+        "Hidden edges",
+        "Show the edges behind faces as faint dashes in the Hidden Line display mode",
+        |ui| {
+            ui.checkbox(&mut viewer.hidden_edges, "");
+        },
+    );
     color_row(ui, "Edge color", &mut viewer.edge_color);
     row(ui, "Edge width", "In pixels", |ui| {
         ui.add(egui::Slider::new(&mut viewer.edge_width, 0.5..=5.0).step_by(0.25));

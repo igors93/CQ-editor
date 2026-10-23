@@ -120,6 +120,13 @@ Edges and points are camera-facing quads expanded in screen space, which
 gives constant pixel widths at any zoom. Faces get a depth bias so edges
 stay visible on top of them.
 
+Display modes are styles, not separate renderers (`DisplayMode::style`):
+X-ray lowers the face opacity, so faces take the transparent path and
+write no depth; hidden-line fills faces with the background color
+computed per pixel (gradient included), and draws edges a second time
+where the depth test fails (`Greater`), dashed by their screen-space
+length.
+
 Assembly parts are **instances**: one mesh plus a transform per part.
 Identical geometry is uploaded to the GPU once.
 

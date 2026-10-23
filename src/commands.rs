@@ -201,6 +201,8 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::View(StandardView::Right), shift(Key::F8)),
         (Action::Display(DisplayMode::Wireframe), shift(Key::F9)),
         (Action::Display(DisplayMode::Shaded), shift(Key::F10)),
+        (Action::Display(DisplayMode::XRay), shift(Key::F11)),
+        (Action::Display(DisplayMode::HiddenLine), shift(Key::F12)),
     ];
     let specificity = |s: &KeyboardShortcut| {
         let m = s.modifiers;

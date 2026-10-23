@@ -240,3 +240,63 @@ fn control_bars_stack_up_from_the_bottom_without_overlapping() {
     assert!(bottom_bar_rect(short, 0, 400.0).is_some());
     assert!(bottom_bar_rect(short, 1, 400.0).is_none());
 }
+
+fn red_look(edges: Option<bool>) -> PartLook {
+    PartLook {
+        face_color: [1.0, 0.0, 0.0, 0.8],
+        edge_color: [0.0, 0.0, 0.0, 1.0],
+        highlight: [0.0; 4],
+        has_faces: true,
+        emphasized: false,
+        edges,
+    }
+}
+
+#[test]
+fn display_modes_and_object_edges_shape_how_parts_are_drawn() {
+    use DisplayMode::{HiddenLine, Shaded, Wireframe, XRay};
+    let settings = settings::Viewer::default();
+    let no_edges = settings::Viewer {
+        show_edges: false,
+        ..settings.clone()
+    };
+
+    // Shaded and X-ray follow the object's own choice, then the preference.
+    for mode in [Shaded, XRay] {
+        assert!(mode.style(red_look(None), &settings).edges);
+        assert!(!mode.style(red_look(Some(false)), &settings).edges);
+        assert!(!mode.style(red_look(None), &no_edges).edges);
+        assert!(mode.style(red_look(Some(true)), &no_edges).edges);
+    }
+    // Edges are the drawing in wireframe and hidden-line modes, and all
+    // there is of a wire.
+    for mode in [Wireframe, HiddenLine] {
+        assert!(mode.style(red_look(Some(false)), &no_edges).edges);
+    }
+    let wire = PartLook {
+        has_faces: false,
+        ..red_look(Some(false))
+    };
+    assert!(Shaded.style(wire, &no_edges).edges);
+
+    let shaded = Shaded.style(red_look(None), &settings);
+    assert!(shaded.faces && !shaded.background_fill && !shaded.hidden_edges);
+    assert_eq!(shaded.face_color[3], 0.8);
+    assert!(!Wireframe.style(red_look(None), &settings).faces);
+    assert_eq!(
+        XRay.style(red_look(None), &settings).face_color[3],
+        XRAY_OPACITY
+    );
+
+    let hidden_line = HiddenLine.style(red_look(None), &settings);
+    assert!(hidden_line.faces && hidden_line.background_fill && hidden_line.hidden_edges);
+    assert_eq!(
+        hidden_line.face_color[3], 1.0,
+        "opaque, to hide what is behind"
+    );
+    let solid_only = settings::Viewer {
+        hidden_edges: false,
+        ..settings.clone()
+    };
+    assert!(!HiddenLine.style(red_look(None), &solid_only).hidden_edges);
+}

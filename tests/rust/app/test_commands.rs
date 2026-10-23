@@ -72,6 +72,20 @@ fn legacy_shortcuts_are_preserved() {
 }
 
 #[test]
+fn the_new_display_modes_follow_on_the_next_function_keys() {
+    let has = |action: Action, expected| assert_eq!(shortcut(&action), Some(expected));
+    has(Action::Display(DisplayMode::XRay), shift(Key::F11));
+    has(Action::Display(DisplayMode::HiddenLine), shift(Key::F12));
+    // Stepping out keeps Ctrl+Shift+F11: the more specific match wins.
+    let order: Vec<_> = shortcuts().into_iter().map(|(action, _)| action).collect();
+    let position = |action: &Action| order.iter().position(|a| a == action).unwrap();
+    assert!(
+        position(&Action::Debug(DebugAction::StepOut))
+            < position(&Action::Display(DisplayMode::XRay))
+    );
+}
+
+#[test]
 fn go_to_source_has_its_own_shortcut() {
     assert_eq!(
         shortcut(&Action::GoToSelectionSource),

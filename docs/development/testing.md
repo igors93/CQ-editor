@@ -40,8 +40,13 @@ The test folders follow the parts of the application they protect:
 The shaders are parsed and validated with naga, wgpu's WGSL front end, and
 their uniform layouts are compared with the Rust structs, so these tests need
 no GPU. The rendering tests in `test_renderer.rs` draw offscreen on whatever
-adapter wgpu finds, software adapters included, and pass without checking
-anything (with a message on stderr) on a machine that has none.
+adapter wgpu finds, software adapters included, one test at a time on a
+shared device, and pass without checking anything (with a message on
+stderr) on a machine that has none. Set `CQ_EDITOR_REQUIRE_GPU=1` to make a
+missing adapter fail instead (CI does on Windows), and
+`WGPU_ADAPTER_NAME` (part of a name) or `WGPU_BACKEND` to choose one, for
+example `WGPU_ADAPTER_NAME="Microsoft Basic Render Driver"` for the
+software adapter CI uses on Windows.
 
 Rust tests live in `tests/rust/` but are **included from the source module
 they test** with `#[cfg(test)] #[path = "…"] mod tests;`. They can therefore

@@ -44,6 +44,7 @@ fn the_scene_shaders_are_valid_wgsl_with_every_entry_point() {
         "fs_cap",
         "vs_edge",
         "fs_edge",
+        "fs_hidden_edge",
         "vs_point",
         "fs_point",
     ] {
@@ -66,25 +67,55 @@ fn uniform_blocks_match_their_wgsl_layout() {
 
 // -- on a GPU ------------------------------------------------------------------
 
-use crate::viewer::camera::StandardView;
+use std::sync::{Mutex, OnceLock, PoisonError};
+
+use crate::viewer::camera::{Pose, StandardView};
 use crate::viewer::section::{Section, SectionAxis};
+use crate::viewer::{DisplayMode, PartLook};
 
 const BACKGROUND: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 const BACKGROUND_SRGB: [u8; 4] = [0, 0, 255, 255];
+/// Image size; the 2-unit cube spans half of it.
+const SIZE: u32 = 128;
 
-/// Any adapter, software ones included. Without one there is nothing to
-/// draw on, and the GPU tests pass vacuously (the shader tests above still
-/// check what can be checked).
+/// A renderer on the adapter `WGPU_ADAPTER_NAME` names, or else the best
+/// one wgpu finds, software adapters included (`WGPU_BACKEND` limits the
+/// backends). Without any adapter there is nothing to draw on and the GPU
+/// tests pass without checking anything, unless `CQ_EDITOR_REQUIRE_GPU` is
+/// set to something other than `0`, as in CI on Windows, whose software
+/// adapter (WARP) is always there.
 fn gpu() -> Option<SceneRenderer> {
-    let instance = wgpu::Instance::default();
-    let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
-    let Ok(adapter) = adapter else {
-        eprintln!("no GPU adapter: skipping the rendering test");
-        return None;
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle().with_env());
+    let adapter = match block_on(wgpu::util::initialize_adapter_from_env_or_default(
+        &instance, None,
+    )) {
+        Ok(adapter) => adapter,
+        Err(error) => {
+            let required = std::env::var("CQ_EDITOR_REQUIRE_GPU")
+                .is_ok_and(|value| !value.is_empty() && value != "0");
+            assert!(!required, "no GPU adapter: {error}");
+            eprintln!("no GPU adapter ({error}): skipping the rendering test");
+            return None;
+        }
     };
-    let (device, queue) =
-        block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+    eprintln!("rendering on {:?}", adapter.get_info());
+    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+        .expect("the adapter provides a device");
     Some(SceneRenderer::with_device(device, queue, &adapter))
+}
+
+/// Runs a GPU test on the renderer the GPU tests share, one test at a time:
+/// creating devices concurrently has crashed the software DX12 adapter.
+fn with_gpu(test: impl FnOnce(&mut SceneRenderer)) {
+    static GPU: OnceLock<Mutex<Option<SceneRenderer>>> = OnceLock::new();
+    let mut gpu = GPU
+        .get_or_init(|| Mutex::new(gpu()))
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some(renderer) = gpu.as_mut() {
+        test(renderer);
+    }
 }
 
 /// wgpu's native futures are ready once polled; this is all they need.
@@ -99,7 +130,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-/// A closed cube with flat faces, centred on the origin.
+/// A closed cube with flat faces and its 12 edges, centred on the origin.
 fn cube(half: f32) -> Mesh {
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -121,63 +152,98 @@ fn cube(half: f32) -> Mesh {
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
-    Mesh::new(positions, normals, indices, Vec::new(), Vec::new())
+    let mut edges = Vec::new();
+    let corner = |bits: u32| [0, 1, 2].map(|i| if bits >> i & 1 == 1 { half } else { -half });
+    for bits in 0..8u32 {
+        for axis in 0..3 {
+            if bits >> axis & 1 == 0 {
+                edges.extend([corner(bits), corner(bits | 1 << axis)]);
+            }
+        }
+    }
+    assert_eq!(edges.len(), 24);
+    Mesh::new(positions, normals, indices, edges, Vec::new())
 }
 
-fn red(clipped: bool) -> Style {
+/// A red cube with black edges, as `DisplayMode::Shaded` draws it.
+fn red() -> Style {
     Style {
         face_color: [1.0, 0.0, 0.0, 1.0],
         edge_color: [0.0, 0.0, 0.0, 1.0],
         highlight: [0.0; 4],
-        edge_width: 1.0,
+        edge_width: 1.5,
         point_size: 1.0,
         faces: true,
         edges: false,
         points: false,
-        clipped,
+        clipped: true,
+        background_fill: false,
+        hidden_edges: false,
     }
 }
 
-/// Renders a 2-unit cube seen from the top and returns the sRGB pixels at
-/// the centre and in a corner, outside the cube.
-fn render_cube(
+/// The style a display mode gives the red cube.
+fn in_mode(mode: DisplayMode) -> Style {
+    let settings = crate::settings::Viewer::default();
+    let look = PartLook {
+        face_color: [1.0, 0.0, 0.0, 1.0],
+        edge_color: [0.0, 0.0, 0.0, 1.0],
+        highlight: [0.0; 4],
+        has_faces: true,
+        emphasized: false,
+        edges: None,
+    };
+    mode.style(look, &settings)
+}
+
+struct Frame {
+    pixels: Vec<u8>,
+}
+
+impl Frame {
+    fn at(&self, x: u32, y: u32) -> [u8; 4] {
+        let start = ((y * SIZE + x) * 4) as usize;
+        <[u8; 4]>::try_from(&self.pixels[start..start + 4]).unwrap()
+    }
+}
+
+/// Renders the 2-unit cube from `view` in a `SIZE` square image whose
+/// half-height is 2 units.
+fn draw(
     renderer: &mut SceneRenderer,
+    view: StandardView,
+    style: Style,
     section: Option<Section>,
-    clipped: bool,
-) -> ([u8; 4], [u8; 4]) {
+) -> Frame {
     let mesh = Arc::new(cube(1.0));
     let bounds = mesh.bounds;
     let mut camera = Camera {
         scene_radius: 2.0,
         ..Camera::default()
     };
-    camera.set_pose(super::super::camera::Pose {
+    camera.set_pose(Pose {
         target: Vec3::ZERO,
-        rotation: StandardView::Top.rotation(),
-        extent: 4.0,
+        rotation: view.rotation(),
+        extent: 2.0,
     });
     let items = [DrawItem {
         mesh,
         transform: Mat4::IDENTITY,
-        style: red(clipped),
+        style,
         layer: Layer::Scene,
     }];
     let (size, pixels) = renderer
         .render_pixels(&FrameInput {
             camera: &camera,
-            size: [64, 64],
+            size: [SIZE, SIZE],
             background_top: BACKGROUND,
             background_bottom: BACKGROUND,
             items: &items,
             section: section.and_then(|section| section.renderer_plane(bounds)),
         })
         .expect("the frame is read back");
-    assert_eq!(size, [64, 64]);
-    let pixel = |x: u32, y: u32| {
-        let start = ((y * size[0] + x) * 4) as usize;
-        <[u8; 4]>::try_from(&pixels[start..start + 4]).unwrap()
-    };
-    (pixel(32, 32), pixel(2, 2))
+    assert_eq!(size, [SIZE, SIZE]);
+    Frame { pixels }
 }
 
 fn cut(offset: f32, caps: bool) -> Option<Section> {
@@ -190,33 +256,146 @@ fn cut(offset: f32, caps: bool) -> Option<Section> {
     })
 }
 
+const CENTER: u32 = SIZE / 2;
+
 #[test]
 fn a_section_plane_cuts_the_model_and_fills_the_cut_on_the_gpu() {
-    let Some(mut renderer) = gpu() else { return };
+    with_gpu(|renderer| {
+        let top = |renderer: &mut SceneRenderer, style: Style, section: Option<Section>| {
+            let frame = draw(renderer, StandardView::Top, style, section);
+            (frame.at(CENTER, CENTER), frame.at(2, 2))
+        };
 
-    let (whole, outside) = render_cube(&mut renderer, None, true);
-    assert_eq!(outside, BACKGROUND_SRGB);
-    assert!(
-        whole[0] > 100 && whole[2] < 50,
-        "the red top face: {whole:?}"
-    );
+        let (whole, outside) = top(renderer, red(), None);
+        assert_eq!(outside, BACKGROUND_SRGB);
+        assert!(
+            whole[0] > 100 && whole[2] < 50,
+            "the red top face: {whole:?}"
+        );
 
-    // Cut through the middle: the cap, flat and darker than a face, covers
-    // the opening, and the stencil leaves nothing outside the cube.
-    let (capped, outside) = render_cube(&mut renderer, cut(0.0, true), true);
-    assert_eq!(outside, BACKGROUND_SRGB);
-    assert!(capped[0] > 50 && capped[2] < 50, "a red cap: {capped:?}");
-    assert!(capped[0] < whole[0], "the cap is darker than the top face");
+        // Cut through the middle: the cap, flat and darker than a face, covers
+        // the opening, and the stencil leaves nothing outside the cube.
+        let (capped, outside) = top(renderer, red(), cut(0.0, true));
+        assert_eq!(outside, BACKGROUND_SRGB);
+        assert!(capped[0] > 50 && capped[2] < 50, "a red cap: {capped:?}");
+        assert!(capped[0] < whole[0], "the cap is darker than the top face");
 
-    // Without caps the inside of the bottom face shows through instead.
-    let (open, _) = render_cube(&mut renderer, cut(0.0, false), true);
-    assert_ne!(open, capped);
+        // Without caps the inside of the bottom face shows through instead.
+        let (open, _) = top(renderer, red(), cut(0.0, false));
+        assert_ne!(open, capped);
 
-    // A plane under the cube removes all of it, caps included.
-    let (gone, _) = render_cube(&mut renderer, cut(-5.0, true), true);
-    assert_eq!(gone, BACKGROUND_SRGB);
+        // A plane under the cube removes all of it, caps included.
+        let (gone, _) = top(renderer, red(), cut(-5.0, true));
+        assert_eq!(gone, BACKGROUND_SRGB);
 
-    // Helpers that are not clipped stay whole.
-    let (helper, _) = render_cube(&mut renderer, cut(-5.0, true), false);
-    assert_eq!(helper, whole);
+        // Helpers that are not clipped stay whole.
+        let helper = Style {
+            clipped: false,
+            ..red()
+        };
+        let (kept, _) = top(renderer, helper, cut(-5.0, true));
+        assert_eq!(kept, whole);
+    });
+}
+
+#[test]
+fn display_modes_render_faces_edges_and_fills_as_documented() {
+    with_gpu(|renderer| {
+        use DisplayMode::{HiddenLine, Shaded, Wireframe, XRay};
+
+        // Seen from (1, -1, 1), the near corner (1, -1, 1) and the hidden one
+        // (-1, 1, -1) are both at the centre. The right face (+X) is a rhombus
+        // to the right, cut along its diagonal by a hidden edge; (94, 62) is
+        // inside it, away from every edge. Another hidden edge runs straight up
+        // from the centre, behind the top face.
+        let face = |frame: &Frame| frame.at(94, 62);
+        let behind_top_face = |frame: &Frame| -> Vec<[u8; 4]> {
+            (25..52)
+                .flat_map(|y| [frame.at(CENTER - 1, y), frame.at(CENTER, y)])
+                .collect()
+        };
+        let iso = |renderer: &mut SceneRenderer, style: Style| {
+            draw(renderer, StandardView::Iso, style, None)
+        };
+
+        let shaded = iso(renderer, in_mode(Shaded));
+        let lit = face(&shaded);
+        assert!(lit[0] > 60 && lit[2] < 40, "a lit red face: {lit:?}");
+        assert!(
+            behind_top_face(&shaded)
+                .iter()
+                .all(|p| p[0] > 60 && p[2] < 40),
+            "the top face hides the edge behind it"
+        );
+
+        let wireframe = iso(renderer, in_mode(Wireframe));
+        assert_eq!(face(&wireframe), BACKGROUND_SRGB, "no faces");
+        assert!(
+            behind_top_face(&wireframe).iter().any(|p| p[2] < 200),
+            "every edge, the hidden one included"
+        );
+
+        let xray = iso(renderer, in_mode(XRay));
+        let see_through = face(&xray);
+        assert!(
+            see_through[0] > 10 && see_through[2] > 60 && see_through != BACKGROUND_SRGB,
+            "red faces over the background: {see_through:?}"
+        );
+        assert!(see_through[0] < lit[0] || see_through[2] > lit[2]);
+        // Through the red faces the dark edge takes out the blue background.
+        let blue = |frame: &Frame, x: u32| {
+            (25..52).map(|y| u32::from(frame.at(x, y)[2])).sum::<u32>() / 27
+        };
+        assert!(
+            blue(&xray, CENTER) + 20 < blue(&xray, CENTER + 4),
+            "the hidden edge shows through: {} vs {}",
+            blue(&xray, CENTER),
+            blue(&xray, CENTER + 4)
+        );
+
+        let hidden_line = iso(renderer, in_mode(HiddenLine));
+        assert_eq!(
+            face(&hidden_line),
+            BACKGROUND_SRGB,
+            "faces are filled with the background"
+        );
+        let dashes = behind_top_face(&hidden_line);
+        assert!(
+            dashes.iter().any(|p| *p != BACKGROUND_SRGB) && dashes.contains(&BACKGROUND_SRGB),
+            "the hidden edge is dashed"
+        );
+        // The visible edge from the centre straight down is solid and dark.
+        assert!((80..100).all(|y| hidden_line.at(CENTER, y)[2] < 200));
+
+        let without_hidden = Style {
+            hidden_edges: false,
+            ..in_mode(HiddenLine)
+        };
+        let hidden_line = iso(renderer, without_hidden);
+        assert!(
+            behind_top_face(&hidden_line)
+                .iter()
+                .all(|p| *p == BACKGROUND_SRGB),
+            "hidden edges removed"
+        );
+
+        // A section in hidden-line mode is hatched with the edge color.
+        let section = draw(
+            renderer,
+            StandardView::Top,
+            in_mode(HiddenLine),
+            cut(0.0, true),
+        );
+        let mut hatch = Vec::new();
+        for y in CENTER - 8..CENTER + 8 {
+            for x in CENTER - 8..CENTER + 8 {
+                hatch.push(section.at(x, y));
+            }
+        }
+        assert!(hatch.contains(&BACKGROUND_SRGB), "between the hatch lines");
+        assert!(
+            hatch.iter().any(|p| p[2] < 60),
+            "hatch lines in the edge color"
+        );
+    });
 }

@@ -61,7 +61,9 @@ between sessions.
   **Export** (the selection, or everything when nothing is selected).
 * The property sheet below the tree edits the selected object: visibility,
   **Color** (with **Reset** to go back to the script's colors), **Opacity**,
-  and shows its **Size** and **Triangles**. When a face, edge or vertex is
+  **Edges** (this object's edges in the Shaded and X-Ray modes, with
+  **Reset** to follow the preference), and shows its **Size** and
+  **Triangles**. When a face, edge or vertex is
   selected, its id is shown too (for example *Face 6 · part 1*) with its
   exact measurements: the surface or curve type, the **Area** of a face,
   the **Length** of an edge, a **Radius** when there is one, and the
@@ -84,7 +86,7 @@ From left to right:
 | Run | Render, Debug, Step, Step in, Step out, Continue, Stop |
 | Inspect | Inspect CQ object |
 | View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right |
-| Display | Wireframe, Shaded, Section view, Exploded view, Screenshot |
+| Display | Wireframe, Shaded, X-ray, Hidden line, Section view, Exploded view, Screenshot |
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
@@ -98,7 +100,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
+| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Check for CadQuery Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).

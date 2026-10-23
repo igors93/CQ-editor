@@ -403,6 +403,8 @@ pub struct Part {
 pub struct Overrides {
     pub color: Option<Rgb>,
     pub alpha: Option<f32>,
+    /// Edges shown or hidden for this object only, whatever the preference.
+    pub edges: Option<bool>,
 }
 
 #[derive(Debug)]

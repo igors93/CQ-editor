@@ -69,7 +69,7 @@ it does not turn the two open gaps into supported features.
 | `tools.upload` | Python or exported model bytes can still be uploaded to the configured service. | Verified | `tests/worker/protocol/test_server_commands.py::test_step_upload_sends_actual_model_bytes` |
 | `tools.update` | CadQuery release checks remain available. | Verified | `tests/worker/protocol/test_server_commands.py::test_update_check_returns_current_and_newer_versions` |
 | `viewer.standard-views` | Fit, isometric, top, bottom, front, back, left and right camera results remain. | Verified | `tests/rust/viewer/test_camera.rs::standard_views_look_where_expected` |
-| `viewer.display-modes` | Shaded and wireframe commands are implemented, but their final GPU images are not compared automatically. | Unverified | Follow-up: [GUI-only validation](#gui-only-validation) |
+| `viewer.display-modes` | Shaded and wireframe keep their commands and shortcuts; X-ray and hidden-line modes and per-object edge visibility were added. Each mode is rendered offscreen and its pixels are checked. | Enhanced | `tests/rust/viewer/test_renderer.rs::display_modes_render_faces_edges_and_fills_as_documented` |
 | `viewer.projection` | Orthographic and perspective cameras remain and produce consistent pick rays. | Verified | `tests/rust/viewer/test_camera.rs::projection_round_trips_through_rays` |
 | `viewer.mouse` | Left orbit/select, middle or Ctrl+left pan, right or Shift+left zoom, and wheel zoom retain their bindings. | Verified | `tests/rust/viewer/test_navigation.rs::legacy_mouse_gestures_keep_their_navigation_modes` |
 | `viewer.navigation-cube` | Face/edge/corner views and 45-degree roll remain, with native hover feedback and animation. | Enhanced | `tests/rust/viewer/test_overlays.rs::arrows_are_hit_on_both_sides` |
@@ -98,7 +98,7 @@ platform command modifier where appropriate.
 | Edit | Toggle Comment / Auto-Complete / Search | Ctrl+/ / Alt+/ / Ctrl+F | Preserved; Ctrl+Space also completes |
 | Run | Render / Debug / Step / Step in / Continue | F5 / Ctrl+F5 / Ctrl+F10 / Ctrl+F11 / Ctrl+F12 | Preserved; Step out and Stop added |
 | View | Fit / Iso / Top / Bottom / Front / Back / Left / Right | Shift+F1 through Shift+F8 | Preserved |
-| View | Wireframe / Shaded | Shift+F9 / Shift+F10 | Preserved |
+| View | Wireframe / Shaded | Shift+F9 / Shift+F10 | Preserved; X-Ray and Hidden Line added on Shift+F11 / Shift+F12 |
 
 ### Legacy mouse behavior
 
@@ -182,10 +182,12 @@ configured.
 
 ### GUI-only validation
 
-Screenshot capture, final shaded/wireframe pixels and free-form dock dragging
-cross native window/GPU boundaries. They remain **Unverified**, not presumed
-equivalent. `ENG-03` tracks a headless UI harness; render-image tests should use
-a deterministic software adapter or golden images with a documented tolerance.
+Screenshot capture and free-form dock dragging cross native window/GPU
+boundaries. They remain **Unverified**, not presumed equivalent. `ENG-03`
+tracks a headless UI harness. The display modes are no longer in this group:
+`tests/rust/viewer/test_renderer.rs` renders them offscreen on any wgpu
+adapter and checks pixels that each mode must produce; CI requires the
+software adapter (WARP) on Windows, so those checks always run there.
 
 ## Change policy
 

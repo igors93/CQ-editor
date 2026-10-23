@@ -323,21 +323,15 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
         item(ui, actions, icon::CUBE, view.label(), Action::View(view));
     }
     ui.separator();
-    let mode = state.viewer.display_mode;
-    check_item(
-        ui,
-        actions,
-        mode == DisplayMode::Wireframe,
-        "Wireframe",
-        Action::Display(DisplayMode::Wireframe),
-    );
-    check_item(
-        ui,
-        actions,
-        mode == DisplayMode::Shaded,
-        "Shaded",
-        Action::Display(DisplayMode::Shaded),
-    );
+    for mode in DisplayMode::ALL {
+        check_item(
+            ui,
+            actions,
+            state.viewer.display_mode == mode,
+            mode.label(),
+            Action::Display(mode),
+        );
+    }
     check_item(
         ui,
         actions,

@@ -55,6 +55,8 @@ starts as soon as the current one ends.
 | Right | Shift+F8 |
 | Wireframe | Shift+F9 |
 | Shaded | Shift+F10 |
+| X-Ray | Shift+F11 |
+| Hidden Line | Shift+F12 |
 
 ## Editor
 

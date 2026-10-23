@@ -5,8 +5,9 @@
 //! gamma-encoded values, so it is handed a non-sRGB view of the same texture.
 //!
 //! Draw order: background, opaque faces (each followed by its section cap),
-//! edges and points, transparent faces (back to front, with their caps),
-//! then the inspector overlay, which is drawn on top.
+//! edges and points, hidden edges (hidden-line mode), transparent faces
+//! (back to front, with their caps), then the inspector overlay, which is
+//! drawn on top.
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -69,6 +70,11 @@ pub struct Style {
     pub points: bool,
     /// The section plane cuts it (helpers such as the axes are not cut).
     pub clipped: bool,
+    /// Faces are filled with the background instead of being lit, so they
+    /// only hide what is behind them (hidden-line mode).
+    pub background_fill: bool,
+    /// Edges hidden behind faces are drawn too, as faint dashes.
+    pub hidden_edges: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,6 +147,8 @@ struct Pipelines {
     transparent_caps: wgpu::RenderPipeline,
     overlay_faces: wgpu::RenderPipeline,
     edges: wgpu::RenderPipeline,
+    /// Edges where the depth test fails, dashed (hidden-line mode).
+    hidden_edges: wgpu::RenderPipeline,
     overlay_edges: wgpu::RenderPipeline,
     points: wgpu::RenderPipeline,
     overlay_points: wgpu::RenderPipeline,
@@ -378,6 +386,12 @@ impl SceneRenderer {
                 self.draw_edges(&mut pass, &self.pipelines.edges, input, index);
                 self.draw_points(&mut pass, &self.pipelines.points, input, index);
             }
+            // After every opaque face, so that they all hide edges.
+            for (index, _) in
+                scene(Layer::Scene).filter(|&(i, _)| input.items[i].style.hidden_edges)
+            {
+                self.draw_edges(&mut pass, &self.pipelines.hidden_edges, input, index);
+            }
             for (index, _) in scene(Layer::Scene).filter(|&(i, _)| !is_opaque(&input.items[i])) {
                 self.draw_faces(&mut pass, &self.pipelines.transparent_faces, input, index);
                 if caps {
@@ -536,7 +550,7 @@ impl SceneRenderer {
                     style.edge_width,
                     style.point_size,
                     f32::from(u8::from(style.clipped)),
-                    0.0,
+                    f32::from(u8::from(style.background_fill)),
                 ],
             };
             let offset = (slot + 1) * stride;
@@ -867,7 +881,7 @@ impl Pipelines {
             clamp: 0.0,
         };
         let no_bias = wgpu::DepthBiasState::default();
-        use wgpu::CompareFunction::{Always, Less, LessEqual, NotEqual};
+        use wgpu::CompareFunction::{Always, Greater, Less, LessEqual, NotEqual};
         use wgpu::StencilOperation::{Invert, Keep, Zero};
 
         // Section caps: parity of the remaining surfaces, then a quad where
@@ -967,6 +981,16 @@ impl Pipelines {
                 Some(wgpu::BlendState::ALPHA_BLENDING),
                 LessEqual,
                 true,
+                no_bias,
+            ),
+            hidden_edges: builder.build(
+                "hidden edges",
+                "vs_edge",
+                "fs_hidden_edge",
+                &segment_buffers,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Greater,
+                false,
                 no_bias,
             ),
             overlay_edges: builder.build(

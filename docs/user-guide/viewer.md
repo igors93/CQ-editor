@@ -65,7 +65,22 @@ run. The first model shown is always framed.
 | --- | --- |
 | Wireframe (edges only) | Shift+F9 |
 | Shaded | Shift+F10 |
+| X-Ray (see-through faces) | Shift+F11 |
+| Hidden Line (visible edges, hidden ones dashed) | Shift+F12 |
 | Perspective Projection (toggle) | View menu |
+
+**X-Ray** draws faces at 30% opacity (less if the object is already more
+transparent), so every edge shows through and inner features stay visible.
+**Hidden Line** fills faces with the background color: they hide what is
+behind them, which leaves a line drawing of the visible edges. Hidden
+edges are drawn as faint dashes; turn *Hidden edges* off in *Preferences >
+3D View* for visible edges only. In this mode a [section](#section-view)
+is hatched in the edge color.
+
+In Shaded and X-Ray modes each object can show or hide its own edges: the
+**Edges** checkbox in the Objects panel's property sheet overrides *Show
+edges* for that object (**Reset** follows the preference again). Wireframe
+and Hidden Line always draw edges, and wires and points are always drawn.
 
 The default projection is **orthographic**, the usual choice for CAD because
 parallel lines stay parallel. The menu toggle and *Preferences > 3D View >

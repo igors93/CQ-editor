@@ -49,12 +49,84 @@ const DEFAULT_EXPLODE: f32 = 0.5;
 /// Duration of camera transitions, seconds.
 const ANIMATION_SECONDS: f64 = 0.25;
 const POINT_SIZE: f32 = 7.0;
+/// Face opacity in the X-ray display mode.
+const XRAY_OPACITY: f32 = 0.3;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DisplayMode {
     #[default]
     Shaded,
     Wireframe,
+    /// See-through faces, so that every edge shows.
+    XRay,
+    /// Faces filled with the background: the visible edges are drawn, the
+    /// hidden ones as faint dashes (unless turned off in the preferences).
+    HiddenLine,
+}
+
+impl DisplayMode {
+    pub const ALL: [DisplayMode; 4] = [
+        DisplayMode::Wireframe,
+        DisplayMode::Shaded,
+        DisplayMode::XRay,
+        DisplayMode::HiddenLine,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DisplayMode::Shaded => "Shaded",
+            DisplayMode::Wireframe => "Wireframe",
+            DisplayMode::XRay => "X-Ray",
+            DisplayMode::HiddenLine => "Hidden Line",
+        }
+    }
+
+    /// How a scene part is drawn in this mode.
+    fn style(self, look: PartLook, settings: &settings::Viewer) -> Style {
+        let edges = match self {
+            // The edges are all there is to see.
+            DisplayMode::Wireframe | DisplayMode::HiddenLine => true,
+            DisplayMode::Shaded | DisplayMode::XRay => look.edges.unwrap_or(settings.show_edges),
+        } || !look.has_faces;
+        let mut face_color = look.face_color;
+        match self {
+            DisplayMode::XRay => face_color[3] = face_color[3].min(XRAY_OPACITY),
+            // Transparent faces would not hide the edges behind them.
+            DisplayMode::HiddenLine => face_color[3] = 1.0,
+            DisplayMode::Shaded | DisplayMode::Wireframe => {}
+        }
+        let edge_width = if look.has_faces {
+            settings.edge_width
+        } else {
+            settings.edge_width + 1.0
+        };
+        Style {
+            face_color,
+            edge_color: look.edge_color,
+            highlight: look.highlight,
+            edge_width: edge_width + if look.emphasized { 0.5 } else { 0.0 },
+            point_size: POINT_SIZE,
+            faces: self != DisplayMode::Wireframe,
+            edges,
+            points: true,
+            clipped: true,
+            background_fill: self == DisplayMode::HiddenLine,
+            hidden_edges: self == DisplayMode::HiddenLine && settings.hidden_edges,
+        }
+    }
+}
+
+/// What a scene part looks like before the display mode applies.
+struct PartLook {
+    face_color: [f32; 4],
+    edge_color: [f32; 4],
+    /// Selection or hover tint.
+    highlight: [f32; 4],
+    has_faces: bool,
+    /// Selected or hovered: drawn with wider edges.
+    emphasized: bool,
+    /// The object's own edge visibility, when set in the Objects panel.
+    edges: Option<bool>,
 }
 
 /// Restricts which entity type a click may select. `Auto` preserves the
@@ -814,7 +886,6 @@ impl Viewer {
         let (scene, settings, colors) = (input.scene, input.settings, input.colors);
         let default_color = srgb_unit(settings.default_color);
         let default_edge = linear_rgba(settings.edge_color, 1.0);
-        let wireframe = self.display_mode == DisplayMode::Wireframe;
         let mut items = Vec::new();
 
         // Selecting an assembly highlights all of its parts.
@@ -853,24 +924,18 @@ impl Viewer {
                     node.edge_color
                         .map_or(default_edge, |c| rgb_to_linear(c, 1.0))
                 };
+                let look = PartLook {
+                    face_color: rgb_to_linear(rgb, alpha),
+                    edge_color,
+                    highlight,
+                    has_faces,
+                    emphasized: selected || hovered,
+                    edges: node.overrides.edges,
+                };
                 items.push(DrawItem {
                     mesh: part.mesh.clone(),
                     transform: scene.part_transform(part),
-                    style: Style {
-                        face_color: rgb_to_linear(rgb, alpha),
-                        edge_color,
-                        highlight,
-                        edge_width: if has_faces {
-                            settings.edge_width
-                        } else {
-                            settings.edge_width + 1.0
-                        } + if selected || hovered { 0.5 } else { 0.0 },
-                        point_size: POINT_SIZE,
-                        faces: !wireframe,
-                        edges: settings.show_edges || wireframe || !has_faces,
-                        points: true,
-                        clipped: true,
-                    },
+                    style: self.display_mode.style(look, settings),
                     layer: Layer::Scene,
                 });
             }
@@ -891,6 +956,8 @@ impl Viewer {
                     edges: true,
                     points: true,
                     clipped: true,
+                    background_fill: false,
+                    hidden_edges: false,
                 },
                 layer: Layer::Overlay,
             });
@@ -956,6 +1023,8 @@ impl Viewer {
                     edges: true,
                     points: true,
                     clipped: false,
+                    background_fill: false,
+                    hidden_edges: false,
                 },
                 layer: Layer::Overlay,
             });
@@ -1182,6 +1251,8 @@ fn line_item(mesh: Arc<Mesh>, color: [f32; 4], width: f32, layer: Layer) -> Draw
             edges: true,
             points: false,
             clipped: false,
+            background_fill: false,
+            hidden_edges: false,
         },
         layer,
     }

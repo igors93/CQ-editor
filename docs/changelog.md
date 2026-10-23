@@ -23,6 +23,9 @@ tracked in the compatibility matrix instead of being assumed.
 * New: section view (View > Section View); a plane across X, Y or Z, with a
   position slider and a flip, cuts the model and fills the cut faces of
   solids; picking goes through what the plane removes
+* New: X-Ray (Shift+F11) and Hidden Line (Shift+F12) display modes; hidden
+  edges are dashed and sections hatched in Hidden Line, and each object can
+  show or hide its own edges in the Objects panel
 * New: exploded view (View > Exploded View) with a 0–200% slider, and
   Isolate Selection / End Isolation / Show All in the View menu and the
   Objects panel; picking and framing follow the exploded parts, isolation

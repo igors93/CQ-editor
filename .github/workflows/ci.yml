@@ -46,6 +46,10 @@ jobs:
 
       - name: Test
         run: cargo test
+        env:
+          # The rendering tests draw on WARP, the software adapter every
+          # Windows has; elsewhere they skip when no adapter is found.
+          CQ_EDITOR_REQUIRE_GPU: ${{ runner.os == 'Windows' && '1' || '' }}
 
   worker:
     name: Worker (${{ matrix.name }})

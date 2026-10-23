@@ -194,6 +194,8 @@ pub struct Viewer {
     pub default_color: [u8; 3],
     pub edge_color: [u8; 3],
     pub show_edges: bool,
+    /// Hidden edges as faint dashes in the hidden-line display mode.
+    pub hidden_edges: bool,
     pub edge_width: f32,
     /// Chordal deviation of the mesh relative to the object size.
     pub linear_tolerance: f64,
@@ -217,6 +219,7 @@ impl Default for Viewer {
             default_color: [255, 215, 0],
             edge_color: [0, 0, 0],
             show_edges: true,
+            hidden_edges: true,
             edge_width: 1.5,
             linear_tolerance: 1e-3,
             angular_tolerance: 0.2,

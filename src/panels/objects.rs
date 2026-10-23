@@ -302,6 +302,7 @@ fn swatch(ui: &mut egui::Ui, color: Rgb, alpha: f32) {
 
 fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
     let default = state.default_color();
+    let show_edges = state.settings.viewer.show_edges;
     let Some(key) = state.scene.selection.last().cloned() else {
         return;
     };
@@ -394,13 +395,15 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
                     if ui.color_edit_button_srgb(&mut srgb).changed() {
                         node.overrides.color = Some(srgb.map(|c| f32::from(c) / 255.0));
                     }
-                    if node.overrides != Default::default()
+                    let overrides = &mut node.overrides;
+                    if (overrides.color.is_some() || overrides.alpha.is_some())
                         && ui
                             .small_button("Reset")
                             .on_hover_text("Use the script's colors")
                             .clicked()
                     {
-                        node.overrides = Default::default();
+                        overrides.color = None;
+                        overrides.alpha = None;
                     }
                 });
                 ui.end_row();
@@ -413,6 +416,30 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
                 {
                     node.overrides.alpha = Some(opacity);
                 }
+                ui.end_row();
+
+                ui.label("Edges");
+                ui.horizontal(|ui| {
+                    let mut edges = node.overrides.edges.unwrap_or(show_edges);
+                    if ui
+                        .checkbox(&mut edges, "")
+                        .on_hover_text(
+                            "Show this object's edges in the Shaded and X-Ray modes \
+                             (Wireframe and Hidden Line always show them)",
+                        )
+                        .changed()
+                    {
+                        node.overrides.edges = Some(edges);
+                    }
+                    if node.overrides.edges.is_some()
+                        && ui
+                            .small_button("Reset")
+                            .on_hover_text("Follow Preferences > 3D View > Show edges")
+                            .clicked()
+                    {
+                        node.overrides.edges = None;
+                    }
+                });
                 ui.end_row();
             }
 

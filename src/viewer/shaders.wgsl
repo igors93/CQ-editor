@@ -10,6 +10,10 @@
 // stencil only, inverting it per surface, so the pixels where the plane
 // lies inside the solid end with an odd count; a quad on the plane is then
 // drawn where the stencil is set, which also clears it.
+//
+// In the hidden-line display mode faces are filled with the background, so
+// they only hide what is behind them; the hidden edges are drawn again as
+// faint dashes where the depth test fails, and section caps are hatched.
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -37,7 +41,8 @@ struct Object {
     // rgb: highlight color; a: how strongly faces are tinted with it.
     highlight: vec4<f32>,
     // x: edge width (px); y: point diameter (px); z: 1 when the section
-    // plane clips this object.
+    // plane clips this object; w: 1 to fill faces with the background
+    // (hidden-line mode).
     params: vec4<f32>,
 };
 
@@ -48,6 +53,16 @@ struct Object {
 fn is_cut_away(world: vec3<f32>) -> bool {
     return camera.section.x > 0.5 && object.params.z > 0.5
         && dot(camera.clip_plane.xyz, world) > camera.clip_plane.w;
+}
+
+// The background behind a fragment at framebuffer row `y`.
+fn background_at(y: f32) -> vec3<f32> {
+    let height = clamp(1.0 - y * camera.viewport.w, 0.0, 1.0);
+    return mix(camera.background_bottom.rgb, camera.background_top.rgb, height);
+}
+
+fn fills_with_background() -> bool {
+    return object.params.w > 0.5;
 }
 
 // Normal facing the viewer, for two-sided lighting.
@@ -140,6 +155,10 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     if (is_cut_away(in.world)) {
         discard;
     }
+    if (fills_with_background()) {
+        let fill = mix(background_at(in.clip.y), object.highlight.rgb, object.highlight.a * 0.5);
+        return vec4<f32>(fill, 1.0);
+    }
     let n = facing_normal(in.normal, in.world);
     let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a);
     return vec4<f32>(lit(base, n, in.world), object.face_color.a);
@@ -172,6 +191,13 @@ fn vs_cap(@builtin(vertex_index) index: u32) -> CapOut {
 
 @fragment
 fn fs_cap(in: CapOut) -> @location(0) vec4<f32> {
+    if (fills_with_background()) {
+        // Hatched, as a section on a drawing.
+        if (fract((in.clip.x + in.clip.y) / 8.0) < 0.2) {
+            return vec4<f32>(object.edge_color.rgb, 1.0);
+        }
+        return vec4<f32>(background_at(in.clip.y), 1.0);
+    }
     // A little darker than the outside, so the cut reads as a cut.
     let n = facing_normal(camera.clip_plane.xyz, in.world);
     let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a) * 0.78;
@@ -198,6 +224,8 @@ fn clip_to_near(point: vec4<f32>, other: vec4<f32>) -> vec4<f32> {
 struct EdgeOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
+    // Pixels from the start of the segment, for dashes.
+    @location(1) @interpolate(linear) along_px: f32,
 };
 
 @vertex
@@ -234,6 +262,7 @@ fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> EdgeOut {
     var out: EdgeOut;
     out.clip = clip;
     out.world = mix(start_world.xyz, end_world.xyz, t);
+    out.along_px = t * length_px + (t * 2.0 - 1.0) * half_width;
     return out;
 }
 
@@ -243,6 +272,15 @@ fn fs_edge(in: EdgeOut) -> @location(0) vec4<f32> {
         discard;
     }
     return object.edge_color;
+}
+
+// Edges behind faces, in hidden-line mode: faint dashes.
+@fragment
+fn fs_hidden_edge(in: EdgeOut) -> @location(0) vec4<f32> {
+    if (is_cut_away(in.world) || fract(in.along_px / 10.0) > 0.55) {
+        discard;
+    }
+    return vec4<f32>(object.edge_color.rgb, object.edge_color.a * 0.45);
 }
 
 // --- Points -------------------------------------------------------------

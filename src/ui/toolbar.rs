@@ -175,25 +175,26 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         }
         separator(ui);
 
-        let mode = state.viewer.display_mode;
-        tool(
-            ui,
-            actions,
-            icon::CUBE_TRANSPARENT,
-            "Wireframe",
-            Action::Display(DisplayMode::Wireframe),
-            true,
-            mode == DisplayMode::Wireframe,
-        );
-        tool(
-            ui,
-            actions,
-            icon::CUBE,
-            "Shaded",
-            Action::Display(DisplayMode::Shaded),
-            true,
-            mode == DisplayMode::Shaded,
-        );
+        for mode in DisplayMode::ALL {
+            let (glyph, tooltip) = match mode {
+                DisplayMode::Wireframe => (icon::CUBE_TRANSPARENT, "Wireframe"),
+                DisplayMode::Shaded => (icon::CUBE, "Shaded"),
+                DisplayMode::XRay => (icon::INTERSECT_SQUARE, "X-ray: see-through faces"),
+                DisplayMode::HiddenLine => (
+                    icon::RECTANGLE_DASHED,
+                    "Hidden line: visible edges, hidden ones dashed",
+                ),
+            };
+            tool(
+                ui,
+                actions,
+                glyph,
+                tooltip,
+                Action::Display(mode),
+                true,
+                state.viewer.display_mode == mode,
+            );
+        }
         tool(
             ui,
             actions,
