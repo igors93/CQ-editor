@@ -508,3 +508,179 @@ fn mesh_byte_size_counts_every_array() {
     mesh.topology.vertices = vec![[0.0; 3]; 2];
     assert_eq!(mesh.byte_size(), 84 + 4 + 2 * 12);
 }
+
+// -- exploded view and isolation ---------------------------------------------
+
+/// `node` with its part moved by `offset`.
+fn placed(key: &str, name: &str, offset: Vec3, children: Vec<SceneNode>) -> SceneNode {
+    let mut node = node(key, name, children);
+    node.parts[0].transform = Mat4::from_translation(offset);
+    node
+}
+
+/// An assembly of two plates left and right of the origin, and a box.
+fn assembly(prefix: &str, right: &str) -> Vec<SceneNode> {
+    vec![
+        SceneNode {
+            parts: Vec::new(),
+            ..node(
+                &format!("{prefix}a"),
+                "assy",
+                vec![
+                    placed(
+                        &format!("{prefix}a1"),
+                        "left",
+                        Vec3::new(-10.0, 0.0, 0.0),
+                        vec![],
+                    ),
+                    placed(
+                        &format!("{prefix}a2"),
+                        right,
+                        Vec3::new(10.0, 0.0, 0.0),
+                        vec![],
+                    ),
+                ],
+            )
+        },
+        placed(
+            &format!("{prefix}b"),
+            "box",
+            Vec3::new(0.0, 0.0, 20.0),
+            vec![],
+        ),
+    ]
+}
+
+fn assembly_scene() -> Scene {
+    let mut scene = Scene::default();
+    scene.append(assembly("", "right"), None);
+    scene
+}
+
+fn part_center(scene: &Scene, key: &str) -> Vec3 {
+    let part = &scene.find(key).unwrap().parts[0];
+    part.mesh
+        .bounds
+        .transformed(scene.part_transform(part))
+        .center()
+}
+
+fn shown(scene: &Scene) -> Vec<String> {
+    scene
+        .visible_nodes()
+        .iter()
+        .map(|node| node.key.clone())
+        .collect()
+}
+
+#[test]
+fn exploding_moves_parts_away_from_the_centre_and_back() {
+    let mut scene = assembly_scene();
+    let assembled = scene.visible_bounds();
+    let center = assembled.center();
+    let before = part_center(&scene, "a1");
+    let revision = scene.pick_revision();
+
+    scene.set_explode(1.0);
+    assert_ne!(scene.pick_revision(), revision, "picking follows the parts");
+    let after = part_center(&scene, "a1");
+    // Twice as far from the centre, in the same direction.
+    assert!((after - center).abs_diff_eq((before - center) * 2.0, 1e-4));
+    assert!(scene.visible_bounds().size().x > assembled.size().x * 1.5);
+    // The placements, which measurements and exports use, stay put.
+    assert_eq!(
+        scene.find("a1").unwrap().parts[0].transform,
+        Mat4::from_translation(Vec3::new(-10.0, 0.0, 0.0))
+    );
+
+    scene.set_explode(100.0);
+    assert_eq!(scene.explode(), MAX_EXPLODE);
+    scene.set_explode(f32::NAN);
+    assert_eq!(scene.explode(), 0.0);
+    assert_eq!(part_center(&scene, "a1"), before);
+    assert_eq!(scene.visible_bounds(), assembled);
+}
+
+#[test]
+fn selection_bounds_and_highlights_follow_the_exploded_parts() {
+    let mut scene = assembly_scene();
+    scene.set_explode(1.0);
+    scene.select_only("a2");
+    assert!(
+        (scene.selection_bounds().center() - part_center(&scene, "a2")).length() < 1e-4,
+        "zoom to selection frames the part where it is shown"
+    );
+
+    let mut mesh = Mesh::new(
+        vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        vec![[0.0, 0.0, 1.0]; 3],
+        vec![0, 1, 2],
+        Vec::new(),
+        Vec::new(),
+    );
+    mesh.topology.triangle_faces = vec![1];
+    scene.find_mut("a2").unwrap().parts[0].mesh = Arc::new(mesh);
+    assert!(scene.select_topology(
+        TopologySelection {
+            node: "a2".into(),
+            part: 0,
+            entity: TopologyEntity::Face(1),
+            position: Vec3::ZERO,
+        },
+        false,
+    ));
+    let part = &scene.find("a2").unwrap().parts[0];
+    let highlights = scene.placed_topology_highlights();
+    assert_eq!(highlights.len(), 1);
+    assert_eq!(highlights[0].1, scene.part_transform(part));
+    assert_ne!(highlights[0].1, part.transform);
+}
+
+#[test]
+fn isolating_shows_only_the_isolated_subtrees() {
+    let mut scene = assembly_scene();
+    assert_eq!(shown(&scene), ["a", "a1", "a2", "b"]);
+
+    scene.isolate(&["a2".to_owned()]);
+    assert!(scene.is_isolating());
+    assert_eq!(scene.isolated_count(), 1);
+    assert_eq!(shown(&scene), ["a2"]);
+    let members = scene.isolation_members().unwrap();
+    assert!(members.contains("a2") && !members.contains("a") && !members.contains("b"));
+    assert!(
+        (scene.visible_bounds().center() - part_center(&scene, "a2")).length() < 1e-4,
+        "fit frames what is isolated"
+    );
+
+    // A whole assembly, with a hidden part that stays hidden.
+    scene.set_visible("a1", false);
+    scene.isolate(&["a".to_owned()]);
+    assert_eq!(shown(&scene), ["a", "a2"]);
+    // Nothing known to isolate: no change.
+    scene.isolate(&["missing".to_owned()]);
+    assert_eq!(shown(&scene), ["a", "a2"]);
+
+    scene.end_isolation();
+    assert!(!scene.is_isolating() && scene.isolation_members().is_none());
+    assert_eq!(shown(&scene), ["a", "a2", "b"], "visibility flags are kept");
+
+    scene.isolate(&["b".to_owned()]);
+    scene.show_all();
+    assert!(!scene.is_isolating());
+    assert_eq!(shown(&scene), ["a", "a1", "a2", "b"]);
+}
+
+#[test]
+fn isolation_survives_a_new_run_by_name_and_ends_without_a_match() {
+    let mut scene = assembly_scene();
+    scene.isolate(&["a2".to_owned()]);
+
+    // The next run has new keys for the same names.
+    scene.replace(assembly("2", "right"), None);
+    assert_eq!(shown(&scene), ["2a2"]);
+
+    // Renamed: isolating nothing would show nothing, so the isolation ends.
+    scene.replace(assembly("3", "renamed"), None);
+    assert!(!scene.is_isolating());
+    assert_eq!(shown(&scene), ["3a", "3a1", "3a2", "3b"]);
+}

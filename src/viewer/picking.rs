@@ -44,8 +44,21 @@ impl SceneIndex {
         }
 
         self.parts.clear();
-        let mut path = Vec::new();
-        collect_scene_parts(&scene.nodes, &mut path, &mut self.parts);
+        for (path, node) in scene.shown_nodes() {
+            for (part, geometry) in node.parts.iter().enumerate() {
+                if !geometry.mesh.bounds.is_empty() {
+                    self.parts.push(ScenePart {
+                        path: path.clone(),
+                        part,
+                        key: node.key.clone(),
+                        world_bounds: geometry
+                            .mesh
+                            .bounds
+                            .transformed(scene.part_transform(geometry)),
+                    });
+                }
+            }
+        }
         self.bvh = BoundsBvh::build(
             self.parts
                 .iter()
@@ -112,35 +125,13 @@ impl SceneIndex {
         Some(Candidate {
             id: (entry.key.clone(), entry.part),
             mesh: &part.mesh,
-            transform: part.transform,
+            transform: scene.part_transform(part),
         })
     }
 
     #[cfg(test)]
     fn rebuild_count(&self) -> u64 {
         self.rebuilds
-    }
-}
-
-fn collect_scene_parts(
-    nodes: &[crate::scene::SceneNode],
-    path: &mut Vec<usize>,
-    output: &mut Vec<ScenePart>,
-) {
-    for (node_index, node) in nodes.iter().enumerate().filter(|(_, node)| node.visible) {
-        path.push(node_index);
-        for (part, geometry) in node.parts.iter().enumerate() {
-            if !geometry.mesh.bounds.is_empty() {
-                output.push(ScenePart {
-                    path: path.clone(),
-                    part,
-                    key: node.key.clone(),
-                    world_bounds: geometry.mesh.bounds.transformed(geometry.transform),
-                });
-            }
-        }
-        collect_scene_parts(&node.children, path, output);
-        path.pop();
     }
 }
 

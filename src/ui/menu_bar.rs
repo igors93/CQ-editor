@@ -352,6 +352,28 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
         "Section View",
         Action::ToggleSection,
     );
+    check_item(
+        ui,
+        actions,
+        state.viewer.explode_controls,
+        "Exploded View",
+        Action::ToggleExplode,
+    );
+    ui.separator();
+    let isolating = state.scene.is_isolating();
+    item_enabled(
+        ui,
+        actions,
+        icon::SELECTION_FOREGROUND,
+        if isolating {
+            "End Isolation"
+        } else {
+            "Isolate Selection"
+        },
+        Action::ToggleIsolate,
+        isolating || !state.scene.selection.is_empty(),
+    );
+    item(ui, actions, icon::EYE, "Show All", Action::ShowAll);
     ui.separator();
     for tab in Tab::ALL.into_iter().filter(|t| *t != Tab::Viewer) {
         check_item(

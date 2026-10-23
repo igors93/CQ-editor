@@ -19,7 +19,8 @@ use egui::{Color32, Pos2, Rect, Sense, Vec2};
 use egui_phosphor::regular as icon;
 use glam::{Mat4 as GMat4, Vec2 as GVec2, Vec3};
 
-use crate::scene::{Aabb, Grid, Mesh, NodeKey, Scene, TopologySelection};
+use crate::commands::Action;
+use crate::scene::{Aabb, Grid, MAX_EXPLODE, Mesh, NodeKey, Scene, TopologySelection};
 use crate::settings::{self, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 pub use overlays::CubeColors;
@@ -41,6 +42,10 @@ const ZOOM_CONTROLS_HEIGHT: f32 = 42.0;
 const ZOOM_CONTROLS_WIDTH: f32 = 280.0;
 const MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS: f32 = 220.0;
 const SECTION_CONTROLS_WIDTH: f32 = 430.0;
+const EXPLODE_CONTROLS_WIDTH: f32 = 340.0;
+const ISOLATION_CONTROLS_WIDTH: f32 = 330.0;
+/// How far the exploded view first spreads the parts.
+const DEFAULT_EXPLODE: f32 = 0.5;
 /// Duration of camera transitions, seconds.
 const ANIMATION_SECONDS: f64 = 0.25;
 const POINT_SIZE: f32 = 7.0;
@@ -136,6 +141,8 @@ pub enum ViewerEvent {
     /// The user double-clicked an object.
     FocusRequested,
     Screenshot(Result<PathBuf, String>),
+    /// A control in the view asks for this.
+    Command(Action),
 }
 
 /// Per-frame inputs from the application.
@@ -185,6 +192,8 @@ pub struct Viewer {
     pub display_mode: DisplayMode,
     pub selection_mode: SelectionMode,
     pub section: Section,
+    /// The exploded-view controls are shown.
+    pub explode_controls: bool,
     animation: Option<Animation>,
     renderer: Option<SceneRenderer>,
     nav_cube: NavigationCube,
@@ -211,6 +220,7 @@ impl Default for Viewer {
             display_mode: DisplayMode::Shaded,
             selection_mode: SelectionMode::Auto,
             section: Section::default(),
+            explode_controls: false,
             animation: None,
             renderer: None,
             nav_cube: NavigationCube::default(),
@@ -266,6 +276,17 @@ impl Viewer {
         }
     }
 
+    /// Spreads the parts and shows the exploded-view controls, or closes
+    /// them and assembles the parts again.
+    pub fn toggle_explode(&mut self, scene: &mut Scene) {
+        self.explode_controls = !self.explode_controls;
+        scene.set_explode(if self.explode_controls {
+            DEFAULT_EXPLODE
+        } else {
+            0.0
+        });
+    }
+
     /// The pose the camera is heading to (the current one when idle).
     fn settled_pose(&self) -> camera::Pose {
         self.animation
@@ -302,12 +323,24 @@ impl Viewer {
         let bounds = input.scene.visible_bounds();
         self.update_scene_extent(input.scene, bounds);
         let zoom_controls = zoom_controls_rect(rect);
-        let section_controls = self
-            .section
-            .enabled
-            .then(|| section_controls_rect(rect))
-            .flatten();
-        let controls: Vec<Rect> = zoom_controls.into_iter().chain(section_controls).collect();
+        let mut row = 0;
+        let mut bar = |shown: bool, width: f32| {
+            let bar = shown.then(|| bottom_bar_rect(rect, row, width)).flatten();
+            row += usize::from(bar.is_some());
+            bar
+        };
+        let section_controls = bar(self.section.enabled, SECTION_CONTROLS_WIDTH);
+        let explode_controls = bar(self.explode_controls, EXPLODE_CONTROLS_WIDTH);
+        let isolation_controls = bar(input.scene.is_isolating(), ISOLATION_CONTROLS_WIDTH);
+        let controls: Vec<Rect> = [
+            zoom_controls,
+            section_controls,
+            explode_controls,
+            isolation_controls,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         let mut events = self.handle_input(ui, &response, rect, &controls, &input, now);
 
         if let Some(animation) = &self.animation {
@@ -380,6 +413,12 @@ impl Viewer {
         }
         if let Some(controls) = section_controls {
             self.show_section_controls(ui, rect, controls, bounds);
+        }
+        if let Some(controls) = explode_controls {
+            show_explode_controls(ui, rect, controls, input.scene, &mut events);
+        }
+        if let Some(controls) = isolation_controls {
+            show_isolation_controls(ui, rect, controls, input.scene, &mut events);
         }
         events
     }
@@ -691,53 +730,43 @@ impl Viewer {
         controls: Rect,
         bounds: Aabb,
     ) {
-        let mut controls_ui = parent.new_child(
-            egui::UiBuilder::new()
-                .max_rect(controls)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        controls_ui.set_clip_rect(view);
         let section = &mut self.section;
         let before = section.clone();
-        egui::Frame::popup(parent.style())
-            .corner_radius(6)
-            .inner_margin(egui::Margin::symmetric(6, 5))
-            .show(&mut controls_ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(format!("{} Section", icon::SCISSORS));
-                for axis in SectionAxis::ALL {
-                    if ui
-                        .selectable_label(section.axis == axis, axis.label())
-                        .on_hover_text(format!("Cut across the {} axis", axis.label()))
-                        .clicked()
-                        && section.axis != axis
-                    {
-                        section.axis = axis;
-                        section.offset = f32::NAN;
-                        section.center_in(bounds);
-                    }
-                }
-                ui.toggle_value(&mut section.flipped, icon::ARROWS_DOWN_UP)
-                    .on_hover_text("Keep the other side");
-                let range = section.range(bounds);
-                ui.add_sized(
-                    [(ui.available_width() - 90.0).max(60.0), 24.0],
-                    egui::Slider::new(&mut section.offset, range)
-                        .show_value(true)
-                        .max_decimals(3)
-                        .clamping(egui::SliderClamping::Never),
-                )
-                .on_hover_text("Position of the plane along the axis");
-                ui.checkbox(&mut section.caps, "Fill")
-                    .on_hover_text("Fill the cut faces of solids");
+        control_bar(parent, view, controls, |ui| {
+            ui.label(format!("{} Section", icon::SCISSORS));
+            for axis in SectionAxis::ALL {
                 if ui
-                    .small_button(icon::X)
-                    .on_hover_text("Remove the section (View > Section View)")
+                    .selectable_label(section.axis == axis, axis.label())
+                    .on_hover_text(format!("Cut across the {} axis", axis.label()))
                     .clicked()
+                    && section.axis != axis
                 {
-                    section.enabled = false;
+                    section.axis = axis;
+                    section.offset = f32::NAN;
+                    section.center_in(bounds);
                 }
-            });
+            }
+            ui.toggle_value(&mut section.flipped, icon::ARROWS_DOWN_UP)
+                .on_hover_text("Keep the other side");
+            let range = section.range(bounds);
+            ui.add_sized(
+                [(ui.available_width() - 90.0).max(60.0), 24.0],
+                egui::Slider::new(&mut section.offset, range)
+                    .show_value(true)
+                    .max_decimals(3)
+                    .clamping(egui::SliderClamping::Never),
+            )
+            .on_hover_text("Position of the plane along the axis");
+            ui.checkbox(&mut section.caps, "Fill")
+                .on_hover_text("Fill the cut faces of solids");
+            if ui
+                .small_button(icon::X)
+                .on_hover_text("Remove the section (View > Section View)")
+                .clicked()
+            {
+                section.enabled = false;
+            }
+        });
         if self.section != before {
             parent.ctx().request_repaint();
         }
@@ -826,7 +855,7 @@ impl Viewer {
                 };
                 items.push(DrawItem {
                     mesh: part.mesh.clone(),
-                    transform: part.transform,
+                    transform: scene.part_transform(part),
                     style: Style {
                         face_color: rgb_to_linear(rgb, alpha),
                         edge_color,
@@ -847,11 +876,11 @@ impl Viewer {
             }
         }
 
-        for part in scene.topology_highlights() {
+        for (part, transform) in scene.placed_topology_highlights() {
             let color = linear_color(colors.selection, 1.0);
             items.push(DrawItem {
                 mesh: part.mesh.clone(),
-                transform: part.transform,
+                transform,
                 style: Style {
                     face_color: linear_color(colors.selection, 0.55),
                     edge_color: color,
@@ -1022,24 +1051,111 @@ fn zoom_controls_rect(view: Rect) -> Option<Rect> {
     ))
 }
 
-/// The section controls, along the bottom of the view.
-fn section_controls_rect(view: Rect) -> Option<Rect> {
+/// The `row`th control bar up from the bottom left of the view (section,
+/// exploded view, isolation), unless the view is too small to hold it
+/// below the zoom controls.
+fn bottom_bar_rect(view: Rect, row: usize, width: f32) -> Option<Rect> {
+    let rows = row as f32 + 1.0;
     if view.width() < MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS
-        || view.height() < 2.0 * ZOOM_CONTROLS_HEIGHT + 3.0 * ZOOM_CONTROLS_MARGIN
+        || view.height() < (rows + 1.0) * ZOOM_CONTROLS_HEIGHT + (rows + 2.0) * ZOOM_CONTROLS_MARGIN
     {
         return None;
     }
     let size = Vec2::new(
-        SECTION_CONTROLS_WIDTH.min(view.width() - 2.0 * ZOOM_CONTROLS_MARGIN),
+        width.min(view.width() - 2.0 * ZOOM_CONTROLS_MARGIN),
         ZOOM_CONTROLS_HEIGHT,
     );
     Some(Rect::from_min_size(
         Pos2::new(
             view.left() + ZOOM_CONTROLS_MARGIN,
-            view.bottom() - ZOOM_CONTROLS_MARGIN - size.y,
+            view.bottom() - rows * (ZOOM_CONTROLS_MARGIN + size.y),
         ),
         size,
     ))
+}
+
+/// A bar of controls floating over the view.
+fn control_bar(
+    parent: &mut egui::Ui,
+    view: Rect,
+    rect: Rect,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    let mut bar = parent.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    bar.set_clip_rect(view);
+    egui::Frame::popup(parent.style())
+        .corner_radius(6)
+        .inner_margin(egui::Margin::symmetric(6, 5))
+        .show(&mut bar, |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            add_contents(ui);
+        });
+}
+
+fn show_explode_controls(
+    parent: &mut egui::Ui,
+    view: Rect,
+    rect: Rect,
+    scene: &Scene,
+    events: &mut Vec<ViewerEvent>,
+) {
+    control_bar(parent, view, rect, |ui| {
+        ui.label(format!("{} Explode", icon::ARROWS_OUT));
+        let mut percent = scene.explode() * 100.0;
+        let slider = ui
+            .add_sized(
+                [(ui.available_width() - 30.0).max(60.0), 24.0],
+                egui::Slider::new(&mut percent, 0.0..=MAX_EXPLODE * 100.0)
+                    .suffix("%")
+                    .max_decimals(0),
+            )
+            .on_hover_text("How far the parts move away from the centre of the model");
+        if slider.changed() {
+            events.push(ViewerEvent::Command(Action::SetExplode(percent / 100.0)));
+        }
+        if ui
+            .small_button(icon::X)
+            .on_hover_text("Assemble the parts again (View > Exploded View)")
+            .clicked()
+        {
+            events.push(ViewerEvent::Command(Action::ToggleExplode));
+        }
+    });
+}
+
+fn show_isolation_controls(
+    parent: &mut egui::Ui,
+    view: Rect,
+    rect: Rect,
+    scene: &Scene,
+    events: &mut Vec<ViewerEvent>,
+) {
+    control_bar(parent, view, rect, |ui| {
+        let count = scene.isolated_count();
+        ui.label(format!(
+            "{} Isolated: {count} object{}",
+            icon::SELECTION_FOREGROUND,
+            if count == 1 { "" } else { "s" }
+        ));
+        if ui
+            .button("End")
+            .on_hover_text("Show the other objects again (View > End Isolation)")
+            .clicked()
+        {
+            events.push(ViewerEvent::Command(Action::ToggleIsolate));
+        }
+        if ui
+            .button("Show All")
+            .on_hover_text("End the isolation and show the hidden objects too")
+            .clicked()
+        {
+            events.push(ViewerEvent::Command(Action::ShowAll));
+        }
+    });
 }
 
 fn collect_keys<'a>(

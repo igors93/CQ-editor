@@ -64,6 +64,15 @@ pub enum Action {
     ToggleProjection,
     /// Turns the section plane on or off.
     ToggleSection,
+    /// Spreads the parts of the model apart and shows the controls of the
+    /// exploded view, or assembles the parts again.
+    ToggleExplode,
+    /// How far the exploded view spreads the parts (`Scene::set_explode`).
+    SetExplode(f32),
+    /// Shows only the selected objects, or ends the isolation.
+    ToggleIsolate,
+    /// Ends the isolation and makes every object visible.
+    ShowAll,
     TogglePanel(Tab),
     ResetLayout,
     // Tools

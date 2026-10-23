@@ -47,7 +47,10 @@ between sessions.
 * Click to select, Ctrl+click to add to the selection, double-click to zoom
   to the object.
 * Right-click opens a menu with **Zoom to**, **Go to Source**,
-  **Show/Hide**, export and removal. **Go to Source** (also *Edit > Go to
+  **Show/Hide**, **Isolate** / **End Isolation**, **Show All**, export and
+  removal (see [Exploded view and
+  isolation](viewer.md#exploded-view-and-isolation)). Objects hidden by an
+  isolation are grayed. **Go to Source** (also *Edit > Go to
   Source*, Ctrl+Shift+G, and the **Source** row of the property sheet)
   shows the script line that created the object: the line of the last
   operation of a chain, the line inside a function of the script that made
@@ -81,7 +84,7 @@ From left to right:
 | Run | Render, Debug, Step, Step in, Step out, Continue, Stop |
 | Inspect | Inspect CQ object |
 | View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right |
-| Display | Wireframe, Shaded, Section view, Screenshot |
+| Display | Wireframe, Shaded, Section view, Exploded view, Screenshot |
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
@@ -95,7 +98,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · Section View · panel toggles · Reset Layout |
+| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Check for CadQuery Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).

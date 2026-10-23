@@ -23,6 +23,10 @@ tracked in the compatibility matrix instead of being assumed.
 * New: section view (View > Section View); a plane across X, Y or Z, with a
   position slider and a flip, cuts the model and fills the cut faces of
   solids; picking goes through what the plane removes
+* New: exploded view (View > Exploded View) with a 0–200% slider, and
+  Isolate Selection / End Isolation / Show All in the View menu and the
+  Objects panel; picking and framing follow the exploded parts, isolation
+  follows objects by name across runs
 * New: the Measurements panel reports exact bounding boxes, measures the
   selected objects (volume, area, center of mass) when no entity is picked,
   and copies a measurement as Python using the script's variables and

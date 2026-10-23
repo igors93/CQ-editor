@@ -1058,3 +1058,55 @@ fn removed_edges_and_vertices_cannot_be_picked() {
     });
     assert_eq!(pick_at(removed), None);
 }
+
+#[test]
+fn exploded_and_isolated_parts_are_picked_where_they_are_shown() {
+    let plate = Arc::new(square(0.0, 1.0));
+    let mut scene = scene_of(vec![
+        translated("left", &plate, Vec3::new(-3.0, 0.0, 0.0)),
+        translated("right", &plate, Vec3::new(3.0, 0.0, 0.0)),
+    ]);
+    let camera = Camera {
+        rotation: StandardView::Top.rotation(),
+        extent: 20.0,
+        ..Camera::default()
+    };
+    let viewport = Vec2::splat(800.0);
+    let mut index = SceneIndex::default();
+    let mut pick_at = |scene: &Scene, x: f32| {
+        index.update(scene);
+        // 20 units from the centre to the edge: x / 20 in NDC.
+        let pointer = Vec2::new(x / 20.0, 0.0);
+        let candidates = indexed_candidates(
+            &index,
+            scene,
+            &camera,
+            1.0,
+            pointer,
+            viewport,
+            SelectionMode::Object,
+        );
+        pick(
+            &camera,
+            1.0,
+            pointer,
+            viewport,
+            SelectionMode::Object,
+            candidates,
+        )
+        .map(|hit| hit.id.0)
+    };
+    assert_eq!(pick_at(&scene, 3.5).as_deref(), Some("right"));
+    assert_eq!(pick_at(&scene, 9.5), None);
+
+    // Three times as far from the centre: the right plate is around x = 9.
+    scene.set_explode(2.0);
+    assert_eq!(pick_at(&scene, 3.5), None);
+    assert_eq!(pick_at(&scene, 9.5).as_deref(), Some("right"));
+
+    scene.isolate(&["left".to_owned()]);
+    assert_eq!(pick_at(&scene, 9.5), None, "isolated out");
+    // The explosion centres on what is shown: alone, the plate is at home.
+    assert_eq!(pick_at(&scene, -9.5), None);
+    assert_eq!(pick_at(&scene, -3.5).as_deref(), Some("left"));
+}

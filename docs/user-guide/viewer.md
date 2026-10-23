@@ -95,6 +95,34 @@ places where several solids overlap each other an even number of times.
 The section is a view setting: it is not saved, and exports always contain
 the whole model.
 
+## Exploded view and isolation
+
+**View > Exploded View** (toolbar arrows icon) moves the parts of the
+shown objects away from their common center, so the parts of an assembly
+can be seen and picked one by one. Each part moves along the line from the
+center to its own center. The bar at the bottom left of the view sets how
+far, from 0% (assembled) to 200% (three times as far from the center as
+assembled); the view opens at 50%, and ✕ assembles the parts again.
+
+Parts are what an assembly is made of: each `add`ed shape (with *Merge
+assemblies* too) or each object shown with `show_object`. The solids of a
+single shape stay together.
+
+**View > Isolate Selection** (also in the Objects panel's right-click menu)
+shows only the selected objects, with their parts and children, until
+**End Isolation**; a bar at the bottom left of the view says what is
+isolated and has both buttons. The checkboxes of the Objects panel are left
+as they are: isolated objects that were hidden stay hidden, and the objects
+hidden by the isolation are grayed in the tree. **Show All** ends the
+isolation and makes every object visible again.
+
+Fit, Zoom to Selection, the section plane and picking all work on what is
+shown, where it is shown. The exploded view spreads what is shown: isolate a
+sub-assembly to explode it around its own center. Measurements, selectors
+and exports always use the real, assembled placement. Isolation follows the
+objects by name when the script runs again, and ends by itself when none of
+the isolated objects is left.
+
 ## Selection
 
 Selection works at two levels.

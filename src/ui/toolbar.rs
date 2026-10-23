@@ -206,6 +206,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         tool(
             ui,
             actions,
+            icon::ARROWS_OUT,
+            "Exploded view: move the parts apart",
+            Action::ToggleExplode,
+            true,
+            state.viewer.explode_controls,
+        );
+        tool(
+            ui,
+            actions,
             icon::CAMERA,
             "Screenshot",
             Action::Screenshot,

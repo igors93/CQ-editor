@@ -573,6 +573,9 @@ pub const MAX_TOPOLOGY_SELECTIONS: usize = 64;
 
 /// Default half length of the axis helpers when nothing is shown.
 const DEFAULT_AXIS_HALF_LENGTH: f32 = 100.0;
+/// The widest exploded view: parts three times as far from the centre as
+/// when assembled.
+pub const MAX_EXPLODE: f32 = 2.0;
 
 /// Bytes of recently used worker meshes kept alive after the scene drops
 /// them. The renderer keeps their GPU buffers for as long.
@@ -728,6 +731,14 @@ pub struct Scene {
     /// Changes only when the set, placement or visibility of pickable parts
     /// changes. Camera and selection changes deliberately leave it alone.
     pick_revision: u64,
+    /// How far parts are moved away from `explode_center`, as a multiple of
+    /// their distance to it; 0 is assembled.
+    explode: f32,
+    /// The centre of the shown parts as assembled.
+    explode_center: Vec3,
+    /// Name paths of the isolated nodes: while it is not empty, only they
+    /// and their descendants are shown. Unlike keys, paths survive a run.
+    isolated: Vec<String>,
 }
 
 /// Process-wide, so two scenes never share a revision and an index built
@@ -759,6 +770,9 @@ impl Default for Scene {
             overlay: Overlay::default(),
             meshes: MeshLibrary::default(),
             pick_revision: next_pick_revision(),
+            explode: 0.0,
+            explode_center: Vec3::ZERO,
+            isolated: Vec::new(),
         }
     }
 }
@@ -822,7 +836,8 @@ impl Scene {
             }
         }
         self.nodes.extend(nodes);
-        self.bump_pick_revision();
+        self.prune_isolation();
+        self.shown_parts_changed();
     }
 
     /// Removes all objects; returns the removed top-level keys.
@@ -830,7 +845,7 @@ impl Scene {
         self.clear_selection();
         let removed: Vec<_> = self.nodes.drain(..).map(|n| n.key).collect();
         if !removed.is_empty() {
-            self.bump_pick_revision();
+            self.shown_parts_changed();
         }
         removed
     }
@@ -846,7 +861,8 @@ impl Scene {
             !remove
         });
         if !removed.is_empty() {
-            self.bump_pick_revision();
+            self.prune_isolation();
+            self.shown_parts_changed();
         }
         self.prune_selection();
         removed
@@ -888,38 +904,84 @@ impl Scene {
         all.into_iter()
     }
 
-    /// Visible nodes with geometry, with their effective visibility (a hidden
-    /// parent hides its children).
+    /// The nodes whose parts are shown: visible ones (a hidden parent hides
+    /// its children) and, while isolating, only inside an isolated node.
     pub fn visible_nodes(&self) -> Vec<&SceneNode> {
-        fn collect<'a>(nodes: &'a [SceneNode], out: &mut Vec<&'a SceneNode>) {
-            for node in nodes.iter().filter(|n| n.visible) {
-                out.push(node);
-                collect(&node.children, out);
-            }
-        }
-        let mut out = Vec::new();
-        collect(&self.nodes, &mut out);
-        out
+        self.shown_nodes()
+            .into_iter()
+            .map(|(_, node)| node)
+            .collect()
     }
 
-    /// Bounds of everything visible except the helpers.
+    /// [`Scene::visible_nodes`] with their index paths from the top level.
+    pub(crate) fn shown_nodes(&self) -> Vec<(Vec<usize>, &SceneNode)> {
+        struct Walk<'a, 's> {
+            isolated: &'s [String],
+            indices: Vec<usize>,
+            out: Vec<(Vec<usize>, &'a SceneNode)>,
+        }
+        fn collect<'a>(
+            walk: &mut Walk<'a, '_>,
+            nodes: &'a [SceneNode],
+            parent: &str,
+            inside: bool,
+        ) {
+            for (index, node) in nodes.iter().enumerate().filter(|(_, n)| n.visible) {
+                let path = if walk.isolated.is_empty() {
+                    String::new()
+                } else {
+                    format!("{parent}/{}", node.name)
+                };
+                let inside = inside || walk.isolated.contains(&path);
+                walk.indices.push(index);
+                if inside {
+                    walk.out.push((walk.indices.clone(), node));
+                }
+                collect(walk, &node.children, &path, inside);
+                walk.indices.pop();
+            }
+        }
+        let mut walk = Walk {
+            isolated: &self.isolated,
+            indices: Vec::new(),
+            out: Vec::new(),
+        };
+        collect(&mut walk, &self.nodes, "", self.isolated.is_empty());
+        walk.out
+    }
+
+    /// Bounds of everything visible except the helpers, as shown (exploded).
     pub fn visible_bounds(&self) -> Aabb {
         let mut bounds = self
             .visible_nodes()
             .iter()
-            .fold(Aabb::EMPTY, |b, node| b.union(node.own_bounds()));
+            .fold(Aabb::EMPTY, |b, node| b.union(self.placed_bounds(node)));
         for mesh in &self.overlay.meshes {
             bounds = bounds.union(mesh.bounds);
         }
         bounds
     }
 
-    /// Bounds of selected nodes and their subtrees.
+    /// Bounds of selected nodes and their subtrees, as shown (exploded).
     pub fn selection_bounds(&self) -> Aabb {
+        fn subtree(scene: &Scene, node: &SceneNode) -> Aabb {
+            node.children
+                .iter()
+                .fold(scene.placed_bounds(node), |b, child| {
+                    b.union(subtree(scene, child))
+                })
+        }
         self.selection
             .iter()
             .filter_map(|key| self.find(key))
-            .fold(Aabb::EMPTY, |b, node| b.union(node.subtree_bounds()))
+            .fold(Aabb::EMPTY, |b, node| b.union(subtree(self, node)))
+    }
+
+    /// Bounds of a node's own parts where they are shown.
+    fn placed_bounds(&self, node: &SceneNode) -> Aabb {
+        node.parts.iter().fold(Aabb::EMPTY, |b, part| {
+            b.union(part.mesh.bounds.transformed(self.part_transform(part)))
+        })
     }
 
     /// The axis helpers span twice the diagonal of the shown objects.
@@ -945,7 +1007,7 @@ impl Scene {
             });
         }
         if changed {
-            self.bump_pick_revision();
+            self.shown_parts_changed();
         }
     }
 
@@ -953,8 +1015,136 @@ impl Scene {
         self.pick_revision
     }
 
-    fn bump_pick_revision(&mut self) {
+    /// After a change of the parts shown or of where they are: the picking
+    /// index is rebuilt and the exploded view recentred.
+    fn shown_parts_changed(&mut self) {
+        let assembled = self
+            .visible_nodes()
+            .iter()
+            .fold(Aabb::EMPTY, |b, node| b.union(node.own_bounds()));
+        self.explode_center = if assembled.is_empty() {
+            Vec3::ZERO
+        } else {
+            assembled.center()
+        };
         self.pick_revision = next_pick_revision();
+    }
+
+    // -- exploded view and isolation -----------------------------------------
+
+    pub fn explode(&self) -> f32 {
+        self.explode
+    }
+
+    /// Moves every shown part away from the centre of the shown parts by
+    /// `factor` times its distance to it; 0 assembles them again.
+    pub fn set_explode(&mut self, factor: f32) {
+        let factor = if factor.is_finite() {
+            factor.clamp(0.0, MAX_EXPLODE)
+        } else {
+            0.0
+        };
+        if factor != self.explode {
+            self.explode = factor;
+            self.shown_parts_changed();
+        }
+    }
+
+    /// Where a part is drawn and picked: its placement, moved outwards in an
+    /// exploded view. Measurements and exports use the placement alone.
+    pub fn part_transform(&self, part: &Part) -> Mat4 {
+        if self.explode == 0.0 || part.mesh.bounds.is_empty() {
+            return part.transform;
+        }
+        let center = part.mesh.bounds.transformed(part.transform).center();
+        Mat4::from_translation((center - self.explode_center) * self.explode) * part.transform
+    }
+
+    pub fn is_isolating(&self) -> bool {
+        !self.isolated.is_empty()
+    }
+
+    /// The number of isolated nodes.
+    pub fn isolated_count(&self) -> usize {
+        self.isolated.len()
+    }
+
+    /// Shows only the nodes `keys` and their descendants until
+    /// [`Scene::end_isolation`]; visibility flags are left as they are.
+    /// Unknown keys are ignored, so isolating nothing changes nothing.
+    pub fn isolate(&mut self, keys: &[NodeKey]) {
+        fn collect(node: &SceneNode, parent: &str, keys: &[NodeKey], out: &mut Vec<String>) {
+            let path = format!("{parent}/{}", node.name);
+            for child in &node.children {
+                collect(child, &path, keys, out);
+            }
+            if keys.contains(&node.key) && !out.contains(&path) {
+                out.push(path);
+            }
+        }
+        let mut paths = Vec::new();
+        for node in &self.nodes {
+            collect(node, "", keys, &mut paths);
+        }
+        if !paths.is_empty() && paths != self.isolated {
+            self.isolated = paths;
+            self.shown_parts_changed();
+        }
+    }
+
+    pub fn end_isolation(&mut self) {
+        if !self.isolated.is_empty() {
+            self.isolated.clear();
+            self.shown_parts_changed();
+        }
+    }
+
+    /// Ends the isolation and makes every object visible again.
+    pub fn show_all(&mut self) {
+        self.isolated.clear();
+        for node in &mut self.nodes {
+            node.visit_mut(&mut |n| n.visible = true);
+        }
+        self.shown_parts_changed();
+    }
+
+    /// While isolating, the keys of the isolated nodes and their
+    /// descendants, whatever their own visibility.
+    pub fn isolation_members(&self) -> Option<HashSet<&str>> {
+        fn collect<'a>(
+            nodes: &'a [SceneNode],
+            parent: &str,
+            isolated: &[String],
+            inside: bool,
+            out: &mut HashSet<&'a str>,
+        ) {
+            for node in nodes {
+                let path = format!("{parent}/{}", node.name);
+                let inside = inside || isolated.contains(&path);
+                if inside {
+                    out.insert(&node.key);
+                }
+                collect(&node.children, &path, isolated, inside, out);
+            }
+        }
+        self.is_isolating().then(|| {
+            let mut members = HashSet::new();
+            collect(&self.nodes, "", &self.isolated, false, &mut members);
+            members
+        })
+    }
+
+    /// Drops isolated paths that no longer name a node; isolating only
+    /// those would show nothing at all.
+    fn prune_isolation(&mut self) {
+        if self.isolated.is_empty() {
+            return;
+        }
+        let mut paths = HashSet::new();
+        for node in &self.nodes {
+            node_paths(node, "", &mut paths);
+        }
+        self.isolated.retain(|path| paths.contains(path));
     }
 
     // -- selection ---------------------------------------------------------
@@ -1038,8 +1228,24 @@ impl Scene {
         self.topology_selections.last()
     }
 
+    #[cfg(test)]
     pub fn topology_highlights(&self) -> &[Part] {
         &self.topology_highlights
+    }
+
+    /// The highlights with where they are shown: on their part, exploded.
+    pub fn placed_topology_highlights(&self) -> Vec<(&Part, Mat4)> {
+        self.topology_selections
+            .iter()
+            .zip(&self.topology_highlights)
+            .map(|(selection, highlight)| {
+                let transform = self
+                    .find(&selection.node)
+                    .and_then(|node| node.parts.get(selection.part))
+                    .map_or(highlight.transform, |part| self.part_transform(part));
+                (highlight, transform)
+            })
+            .collect()
     }
 
     pub fn current(&self) -> Option<&SceneNode> {
@@ -1099,6 +1305,14 @@ impl Scene {
             keep
         });
     }
+}
+
+fn node_paths(node: &SceneNode, parent: &str, out: &mut HashSet<String>) {
+    let path = format!("{parent}/{}", node.name);
+    for child in &node.children {
+        node_paths(child, &path, out);
+    }
+    out.insert(path);
 }
 
 fn snapshot(node: &SceneNode, parent: &str, out: &mut PreservedProperties) {

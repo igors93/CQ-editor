@@ -123,6 +123,14 @@ stay visible on top of them.
 Assembly parts are **instances**: one mesh plus a transform per part.
 Identical geometry is uploaded to the GPU once.
 
+The exploded view and isolation belong to the `Scene`, not to the viewer:
+`Scene::part_transform` adds the explosion offset to a part's placement and
+`Scene::visible_nodes` leaves out what an isolation hides, so drawing,
+picking, framing and the section plane all see the same parts in the same
+places. Both changes bump the pick revision, which rebuilds the picking
+index. Placements themselves never change, so measurements and exports,
+which the worker computes from the real shapes, are unaffected.
+
 ### Picking
 
 `viewer/picking.rs` hit-tests faces exactly with a ray, accelerated by the

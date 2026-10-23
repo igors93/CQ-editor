@@ -443,7 +443,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | Status | Id | Feature | Notes |
 | :---: | --- | --- | --- |
 | ✅ | FEAT-C1 ⚪ | Section / clipping planes, with the cut face filled | Done: View > Section View; a plane across X, Y or Z, flippable, with a position slider; the cut faces of solids are filled with stencil caps; what the plane removes cannot be picked. Tests: `a_section_plane_cuts_the_model_and_fills_the_cut_on_the_gpu`, `a_section_plane_hides_what_it_removes_from_picking`, `the_scene_shaders_are_valid_wgsl_with_every_entry_point` |
-| | FEAT-C2 ⚪ | Exploded view and isolate / hide others for assemblies | |
+| ✅ | FEAT-C2 ⚪ | Exploded view and isolate / hide others for assemblies | Done: View > Exploded View spreads the shown parts from their center (0–200%); Isolate Selection shows only the selected subtrees until End Isolation, Show All unhides everything; drawing, picking, fit and section follow, while measurements and exports keep the real placement. Tests: `exploding_moves_parts_away_from_the_centre_and_back`, `isolating_shows_only_the_isolated_subtrees`, `exploded_and_isolated_parts_are_picked_where_they_are_shown` |
 | | FEAT-C3 ⚪ | X-ray and hidden-line display modes; per-object edge visibility | |
 | | FEAT-C4 🔵 | Named views (saved cameras) and view presets per file | |
 | | FEAT-C5 ⚪ | High-resolution and transparent-background screenshots, turntable animation export | |

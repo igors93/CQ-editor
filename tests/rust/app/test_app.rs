@@ -478,3 +478,34 @@ fn measurement_code_goes_to_the_clipboard_with_its_check() {
     state.request_failed(Some(13), "Not available while debugging".into());
     assert!(status_text(&state).contains("Cannot write the measurement as code"));
 }
+
+#[test]
+fn explode_and_isolate_commands_change_what_the_view_shows() {
+    let mut state = test_state("");
+
+    // Isolating needs a selection.
+    state.execute(Action::ToggleIsolate);
+    assert!(!state.scene.is_isolating());
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Info);
+
+    pick_face(&mut state);
+    state.execute(Action::ToggleIsolate);
+    assert!(state.scene.is_isolating());
+    state.execute(Action::ToggleIsolate);
+    assert!(!state.scene.is_isolating(), "the same command ends it");
+
+    state.execute(Action::ToggleIsolate);
+    state.scene.set_visible("n1", false);
+    state.execute(Action::ShowAll);
+    assert!(!state.scene.is_isolating());
+    assert!(state.scene.find("n1").unwrap().visible);
+
+    state.execute(Action::ToggleExplode);
+    assert!(state.viewer.explode_controls);
+    assert!(state.scene.explode() > 0.0, "opening spreads the parts");
+    state.execute(Action::SetExplode(1.5));
+    assert_eq!(state.scene.explode(), 1.5);
+    state.execute(Action::ToggleExplode);
+    assert!(!state.viewer.explode_controls);
+    assert_eq!(state.scene.explode(), 0.0, "closing assembles them");
+}

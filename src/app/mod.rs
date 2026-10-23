@@ -300,6 +300,7 @@ impl AppState {
                     extend,
                 }),
                 ViewerEvent::FocusRequested => self.actions.push(Action::FitSelection),
+                ViewerEvent::Command(action) => self.actions.push(action),
                 ViewerEvent::Screenshot(Ok(path)) => {
                     self.set_status(
                         StatusKind::Success,
@@ -393,6 +394,19 @@ impl AppState {
             Action::Display(mode) => self.viewer.display_mode = mode,
             Action::SelectionMode(mode) => self.viewer.selection_mode = mode,
             Action::ToggleSection => self.viewer.toggle_section(&self.scene),
+            Action::ToggleExplode => self.viewer.toggle_explode(&mut self.scene),
+            Action::SetExplode(factor) => self.scene.set_explode(factor),
+            Action::ToggleIsolate => {
+                if self.scene.is_isolating() {
+                    self.scene.end_isolation();
+                } else if self.scene.selection.is_empty() {
+                    self.set_status(StatusKind::Info, "Select the objects to isolate");
+                } else {
+                    let keys = self.scene.selection.clone();
+                    self.scene.isolate(&keys);
+                }
+            }
+            Action::ShowAll => self.scene.show_all(),
             Action::ToggleProjection => {
                 self.settings.viewer.projection = match self.settings.viewer.projection {
                     Projection::Orthographic => Projection::Perspective,

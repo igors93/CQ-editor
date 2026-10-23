@@ -1,6 +1,8 @@
 //! The object tree: shown CadQuery objects, the axis helpers and the
 //! properties of the current object.
 
+use std::collections::HashSet;
+
 use egui::{Color32, RichText, Sense, Vec2};
 use egui_phosphor::regular as icon;
 
@@ -107,8 +109,9 @@ fn tree(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
                     if state.scene.is_empty() {
                         ui.weak(state.empty_view_hint());
                     }
+                    let isolated = state.scene.isolation_members();
                     for node in &state.scene.nodes {
-                        node_row(ui, state, node, default, actions);
+                        node_row(ui, state, node, default, isolated.as_ref(), actions);
                     }
                 });
             egui::CollapsingHeader::new(RichText::new("Helpers").strong())
@@ -141,8 +144,10 @@ fn node_row(
     state: &AppState,
     node: &SceneNode,
     default: Rgb,
+    isolated: Option<&HashSet<&str>>,
     actions: &mut Vec<Action>,
 ) {
+    let isolated_out = isolated.is_some_and(|members| !members.contains(node.key.as_str()));
     let id = ui.make_persistent_id(("scene_node", &node.key));
     let mut header = |ui: &mut egui::Ui| {
         let mut visible = node.visible;
@@ -161,12 +166,16 @@ fn node_row(
         }
         let selected = state.scene.is_selected(&node.key);
         let mut text = RichText::new(&node.name);
-        if !node.visible {
+        if !node.visible || isolated_out {
             text = text.weak();
         }
         let response = ui
             .selectable_label(selected, text)
-            .on_hover_text(&node.kind);
+            .on_hover_text(if isolated_out {
+                format!("{} · hidden by the isolation", node.kind)
+            } else {
+                node.kind.clone()
+            });
         if response.clicked() {
             actions.push(Action::Select {
                 key: Some(node.key.clone()),
@@ -225,6 +234,31 @@ fn node_row(
                 });
                 ui.close();
             }
+            let isolating = isolated.is_some();
+            if ui
+                .button(format!(
+                    "{} {}",
+                    icon::SELECTION_FOREGROUND,
+                    if isolating {
+                        "End Isolation"
+                    } else {
+                        "Isolate"
+                    }
+                ))
+                .on_hover_text(if isolating {
+                    "Show the other objects again"
+                } else {
+                    "Show only the selected objects"
+                })
+                .clicked()
+            {
+                actions.push(Action::ToggleIsolate);
+                ui.close();
+            }
+            if ui.button(format!("{} Show All", icon::EYE)).clicked() {
+                actions.push(Action::ShowAll);
+                ui.close();
+            }
             ui.separator();
             export_menu(ui, actions);
             ui.separator();
@@ -246,7 +280,7 @@ fn node_row(
             .show_header(ui, header)
             .body(|ui| {
                 for child in &node.children {
-                    node_row(ui, state, child, default, actions);
+                    node_row(ui, state, child, default, isolated, actions);
                 }
             });
     }

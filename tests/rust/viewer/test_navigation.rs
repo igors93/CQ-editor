@@ -212,3 +212,31 @@ fn orbit_changes_only_the_view_direction() {
     assert_eq!(camera.extent, before.extent);
     assert_ne!(camera.rotation, before.rotation);
 }
+
+#[test]
+fn control_bars_stack_up_from_the_bottom_without_overlapping() {
+    let view = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(900.0, 600.0));
+    let zoom = zoom_controls_rect(view).unwrap();
+    let bars: Vec<Rect> = (0..3)
+        .map(|row| bottom_bar_rect(view, row, 400.0).unwrap())
+        .collect();
+    assert!((bars[0].bottom() - (view.bottom() - ZOOM_CONTROLS_MARGIN)).abs() < 1e-3);
+    for (row, bar) in bars.iter().enumerate() {
+        assert!(view.contains_rect(*bar));
+        assert!(!bar.intersects(zoom), "bar {row} under the zoom controls");
+        if row > 0 {
+            assert!(
+                bar.bottom() < bars[row - 1].top(),
+                "bar {row} above the previous"
+            );
+        }
+    }
+    // Narrow views clamp the width, short ones drop the upper bars.
+    let narrow = Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 600.0));
+    assert!(
+        bottom_bar_rect(narrow, 0, 430.0).unwrap().width() <= 300.0 - 2.0 * ZOOM_CONTROLS_MARGIN
+    );
+    let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 150.0));
+    assert!(bottom_bar_rect(short, 0, 400.0).is_some());
+    assert!(bottom_bar_rect(short, 1, 400.0).is_none());
+}
