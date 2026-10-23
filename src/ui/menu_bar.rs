@@ -322,6 +322,9 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
     for view in StandardView::ALL {
         item(ui, actions, icon::CUBE, view.label(), Action::View(view));
     }
+    ui.menu_button(format!("{}  Named Views", icon::BOOKMARKS_SIMPLE), |ui| {
+        super::named_views::submenu(ui, state, actions);
+    });
     ui.separator();
     for mode in DisplayMode::ALL {
         check_item(

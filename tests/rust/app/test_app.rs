@@ -509,3 +509,41 @@ fn explode_and_isolate_commands_change_what_the_view_shows() {
     assert!(!state.viewer.explode_controls);
     assert_eq!(state.scene.explode(), 0.0, "closing assembles them");
 }
+
+#[test]
+fn named_views_follow_their_file() {
+    use crate::document::Encoding;
+    let dir = std::env::temp_dir().join(format!("cq-editor-views-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (a, b) = (dir.join("a.py"), dir.join("b.py"));
+    std::fs::write(&a, "a = 1\n").unwrap();
+    std::fs::write(&b, "b = 2\n").unwrap();
+
+    let mut state = test_state("");
+    state.open_path_with(&a, Encoding::Utf8);
+    state.execute(Action::SaveView(Some("front".into())));
+    assert_eq!(state.viewer.named_views.len(), 1);
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Success);
+
+    state.open_path_with(&b, Encoding::Utf8);
+    assert!(state.viewer.named_views.is_empty(), "b has no views");
+    state.open_path_with(&a, Encoding::Utf8);
+    assert_eq!(state.viewer.named_views[0].name, "front");
+
+    // Going to a view brings its projection back.
+    state.settings.viewer.projection = crate::settings::Projection::Perspective;
+    state.execute(Action::GoToView(0));
+    assert_eq!(
+        state.settings.viewer.projection,
+        crate::settings::Projection::Orthographic
+    );
+
+    // A new document starts without views.
+    state.execute(Action::DeleteView(0));
+    state.execute(Action::SaveView(None));
+    state.open_path_with(&b, Encoding::Utf8);
+    state.open_path_with(&a, Encoding::Utf8);
+    assert_eq!(state.viewer.named_views[0].name, "View 1");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

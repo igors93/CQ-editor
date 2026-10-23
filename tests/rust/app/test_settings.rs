@@ -117,3 +117,40 @@ fn reopening_a_recent_file_moves_it_to_the_front() {
         vec![PathBuf::from("first.py"), PathBuf::from("second.py")]
     );
 }
+
+#[test]
+fn named_views_are_remembered_per_file_and_bounded() {
+    let mut settings = Settings::default();
+    let view = |name: &str| NamedView {
+        name: name.into(),
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        extent: 5.0,
+        ..NamedView::default()
+    };
+    settings.remember_views(Path::new("a.py"), vec![view("front")]);
+    settings.remember_views(Path::new("b.py"), vec![view("top"), view("detail")]);
+    assert_eq!(settings.views_of(Path::new("a.py")), [view("front")]);
+    assert_eq!(
+        settings.views[0].path,
+        Path::new("b.py"),
+        "the latest first"
+    );
+
+    // Deleting every view forgets the file.
+    settings.remember_views(Path::new("a.py"), Vec::new());
+    assert!(settings.views_of(Path::new("a.py")).is_empty());
+    assert_eq!(settings.views.len(), 1);
+
+    for file in 0..MAX_VIEW_FILES + 5 {
+        let path = format!("{file}.py");
+        settings.remember_views(Path::new(&path), vec![view("v")]);
+    }
+    assert_eq!(settings.views.len(), MAX_VIEW_FILES);
+
+    // Saved settings without views, or with older view entries, still load.
+    let old: Settings = serde_json::from_str(r#"{"viewer": {}}"#).unwrap();
+    assert!(old.views.is_empty());
+    let partial: Settings =
+        serde_json::from_str(r#"{"views": [{"path": "c.py", "views": [{"name": "x"}]}]}"#).unwrap();
+    assert_eq!(partial.views_of(Path::new("c.py"))[0].name, "x");
+}

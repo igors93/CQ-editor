@@ -162,12 +162,14 @@ impl AppState {
     fn set_document(&mut self, document: Document, keep_scene: bool) {
         self.clear_recovery_session();
         self.remember_breakpoints();
+        self.remember_views();
         self.document = document;
         self.dialogs.external_change = None;
         self.dialogs.history = None;
         self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
         self.editor.reset();
         self.restore_breakpoints();
+        self.restore_views();
         self.traceback = None;
         if keep_scene {
             return;
@@ -346,9 +348,27 @@ impl AppState {
         }
     }
 
+    /// Shows the named views the document had when it was last open.
+    pub(super) fn restore_views(&mut self) {
+        self.viewer.named_views = self
+            .document
+            .path()
+            .map(|path| self.settings.views_of(path).to_vec())
+            .unwrap_or_default();
+    }
+
+    /// Keeps the named views of the document for the next time it opens.
+    pub(super) fn remember_views(&mut self) {
+        if let Some(path) = self.document.path().map(Path::to_path_buf) {
+            let views = self.viewer.named_views.clone();
+            self.settings.remember_views(&path, views);
+        }
+    }
+
     fn after_save(&mut self) {
         // Under the new name after a Save As.
         self.remember_breakpoints();
+        self.remember_views();
         if let Err(error) = self.recovery.archive(&self.document) {
             log::warn!("Cannot add the saved document to local history: {error}");
         }

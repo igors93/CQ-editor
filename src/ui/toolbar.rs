@@ -173,6 +173,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 actions.push(action);
             }
         }
+        let views = icon_button(ui, icon::BOOKMARKS_SIMPLE, true, false)
+            .on_hover_text("Named views: save the camera and come back to it");
+        egui::Popup::menu(&views)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| super::named_views::manager(ui, state, actions));
         separator(ui);
 
         for mode in DisplayMode::ALL {

@@ -73,6 +73,14 @@ pub enum Action {
     ToggleIsolate,
     /// Ends the isolation and makes every object visible.
     ShowAll,
+    /// Saves the camera as a named view of the document: under this name
+    /// (replacing a view of the same name), or the next "View N".
+    SaveView(Option<String>),
+    /// Moves the camera to the named view at this index.
+    GoToView(usize),
+    /// Stores the current camera in the named view at this index.
+    UpdateView(usize),
+    DeleteView(usize),
     TogglePanel(Tab),
     ResetLayout,
     // Tools

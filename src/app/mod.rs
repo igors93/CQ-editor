@@ -407,6 +407,28 @@ impl AppState {
                 }
             }
             Action::ShowAll => self.scene.show_all(),
+            Action::SaveView(name) => {
+                let projection = self.settings.viewer.projection;
+                let name = self.viewer.save_view(name.as_deref(), projection);
+                self.set_status(StatusKind::Success, format!("Saved the view \"{name}\""));
+            }
+            Action::GoToView(index) => {
+                if let Some(projection) = self.viewer.go_to_view(index, animate, now) {
+                    self.settings.viewer.projection = projection;
+                } else if index < self.viewer.named_views.len() {
+                    self.set_status(StatusKind::Error, "This saved view is damaged");
+                }
+            }
+            Action::UpdateView(index) => {
+                let projection = self.settings.viewer.projection;
+                if let Some(name) = self.viewer.update_view(index, projection) {
+                    let text = format!("Updated the view \"{name}\"");
+                    self.set_status(StatusKind::Success, text);
+                }
+            }
+            Action::DeleteView(index) => {
+                self.viewer.delete_view(index);
+            }
             Action::ToggleProjection => {
                 self.settings.viewer.projection = match self.settings.viewer.projection {
                     Projection::Orthographic => Projection::Perspective,
@@ -629,6 +651,7 @@ impl CqEditorApp {
             state.settings.last_file = Some(path);
         }
         state.restore_breakpoints();
+        state.restore_views();
         state.start_worker();
         Self { dock, state }
     }
@@ -731,6 +754,7 @@ impl eframe::App for CqEditorApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.state.checkpoint_recovery();
         self.state.remember_breakpoints();
+        self.state.remember_views();
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
         eframe::set_value(storage, LAYOUT_KEY, &self.dock);
     }

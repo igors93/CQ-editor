@@ -85,7 +85,7 @@ From left to right:
 | Objects | Clear all objects, Clear current object |
 | Run | Render, Debug, Step, Step in, Step out, Continue, Stop |
 | Inspect | Inspect CQ object |
-| View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right |
+| View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right, Named views |
 | Display | Wireframe, Shaded, X-ray, Hidden line, Section view, Exploded view, Screenshot |
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
@@ -100,7 +100,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
+| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Check for CadQuery Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).

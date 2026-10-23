@@ -12,6 +12,8 @@ use crate::worker::protocol::{RunSettings, SceneSettings};
 const MAX_RECENT_FILES: usize = 10;
 /// Files whose breakpoints are remembered, most recently used first.
 const MAX_BREAKPOINT_FILES: usize = 100;
+/// Files whose named views are remembered, most recently used first.
+const MAX_VIEW_FILES: usize = 100;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -26,6 +28,30 @@ pub struct Settings {
     pub last_file: Option<PathBuf>,
     /// Breakpoints of recently edited files, most recent first.
     pub breakpoints: Vec<FileBreakpoints>,
+    /// Named views of recently edited files, most recent first.
+    pub views: Vec<FileViews>,
+}
+
+/// The named views of one file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FileViews {
+    pub path: PathBuf,
+    pub views: Vec<NamedView>,
+}
+
+/// A camera saved under a name: the point it looks at, its orientation,
+/// how much it shows and its projection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NamedView {
+    pub name: String,
+    pub target: [f32; 3],
+    /// Unit quaternion (x, y, z, w).
+    pub rotation: [f32; 4],
+    /// Half the height of the view, in model units.
+    pub extent: f32,
+    pub projection: Projection,
 }
 
 /// The breakpoints of one file.
@@ -79,6 +105,33 @@ impl Settings {
                 },
             );
             self.breakpoints.truncate(MAX_BREAKPOINT_FILES);
+        }
+    }
+
+    pub fn views_of(&self, path: &Path) -> &[NamedView] {
+        self.views
+            .iter()
+            .find(|file| file.path == path)
+            .map_or(&[], |file| &file.views)
+    }
+
+    /// Remembers the named views of `path`; none forgets the file.
+    pub fn remember_views(&mut self, path: &Path, views: Vec<NamedView>) {
+        if self.views_of(path) == views.as_slice()
+            && self.views.first().is_some_and(|file| file.path == path)
+        {
+            return;
+        }
+        self.views.retain(|file| file.path != path);
+        if !views.is_empty() {
+            self.views.insert(
+                0,
+                FileViews {
+                    path: path.to_path_buf(),
+                    views,
+                },
+            );
+            self.views.truncate(MAX_VIEW_FILES);
         }
     }
 

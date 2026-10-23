@@ -11,6 +11,7 @@ mod overlays;
 mod picking;
 mod renderer;
 mod section;
+mod views;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use glam::{Mat4 as GMat4, Vec2 as GVec2, Vec3};
 
 use crate::commands::Action;
 use crate::scene::{Aabb, Grid, MAX_EXPLODE, Mesh, NodeKey, Scene, TopologySelection};
-use crate::settings::{self, OrbitMethod};
+use crate::settings::{self, NamedView, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
@@ -266,6 +267,8 @@ pub struct Viewer {
     pub section: Section,
     /// The exploded-view controls are shown.
     pub explode_controls: bool,
+    /// The named views of the document, in the order they were saved.
+    pub named_views: Vec<NamedView>,
     animation: Option<Animation>,
     renderer: Option<SceneRenderer>,
     nav_cube: NavigationCube,
@@ -293,6 +296,7 @@ impl Default for Viewer {
             selection_mode: SelectionMode::Auto,
             section: Section::default(),
             explode_controls: false,
+            named_views: Vec::new(),
             animation: None,
             renderer: None,
             nav_cube: NavigationCube::default(),

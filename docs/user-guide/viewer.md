@@ -59,6 +59,26 @@ View changes are animated. Turn this off with *Animate view changes*. With
 *Fit automatically* (on by default), the view frames the model after every
 run. The first model shown is always framed.
 
+### Named views
+
+A named view is a camera saved under a name: the point it looks at, its
+direction, its zoom and its projection. The toolbar's bookmarks button,
+after the standard views, opens the list:
+
+* click a name to go back to that view (animated like the standard views);
+* ⟳ replaces a view with the current camera, 🗑 deletes it;
+* type a name and press **Save** (or Enter) to save the current camera;
+  without a name it becomes *View 1*, *View 2*…, and an existing name is
+  replaced.
+
+**View > Named Views** lists the same views and has **Save Current View**.
+
+Named views belong to the file: they are remembered with the preferences
+for the 100 most recently used files and come back when the file is opened
+again. A new, unsaved script keeps its views in memory and takes them along
+when it is first saved. The display mode, section and exploded view are not
+part of a named view.
+
 ## Display modes and projection
 
 | Command | Shortcut |
