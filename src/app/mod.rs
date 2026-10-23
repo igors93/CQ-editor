@@ -356,6 +356,7 @@ impl AppState {
             Action::GoToLinePrompt => self.editor.open_go_to_line(),
             Action::CopySelector => self.use_selector(SelectorUse::Copy),
             Action::InsertSelector => self.use_selector(SelectorUse::Insert),
+            Action::CopyMeasurementCode => self.request_measurement_code(),
             Action::FindNext | Action::FindPrevious => {
                 if self.editor.search_is_open() {
                     self.editor

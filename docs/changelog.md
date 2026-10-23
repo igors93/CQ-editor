@@ -20,6 +20,10 @@ tracked in the compatibility matrix instead of being assumed.
   the user's chosen editor inside CQ-editor
 * New: GPU renderer with MSAA, smooth camera animations, zoom at the mouse
   pointer, hover highlighting and double-click to zoom to an object
+* New: the Measurements panel reports exact bounding boxes, measures the
+  selected objects (volume, area, center of mass) when no entity is picked,
+  and copies a measurement as Python using the script's variables and
+  selectors, checked by running it
 * New: Go to Source (Ctrl+Shift+G) from an object, its property sheet or a
   CQ Inspector step to the script line that created it, following the
   edits made since the run

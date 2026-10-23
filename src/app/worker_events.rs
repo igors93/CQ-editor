@@ -263,7 +263,17 @@ impl AppState {
                     self.measurements.loading = false;
                     self.measurements.error = None;
                     self.measurements.request_id = None;
-                    self.measurements.result = Some(result);
+                    self.measurements.result = Some(*result);
+                }
+            }
+            Message::MeasurementCode {
+                id,
+                code,
+                verified,
+                problem,
+            } => {
+                if matches!(self.execution.answer(id), Some(Pending::MeasurementCode)) {
+                    self.measurement_code_arrived(code, verified, problem);
                 }
             }
             Message::Selector(reply) => {
@@ -386,6 +396,12 @@ impl AppState {
                 self.selector.error = Some(message);
             }
             Some((_, Pending::Selector)) => {}
+            Some((_, Pending::MeasurementCode)) => {
+                self.set_status(
+                    StatusKind::Warning,
+                    format!("Cannot write the measurement as code: {message}"),
+                );
+            }
             // Hovering over a name the worker cannot describe is not news.
             Some((_, Pending::Describe | Pending::Completion { automatic: true })) => {
                 log::debug!("{message}");

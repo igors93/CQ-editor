@@ -71,7 +71,8 @@ The worker handles one request at a time, in arrival order.
 | `describe` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path` | `description` |
 | `inspect` | `id`, `key` | `inspection` |
 | `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
-| `measure` | `id`, 1 to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
+| `measure` | `id`, up to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`), and `objects` (keys) measured when `selections` is empty | `measurement` |
+| `measurement_code` | `id`, `selections`, `objects` as for `measure` | `measurement_code` |
 | `selector` | `id`, `selections` of one object, part and kind | `selector` |
 | `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
@@ -101,7 +102,8 @@ The worker handles one request at a time, in arrival order.
 | `description` | `id`, `available`, `signatures` (call signatures, or `name: type` for a variable), `text` (the docstring, cut to 14 lines / 1200 characters); both empty when there is nothing to show | |
 | `inspection` | `id`, `key`, `frames` (`type`, `value`, `line`, `items` (`type`, `value`, `displayable`, `line`)) | Workplane stack, newest first; `line` is the script line that made each step and object |
 | `inspection_geometry` | `id`, `meshes`, `plane` (`origin`, `x_dir`, `z_dir`, `size`) | Overlay geometry |
-| `measurement` | `id`, `identity`, `entities`, `pair` | Exact properties of each entity; `pair` (the relationship) only for exactly two |
+| `measurement` | `id`, `identity`, `entities`, `pair`, `objects`, `bounding_box` | Exact properties of each entity, each with its `bounding_box` (`min`, `max`, `size`, `center`); `pair` (the relationship) only for exactly two. Without entities, `objects` describes the selected objects (`shape_type`, `volume`, `area`, `length`, center of mass, `bounding_box`, topology counts). `bounding_box` surrounds everything measured; boxes come from the exact geometry, not the mesh |
+| `measurement_code` | `id`, `code`, `verified`, `problem` | Python repeating the measurement with the script's variables; `verified` when running it on a copy of the console namespace reproduced every value |
 | `selector` | `id`, `method` (`faces`, `edges` or `vertices`), `candidates` | CadQuery selectors for the entities, best first. Each candidate has `expression` (to append to the object, e.g. `.faces(">Z")`), `selector` (`">Z"`, null for an index), `description` and `index_based`. Every candidate was verified with CadQuery on the object the script holds |
 | `scene_add` | `id`, `objects` | Objects shown from the console |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |

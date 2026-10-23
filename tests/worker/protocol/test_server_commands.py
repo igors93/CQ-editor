@@ -297,3 +297,44 @@ def test_console_selected_returns_the_picked_entities_and_objects(conversation):
     assert "LookupError" in talk.output(5) and "render again" in talk.output(5)
     (error,) = talk.of_type("error")
     assert error["id"] == 6 and "scene keys" in error["message"]
+
+
+def test_measurement_code_uses_the_scripts_variables(conversation):
+    script = "box = cq.Workplane().box(2, 4, 6)\nshow_object(box)\n"
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {"cmd": "measure", "id": 2, "selections": [], "objects": ["n1"]},
+        {
+            "cmd": "measurement_code",
+            "id": 3,
+            "selections": [{"key": "n1", "part": 0, "kind": "face", "identifier": 6}],
+        },
+    )
+    talk.serve()
+
+    (measured,) = talk.of_type("measurement")
+    assert measured["objects"][0]["volume"] == 48
+    (code,) = talk.of_type("measurement_code")
+    assert code["id"] == 3 and code["verified"] and code["problem"] is None
+    assert 'face_1 = box.faces(">Z").val()' in code["code"]
+
+
+def test_measurement_code_waits_for_the_end_of_a_debugging_session(conversation):
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 1,
+            "script": "box = cq.Workplane().box(1, 1, 1)\nx = 1\n",
+            "debug": True,
+            "breakpoints": [2],
+        },
+        {
+            "cmd": "measurement_code",
+            "id": 2,
+            "selections": [{"key": "n1", "part": 0, "kind": "face", "identifier": 1}],
+        },
+        {"cmd": "debug", "action": "continue"},
+    )
+    talk.serve()
+    (error,) = talk.of_type("error")
+    assert error["id"] == 2 and "debugging" in error["message"]

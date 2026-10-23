@@ -52,6 +52,8 @@ pub enum Pending {
     Measure,
     /// Selector expressions for the topology selection.
     Selector,
+    /// Code repeating the current measurement, for the clipboard.
+    MeasurementCode,
 }
 
 /// Whether the worker can take a run.

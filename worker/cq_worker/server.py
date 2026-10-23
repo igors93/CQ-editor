@@ -19,7 +19,15 @@ from modulefinder import ModuleFinder
 
 import cadquery as cq
 
-from . import completion, exporting, inspector, measurement, network, selection
+from . import (
+    completion,
+    exporting,
+    inspector,
+    measurement,
+    measurement_code,
+    network,
+    selection,
+)
 from .console import ConsoleSession
 from .debugger import Action, Debugger
 from .environment import runtime_environment
@@ -132,6 +140,7 @@ class Server:
             "inspect_geometry": self.inspect_geometry,
             "measure": self.measure,
             "selector": self.selector,
+            "measurement_code": self.measurement_code,
             "console": self.run_console,
             "console_reset": self.reset_console,
             "export": self.export,
@@ -390,10 +399,27 @@ class Server:
 
     def measure(self, request: Message) -> Message:
         try:
-            result = measurement.measure(self.registry, request.get("selections"))
+            result = measurement.measure(
+                self.registry, request.get("selections"), request.get("objects")
+            )
         except measurement.MeasurementError as error:
             raise RequestError(str(error)) from None
         return {"type": "measurement", **result}
+
+    def measurement_code(self, request: Message) -> Message:
+        """Code repeating a measurement with the script's variables, which
+        the console holds after a run."""
+
+        try:
+            result = measurement_code.measurement_code(
+                self.registry,
+                self.console.namespace,
+                request.get("selections"),
+                request.get("objects"),
+            )
+        except measurement.MeasurementError as error:
+            raise RequestError(str(error)) from None
+        return {"type": "measurement_code", **result}
 
     def selector(self, request: Message) -> Message:
         try:

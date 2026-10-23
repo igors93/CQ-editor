@@ -94,6 +94,7 @@ fn measurement_request_and_exact_response_share_topology_references() {
             kind: TopologyKind::Vertex,
             identifier: 3,
         }],
+        objects: Vec::new(),
     };
     let json = serde_json::to_value(request).unwrap();
     assert_eq!(json["cmd"], "measure");
@@ -414,4 +415,52 @@ fn nodes_and_stack_frames_carry_their_script_lines() {
     )
     .unwrap();
     assert_eq!((frame.line, frame.items[0].line), (Some(2), Some(2)));
+}
+
+#[test]
+fn object_measurements_bounding_boxes_and_measurement_code_decode() {
+    let message: Message = serde_json::from_value(serde_json::json!({
+        "type": "measurement", "id": 5,
+        "identity": {"scope": "scene_entry", "persistent": false},
+        "entities": [], "pair": null,
+        "objects": [{
+            "key": "s1-n1", "shape_type": "solid", "volume": 6.0, "area": 22.0,
+            "length": null, "center": [0.0, 0.0, 0.0],
+            "bounding_box": {"min": [-0.5, -1.0, -1.5], "max": [0.5, 1.0, 1.5],
+                             "size": [1.0, 2.0, 3.0], "center": [0.0, 0.0, 0.0]},
+            "solids": 1, "faces": 6, "edges": 12, "vertices": 8
+        }],
+        "bounding_box": {"min": [-0.5, -1.0, -1.5], "max": [0.5, 1.0, 1.5],
+                         "size": [1.0, 2.0, 3.0], "center": [0.0, 0.0, 0.0]}
+    }))
+    .unwrap();
+    let Message::Measurement(result) = message else {
+        panic!("not a measurement");
+    };
+    assert_eq!(result.objects[0].volume, Some(6.0));
+    assert_eq!(result.objects[0].faces, 6);
+    assert_eq!(result.bounding_box.unwrap().size, [1.0, 2.0, 3.0]);
+
+    let request = Request::MeasurementCode {
+        id: 6,
+        selections: Vec::new(),
+        objects: vec!["s1-n1".into()],
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["cmd"], "measurement_code");
+    assert_eq!(json["objects"][0], "s1-n1");
+
+    let message: Message = serde_json::from_str(
+        r#"{"type":"measurement_code","id":6,"code":"x = 1\n","verified":false,
+            "problem":"The Workplane is not a variable of the script"}"#,
+    )
+    .unwrap();
+    let Message::MeasurementCode {
+        verified, problem, ..
+    } = message
+    else {
+        panic!("not measurement code");
+    };
+    assert!(!verified);
+    assert!(problem.unwrap().contains("variable"));
 }

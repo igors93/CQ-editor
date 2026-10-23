@@ -29,9 +29,7 @@ from typing import Any
 
 import cadquery as cq
 import numpy as np
-from OCP.TopoDS import TopoDS_Iterator
-
-from .measurement import MeasurementError, TopologyReference
+from .measurement import MeasurementError, TopologyReference, object_shape
 from .scene import Registry, TopologyIndex, to_compound
 
 #: CadQuery's default selector tolerance (``BaseDirSelector``, ``_NthSelector``).
@@ -97,34 +95,15 @@ class PickedSelection:
                     registry.get(r.key).subshape(r.part, r.kind, r.identifier)
                     for r in self.entities
                 ]
-            return [_object_shape(registry, key) for key in self.objects]
+            return [object_shape(registry, key) for key in self.objects]
         except KeyError as error:
             raise LookupError(error.args[0]) from None
+        except MeasurementError as error:
+            raise LookupError(str(error)) from None
         except (IndexError, ValueError) as error:
             raise LookupError(
                 f"{error}; the model changed since it was picked, pick it again"
             ) from None
-
-
-def _object_shape(registry: Registry, key: str) -> cq.Shape:
-    """One shape for an object and its assembly children, as shown: a
-    compound of a single solid is that solid."""
-
-    shapes = registry.subtree_shapes([key])
-    shape = shapes[0] if len(shapes) == 1 else cq.Compound.makeCompound(shapes)
-    while isinstance(shape, cq.Compound):
-        children = list(_children(shape))
-        if len(children) != 1:
-            break
-        shape = children[0]
-    return shape
-
-
-def _children(shape: cq.Shape) -> Iterable[cq.Shape]:
-    iterator = TopoDS_Iterator(shape.wrapped)
-    while iterator.More():
-        yield cq.Shape.cast(iterator.Value())
-        iterator.Next()
 
 
 @dataclass(frozen=True)

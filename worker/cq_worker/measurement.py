@@ -13,9 +13,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 import cadquery as cq
+from OCP.Bnd import Bnd_Box
 from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Sphere
+from OCP.TopoDS import TopoDS_Iterator
 
 from .scene import Registry
 
@@ -57,16 +60,62 @@ class TopologyReference:
         return cls(key, part, kind, identifier)
 
 
-def measure(registry: Registry, raw_selections: Any) -> dict[str, Any]:
-    """Describe each selected entity; for exactly two, also their relationship."""
+def measure(
+    registry: Registry, raw_selections: Any, raw_objects: Any = None
+) -> dict[str, Any]:
+    """Describe each selected entity; for exactly two, also their relationship.
+    Without entities, describe the selected objects instead."""
 
-    if (
-        not isinstance(raw_selections, list)
-        or not 1 <= len(raw_selections) <= MAX_SELECTIONS
-    ):
+    references, shapes = resolve(registry, raw_selections, raw_objects)
+
+    result: dict[str, Any] = {
+        # OCCT's indexed subshape order is deterministic only for this live
+        # registry entry.  It is deliberately not advertised as a persistent
+        # topological name after the model is rebuilt.
+        "identity": {"scope": "scene_entry", "persistent": False},
+        "entities": (
+            [
+                _describe(reference, shape)
+                for reference, shape in zip(references, shapes, strict=True)
+            ]
+            if references
+            else []
+        ),
+        "objects": (
+            []
+            if references
+            else [
+                _describe_object(key, shape)
+                for key, shape in zip(_object_keys(raw_objects), shapes, strict=True)
+            ]
+        ),
+        "pair": None,
+        # Of everything measured together.
+        "bounding_box": _bounds(*shapes),
+    }
+    if len(references) == 2:
+        result["pair"] = _describe_pair(shapes[0], shapes[1])
+    return result
+
+
+def resolve(
+    registry: Registry, raw_selections: Any, raw_objects: Any = None
+) -> tuple[list[TopologyReference], list[cq.Shape]]:
+    """The picked entities, or else the selected objects, as world shapes."""
+
+    raw_selections = [] if raw_selections is None else raw_selections
+    if not isinstance(raw_selections, list) or len(raw_selections) > MAX_SELECTIONS:
         raise MeasurementError(
             f"Select between one and {MAX_SELECTIONS} topological entities to measure"
         )
+    if not raw_selections:
+        keys = _object_keys(raw_objects)
+        if not keys:
+            raise MeasurementError(
+                f"Select between one and {MAX_SELECTIONS} topological entities "
+                "or objects to measure"
+            )
+        return [], [object_shape(registry, key) for key in keys]
 
     references = [TopologyReference.from_message(value) for value in raw_selections]
     shapes = []
@@ -78,21 +127,101 @@ def measure(registry: Registry, raw_selections: Any) -> dict[str, Any]:
         except (IndexError, KeyError, ValueError) as error:
             raise MeasurementError(str(error)) from None
         shapes.append(shape)
+    return references, shapes
 
-    result: dict[str, Any] = {
-        # OCCT's indexed subshape order is deterministic only for this live
-        # registry entry.  It is deliberately not advertised as a persistent
-        # topological name after the model is rebuilt.
-        "identity": {"scope": "scene_entry", "persistent": False},
-        "entities": [
-            _describe(reference, shape)
-            for reference, shape in zip(references, shapes, strict=True)
-        ],
-        "pair": None,
+
+def _object_keys(raw_objects: Any) -> list[str]:
+    if raw_objects is None:
+        return []
+    if (
+        not isinstance(raw_objects, list)
+        or len(raw_objects) > MAX_SELECTIONS
+        or not all(isinstance(key, str) and key for key in raw_objects)
+    ):
+        raise MeasurementError(
+            f"Objects to measure must be at most {MAX_SELECTIONS} scene keys"
+        )
+    return raw_objects
+
+
+def object_shape(registry: Registry, key: str) -> cq.Shape:
+    """An object and its assembly children as shown: placed in world
+    coordinates, and a compound of a single shape is that shape."""
+
+    try:
+        shapes = registry.subtree_shapes([key])
+    except KeyError as error:
+        raise MeasurementError(error.args[0]) from None
+    if not shapes:
+        raise MeasurementError(f"Object {key!r} has no geometry to measure")
+    shape = shapes[0] if len(shapes) == 1 else cq.Compound.makeCompound(shapes)
+    while isinstance(shape, cq.Compound):
+        children = list(_children(shape))
+        if len(children) != 1:
+            break
+        shape = children[0]
+    return shape
+
+
+def _children(shape: cq.Shape) -> list[cq.Shape]:
+    children = []
+    iterator = TopoDS_Iterator(shape.wrapped)
+    while iterator.More():
+        children.append(cq.Shape.cast(iterator.Value()))
+        iterator.Next()
+    return children
+
+
+def exact_bounds(shape: cq.Shape) -> tuple[float, float, float, float, float, float]:
+    """``(xmin, ymin, zmin, xmax, ymax, zmax)`` from the exact geometry.
+
+    ``Shape.BoundingBox()`` uses the triangulation when the shape has one,
+    and every displayed shape has: a sphere of radius 5 then reports about
+    5.04. This ignores the triangulation and the tolerances.
+    """
+
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(shape.wrapped, box, False, False)
+    return tuple(float(value) for value in box.Get())
+
+
+def _bounds(*shapes: cq.Shape) -> dict[str, list[float]] | None:
+    if not shapes:
+        return None
+    lows, highs = [], []
+    for shape in shapes:
+        bounds = exact_bounds(shape)
+        lows.append(bounds[:3])
+        highs.append(bounds[3:])
+    low = [min(axis) for axis in zip(*lows)]
+    high = [max(axis) for axis in zip(*highs)]
+    return {
+        "min": low,
+        "max": high,
+        "size": [b - a for a, b in zip(low, high)],
+        "center": [(a + b) / 2 for a, b in zip(low, high)],
     }
-    if len(shapes) == 2:
-        result["pair"] = _describe_pair(shapes[0], shapes[1])
-    return result
+
+
+def _describe_object(key: str, shape: cq.Shape) -> dict[str, Any]:
+    solids = shape.Solids()
+    faces = shape.Faces()
+    edges = shape.Edges()
+    return {
+        "key": key,
+        "shape_type": shape.ShapeType().lower(),
+        "volume": float(shape.Volume()) if solids else None,
+        "area": float(shape.Area()) if faces else None,
+        "length": (
+            float(sum(edge.Length() for edge in edges)) if edges and not faces else None
+        ),
+        "center": _point(shape.Center()),
+        "bounding_box": _bounds(shape),
+        "solids": len(solids),
+        "faces": len(faces),
+        "edges": len(edges),
+        "vertices": len(shape.Vertices()),
+    }
 
 
 def _describe(reference: TopologyReference, shape: cq.Shape) -> dict[str, Any]:
@@ -110,6 +239,7 @@ def _describe(reference: TopologyReference, shape: cq.Shape) -> dict[str, Any]:
         "area": shape.Area() if reference.kind == "face" else None,
         "radius": None,
         "diameter": None,
+        "bounding_box": _bounds(shape),
     }
     radius = _radius(shape, reference.kind, geometry_type)
     if radius is not None:

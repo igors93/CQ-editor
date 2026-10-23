@@ -129,3 +129,70 @@ def test_more_than_two_entities_are_described_without_a_pair():
     assert [entity["identifier"] for entity in result["entities"]] == [1, 2, 3]
     assert all(entity["area"] > 0 for entity in result["entities"])
     assert result["pair"] is None
+
+
+def _shown(registry, obj):
+    """Shows ``obj`` as the GUI does, which meshes it."""
+
+    from cq_worker.scene import SceneBuilder, ShownObject
+    from cq_worker.tessellation import Tolerance
+
+    (node,) = SceneBuilder(registry, Tolerance()).build({"obj": ShownObject(obj)})
+    return node["key"]
+
+
+def test_bounding_boxes_are_exact_even_on_meshed_shapes():
+    registry = Registry()
+    sphere = cq.Workplane().sphere(5)
+    key = _shown(registry, sphere)
+    # CadQuery's own BoundingBox() now includes the display mesh.
+    assert sphere.val().BoundingBox().xmax > 5.01
+
+    (face,) = measure(registry, [reference(key, "face")])["entities"]
+    box = face["bounding_box"]
+    assert box["min"] == pytest.approx([-5, -5, -5], abs=1e-6)
+    assert box["max"] == pytest.approx([5, 5, 5], abs=1e-6)
+    assert box["size"] == pytest.approx([10, 10, 10], abs=1e-6)
+    assert box["center"] == pytest.approx([0, 0, 0], abs=1e-6)
+
+
+def test_the_selection_has_one_bounding_box_around_all_entities():
+    registry = Registry()
+    key = _shown(registry, cq.Workplane().box(2, 4, 6))
+    result = measure(registry, [reference(key, "face", 1), reference(key, "face", 2)])
+    # The two faces normal to X span the whole box.
+    assert result["bounding_box"]["size"] == pytest.approx([2, 4, 6])
+    assert result["objects"] == []
+
+
+def test_selected_objects_are_measured_when_no_entity_is_picked():
+    registry = Registry()
+    key = _shown(registry, cq.Workplane().box(1, 2, 3))
+    wire = _shown(registry, cq.Workplane().rect(2, 2))
+
+    result = measure(registry, [], [key, wire])
+
+    assert result["entities"] == [] and result["pair"] is None
+    box, square = result["objects"]
+    assert box["key"] == key and box["shape_type"] == "solid"
+    assert box["volume"] == pytest.approx(6)
+    assert box["area"] == pytest.approx(22)
+    assert box["center"] == pytest.approx([0, 0, 0])
+    assert (box["solids"], box["faces"], box["edges"], box["vertices"]) == (1, 6, 12, 8)
+    assert box["bounding_box"]["size"] == pytest.approx([1, 2, 3])
+    assert square["volume"] is None and square["area"] is None
+    assert square["length"] == pytest.approx(8)
+    assert result["bounding_box"]["size"] == pytest.approx([2, 2, 3])
+
+
+def test_picked_entities_take_precedence_over_selected_objects():
+    registry = Registry()
+    key = _shown(registry, cq.Workplane().box(1, 2, 3))
+    result = measure(registry, [reference(key, "face", 1)], [key])
+    assert len(result["entities"]) == 1 and result["objects"] == []
+
+
+@pytest.mark.parametrize("objects", [[""], "n1", [1], ["n1"] * 65])
+def test_invalid_object_lists_are_rejected(objects):
+    with pytest.raises(MeasurementError, match="scene keys"):
+        measure(Registry(), [], objects)

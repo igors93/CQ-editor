@@ -125,14 +125,30 @@ impl AppState {
         self.request_selector();
     }
 
+    /// What the Measurements panel measures: the picked entities, else the
+    /// selected objects.
+    pub(super) fn measured(&self) -> (Vec<TopologyReference>, Vec<String>) {
+        let selections = self.topology_references();
+        let objects = if selections.is_empty() {
+            self.scene.selected_roots()
+        } else {
+            Vec::new()
+        };
+        (selections, objects)
+    }
+
     fn request_measurement(&mut self) {
-        if self.scene.topology_selections.is_empty() || !self.worker.is_ready() {
+        let (selections, objects) = self.measured();
+        if (selections.is_empty() && objects.is_empty()) || !self.worker.is_ready() {
             self.measurements.clear();
             return;
         }
-        let selections = self.topology_references();
         let id = self.worker.next_id();
-        if self.worker.send(&Request::Measure { id, selections }) {
+        if self.worker.send(&Request::Measure {
+            id,
+            selections,
+            objects,
+        }) {
             self.execution.track(id, Pending::Measure);
             self.measurements.loading = true;
             self.measurements.error = None;
@@ -141,6 +157,52 @@ impl AppState {
             self.measurements.loading = false;
             self.measurements.error = Some("Cannot reach Python".to_owned());
             self.measurements.request_id = None;
+        }
+    }
+
+    /// Asks for code repeating the current measurement; it goes to the
+    /// clipboard when it arrives.
+    pub(super) fn request_measurement_code(&mut self) {
+        let (selections, objects) = self.measured();
+        if selections.is_empty() && objects.is_empty() {
+            self.set_status(
+                StatusKind::Warning,
+                "Select objects, or pick faces, edges or vertices, to measure",
+            );
+            return;
+        }
+        if self.send_tracked(Pending::MeasurementCode, |id| Request::MeasurementCode {
+            id,
+            selections,
+            objects,
+        }) {
+            self.set_status(
+                StatusKind::Info,
+                "Writing and checking the measurement code…",
+            );
+        }
+    }
+
+    /// The code of a measurement arrived: to the clipboard, with a warning
+    /// unless the worker reproduced every value with it.
+    pub(super) fn measurement_code_arrived(
+        &mut self,
+        code: String,
+        verified: bool,
+        problem: Option<String>,
+    ) {
+        self.ctx.copy_text(code);
+        if verified {
+            self.set_status(
+                StatusKind::Success,
+                "Copied the measurement as code (checked: it reproduces every value)",
+            );
+        } else {
+            let why = problem.unwrap_or_else(|| "it could not be checked".to_owned());
+            self.set_status(
+                StatusKind::Warning,
+                format!("Copied the measurement as code, but {why}"),
+            );
         }
     }
 

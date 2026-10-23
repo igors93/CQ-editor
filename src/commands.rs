@@ -39,6 +39,8 @@ pub enum Action {
     CopySelector,
     /// The CadQuery selector of the picked entities, at the editor's cursor.
     InsertSelector,
+    /// Python repeating the current measurement, to the clipboard.
+    CopyMeasurementCode,
     Preferences,
     // Run
     Render,

@@ -408,3 +408,73 @@ fn only_the_run_that_made_the_nodes_gives_them_its_script() {
     state.attach_run_script(7, &mut nodes);
     assert!(nodes[0].script.is_some());
 }
+
+#[test]
+fn objects_are_measured_when_no_entity_is_picked() {
+    let mut state = test_state("");
+    pick_face(&mut state);
+    let (selections, objects) = state.measured();
+    assert_eq!(selections.len(), 1);
+    assert!(objects.is_empty(), "picked entities come first");
+
+    state.scene.clear_topology_selection();
+    let (selections, objects) = state.measured();
+    assert!(selections.is_empty());
+    assert_eq!(objects, ["n1"]);
+}
+
+#[test]
+fn measurement_code_goes_to_the_clipboard_with_its_check() {
+    use crate::worker::protocol::Message;
+    let mut state = test_state("");
+    state.request_measurement_code();
+    assert!(status_text(&state).contains("Select objects"));
+
+    let ctx = state.ctx.clone();
+    state.execution.track(11, Pending::MeasurementCode);
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+        state.handle_message(Message::MeasurementCode {
+            id: 11,
+            code: "area_1 = face_1.Area()  # 40\n".into(),
+            verified: true,
+            problem: None,
+        });
+    });
+    output.textures_delta.clear();
+    assert_eq!(
+        output.platform_output.commands,
+        [egui::OutputCommand::CopyText(
+            "area_1 = face_1.Area()  # 40\n".into()
+        )]
+    );
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Success);
+
+    state.execution.track(12, Pending::MeasurementCode);
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+        state.handle_message(Message::MeasurementCode {
+            id: 12,
+            code: "shape_1 = obj.val()\n".into(),
+            verified: false,
+            problem: Some("the Workplane is not a variable of the script".into()),
+        });
+    });
+    output.textures_delta.clear();
+    assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Warning);
+    assert!(status_text(&state).contains("not a variable"));
+
+    // A reply nobody asked for is not copied.
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+        state.handle_message(Message::MeasurementCode {
+            id: 99,
+            code: "stale\n".into(),
+            verified: true,
+            problem: None,
+        });
+    });
+    output.textures_delta.clear();
+    assert!(output.platform_output.commands.is_empty());
+
+    state.execution.track(13, Pending::MeasurementCode);
+    state.request_failed(Some(13), "Not available while debugging".into());
+    assert!(status_text(&state).contains("Cannot write the measurement as code"));
+}

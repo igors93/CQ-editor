@@ -105,7 +105,16 @@ topological names.
 
 Select one face, edge or vertex to see its geometry type, center and the
 properties that apply: vertex position, edge length, face area, radius and
-diameter. Ctrl+click a second entity to add exact minimum distance and closest
+diameter, and its **bounding box** (size, minimum and maximum). With no
+entity picked, the panel measures the **selected objects** instead: volume,
+area, center of mass, the number of solids, faces, edges and vertices, and
+their bounding boxes. Several entities or objects also get one bounding
+box around all of them.
+
+Bounding boxes come from the exact geometry. CadQuery's own
+`BoundingBox()` uses the triangulation of a shape once it has one, and
+every shape on screen has been meshed: for a sphere of radius 5 it reports
+about 5.04. Ctrl+click a second entity to add exact minimum distance and closest
 points. Two straight edges or two planar faces also report their smaller
 angle; a straight edge and planar face report the edge-to-plane angle.
 
@@ -140,6 +149,24 @@ When no such selector exists, an index is offered instead, such as
 `.faces()[5]`, with a warning: it follows CadQuery's entity order and can
 select another entity once the model changes. Selectors are generated for
 workplanes and shapes; a picked sketch has none.
+
+**Copy as code** puts Python on the clipboard that measures the same
+entities or objects again, from the script's variables: a selector for
+each picked entity (see below), placed as shown for assembly parts, then
+one line per value with the measured value as a comment:
+
+```python
+face_1 = plate.faces(">Z").val()
+area_1 = face_1.Area()  # 40
+bounds_1 = exact_bounds(face_1)  # (10, -5, -2, 10, 5, 2)
+distance = face_1.distance(edge_2)  # 20
+```
+
+Before copying, the worker runs that code on a copy of the console's
+namespace and compares every value with the measurement; the status bar
+says whether it checked out. When an object is not a variable of the
+script, the code says `obj` and the status bar explains it. The code needs
+the variables of the last run, so it is not available while debugging.
 
 Hovering an object highlights it before you click.
 

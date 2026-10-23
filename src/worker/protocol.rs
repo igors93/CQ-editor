@@ -75,6 +75,14 @@ pub enum Request {
     Measure {
         id: RequestId,
         selections: Vec<TopologyReference>,
+        /// Measured instead when no entity is selected.
+        objects: Vec<String>,
+    },
+    /// Python that repeats a measurement with the script's variables.
+    MeasurementCode {
+        id: RequestId,
+        selections: Vec<TopologyReference>,
+        objects: Vec<String>,
     },
     /// CadQuery selectors that select exactly these entities of one object.
     Selector {
@@ -225,7 +233,15 @@ pub enum Message {
         meshes: Vec<Mesh>,
         plane: Option<Plane>,
     },
-    Measurement(Measurement),
+    Measurement(Box<Measurement>),
+    MeasurementCode {
+        id: RequestId,
+        code: String,
+        /// The worker ran the code and it reproduced every value.
+        verified: bool,
+        /// Why it is not verified.
+        problem: Option<String>,
+    },
     Selector(SelectorReply),
     SceneAdd {
         #[serde(default)]
@@ -466,6 +482,39 @@ pub struct Measurement {
     pub identity: TopologyIdentity,
     pub entities: Vec<EntityMeasurement>,
     pub pair: Option<PairMeasurement>,
+    /// The selected objects, measured when no entity is selected.
+    #[serde(default)]
+    pub objects: Vec<ObjectMeasurement>,
+    /// Around everything measured.
+    #[serde(default)]
+    pub bounding_box: Option<BoundingBox>,
+}
+
+/// An axis-aligned box from the exact geometry, in world coordinates.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct BoundingBox {
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+    pub size: [f64; 3],
+    pub center: [f64; 3],
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct ObjectMeasurement {
+    pub key: String,
+    /// `solid`, `compound`, `face` …
+    pub shape_type: String,
+    pub volume: Option<f64>,
+    pub area: Option<f64>,
+    /// Of the edges, for objects without faces.
+    pub length: Option<f64>,
+    /// Center of mass.
+    pub center: [f64; 3],
+    pub bounding_box: Option<BoundingBox>,
+    pub solids: usize,
+    pub faces: usize,
+    pub edges: usize,
+    pub vertices: usize,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -487,6 +536,8 @@ pub struct EntityMeasurement {
     pub area: Option<f64>,
     pub radius: Option<f64>,
     pub diameter: Option<f64>,
+    #[serde(default)]
+    pub bounding_box: Option<BoundingBox>,
 }
 
 /// Selector expressions for a topology selection, verified by the worker

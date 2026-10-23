@@ -4,8 +4,8 @@ use crate::app::AppState;
 use crate::commands::Action;
 use crate::scene::TopologySelection;
 use crate::worker::protocol::{
-    EntityMeasurement, Measurement, PairMeasurement, RequestId, SelectorCandidate, SelectorReply,
-    TopologyKind,
+    BoundingBox, EntityMeasurement, Measurement, ObjectMeasurement, PairMeasurement, RequestId,
+    SelectorCandidate, SelectorReply, TopologyKind,
 };
 
 #[derive(Default)]
@@ -64,6 +64,21 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             if state.measurements.loading {
                 ui.spinner();
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        state.measurements.result.is_some(),
+                        egui::Button::new(format!("{} Copy as code", icon::CLIPBOARD_TEXT)),
+                    )
+                    .on_hover_text(
+                        "Python measuring the same entities from the script's variables, \
+                         checked against these values",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::CopyMeasurementCode);
+                }
+            });
         });
         ui.small(format!(
             "Selection mode: {} · Ctrl+click adds entities",
@@ -84,7 +99,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             super::empty_state(
                 ui,
                 icon::RULER,
-                "Select a face, edge or vertex in the 3D view",
+                "Select an object, or a face, edge or vertex, in the 3D view",
             );
             return;
         };
@@ -95,9 +110,25 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             }
             entity_ui(ui, state, entity, index + 1);
         }
+        for (index, object) in result.objects.iter().enumerate() {
+            if index > 0 {
+                ui.separator();
+            }
+            object_ui(ui, state, object, index + 1);
+        }
         if let Some(pair) = &result.pair {
             ui.separator();
             pair_ui(ui, pair);
+        }
+        if result.entities.len() + result.objects.len() > 1
+            && let Some(bounds) = &result.bounding_box
+        {
+            ui.separator();
+            ui.strong("Selection bounds");
+            egui::Grid::new("measurement_selection_bounds")
+                .num_columns(2)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| bounds_rows(ui, bounds));
         }
 
         ui.separator();
@@ -213,7 +244,62 @@ fn entity_ui(ui: &mut egui::Ui, state: &AppState, entity: &EntityMeasurement, nu
             if let Some(value) = entity.diameter {
                 row(ui, "Diameter", &format_number(value));
             }
+            if let Some(bounds) = &entity.bounding_box {
+                bounds_rows(ui, bounds);
+            }
         });
+}
+
+fn object_ui(ui: &mut egui::Ui, state: &AppState, object: &ObjectMeasurement, number: usize) {
+    let name = state
+        .scene
+        .find(&object.key)
+        .map_or(object.key.as_str(), |node| node.name.as_str());
+    ui.strong(format!("{number}. {name}"));
+    egui::Grid::new(("measurement_object", number))
+        .num_columns(2)
+        .spacing([12.0, 4.0])
+        .show(ui, |ui| {
+            row(ui, "Shape", &title_case(&object.shape_type));
+            if let Some(value) = object.volume {
+                row(ui, "Volume", &format_number(value));
+            }
+            if let Some(value) = object.area {
+                row(ui, "Area", &format_number(value));
+            }
+            if let Some(value) = object.length {
+                row(ui, "Length", &format_number(value));
+            }
+            row(ui, "Center of mass", &format_point(object.center));
+            row(
+                ui,
+                "Topology",
+                &format!(
+                    "{} solids · {} faces · {} edges · {} vertices",
+                    object.solids, object.faces, object.edges, object.vertices
+                ),
+            );
+            if let Some(bounds) = &object.bounding_box {
+                bounds_rows(ui, bounds);
+            }
+        });
+}
+
+/// Size, minimum and maximum of an exact bounding box.
+fn bounds_rows(ui: &mut egui::Ui, bounds: &BoundingBox) {
+    let [x, y, z] = bounds.size;
+    row(
+        ui,
+        "Bounding box",
+        &format!(
+            "{} × {} × {}",
+            format_number(x),
+            format_number(y),
+            format_number(z)
+        ),
+    );
+    row(ui, "Min", &format_point(bounds.min));
+    row(ui, "Max", &format_point(bounds.max));
 }
 
 fn pair_ui(ui: &mut egui::Ui, pair: &PairMeasurement) {
@@ -297,6 +383,7 @@ mod tests {
             area: Some(4.0),
             radius: None,
             diameter: None,
+            bounding_box: None,
         };
         let result = Measurement {
             id: 1,
@@ -306,6 +393,8 @@ mod tests {
             },
             entities: vec![entity(TopologyKind::Face, 6), entity(TopologyKind::Edge, 6)],
             pair: None,
+            objects: Vec::new(),
+            bounding_box: None,
         };
         let selection = |entity| TopologySelection {
             node: "s1-n1".into(),
