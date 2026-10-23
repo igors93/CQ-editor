@@ -724,6 +724,7 @@ dependencies = [
  "log",
  "naga",
  "open",
+ "png",
  "rfd",
  "serde",
  "serde_json",

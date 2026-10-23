@@ -7,6 +7,7 @@
 //! * Ctrl + click: add to / remove from the selection
 
 pub mod camera;
+pub mod capture;
 mod overlays;
 mod picking;
 mod renderer;
@@ -24,6 +25,7 @@ use crate::commands::Action;
 use crate::scene::{Aabb, Grid, MAX_EXPLODE, Mesh, NodeKey, Scene, TopologySelection};
 use crate::settings::{self, NamedView, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
+use capture::{CaptureOptions, TurntableExport, TurntableOptions};
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
@@ -45,6 +47,7 @@ const MIN_VIEW_WIDTH_FOR_ZOOM_CONTROLS: f32 = 220.0;
 const SECTION_CONTROLS_WIDTH: f32 = 430.0;
 const EXPLODE_CONTROLS_WIDTH: f32 = 340.0;
 const ISOLATION_CONTROLS_WIDTH: f32 = 330.0;
+const CAPTURE_CONTROLS_WIDTH: f32 = 360.0;
 /// How far the exploded view first spreads the parts.
 const DEFAULT_EXPLODE: f32 = 0.5;
 /// Duration of camera transitions, seconds.
@@ -213,7 +216,9 @@ pub enum ViewerEvent {
     },
     /// The user double-clicked an object.
     FocusRequested,
-    Screenshot(Result<PathBuf, String>),
+    /// A screenshot or an animation was saved (with a message saying
+    /// where), or could not be.
+    Captured(Result<String, String>),
     /// A control in the view asks for this.
     Command(Action),
 }
@@ -279,7 +284,9 @@ pub struct Viewer {
     aspect: f32,
     /// Camera extent treated as 100% by the zoom controls.
     zoom_reference_extent: f32,
-    screenshot: Option<PathBuf>,
+    capture: Option<Capture>,
+    /// Size of the view in physical pixels, as last drawn.
+    view_px: [u32; 2],
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
     pick_index: picking::SceneIndex,
@@ -306,7 +313,8 @@ impl Default for Viewer {
             orbit_method: OrbitMethod::Turntable,
             aspect: 1.5,
             zoom_reference_extent: Camera::default().extent,
-            screenshot: None,
+            capture: None,
+            view_px: [1, 1],
             axis_meshes: None,
             grid_mesh: None,
             pick_index: picking::SceneIndex::default(),
@@ -340,8 +348,49 @@ impl Viewer {
         self.animate_to(pose, animate, now);
     }
 
-    pub fn request_screenshot(&mut self, path: PathBuf) {
-        self.screenshot = Some(path);
+    /// Saves the next frame as a PNG image of the given size and kind,
+    /// unless a turntable is being exported (`false`).
+    pub fn request_image(&mut self, path: PathBuf, options: CaptureOptions) -> bool {
+        if self.turntable_progress().is_some() {
+            return false;
+        }
+        self.capture = Some(Capture::Image { path, options });
+        true
+    }
+
+    /// Starts writing a turntable animation, one frame per frame of the
+    /// view, from where the camera is heading.
+    pub fn start_turntable(
+        &mut self,
+        path: PathBuf,
+        options: CaptureOptions,
+        turntable: TurntableOptions,
+    ) -> Result<(), String> {
+        self.cancel_turntable();
+        let export =
+            TurntableExport::start(path, options, turntable, self.settled_pose(), self.view_px)?;
+        self.capture = Some(Capture::Turntable(Box::new(export)));
+        Ok(())
+    }
+
+    /// Stops a turntable export and removes what it wrote.
+    pub fn cancel_turntable(&mut self) {
+        if let Some(Capture::Turntable(export)) = self.capture.take() {
+            export.cancel();
+        }
+    }
+
+    /// Frames written and frames in all, while a turntable is exported.
+    pub fn turntable_progress(&self) -> Option<(u32, u32)> {
+        match &self.capture {
+            Some(Capture::Turntable(export)) => Some(export.progress()),
+            _ => None,
+        }
+    }
+
+    /// The size of the view in physical pixels, as last drawn.
+    pub fn view_px(&self) -> [u32; 2] {
+        self.view_px
     }
 
     /// Turns the section plane on, inside the model, or off.
@@ -408,11 +457,13 @@ impl Viewer {
         let section_controls = bar(self.section.enabled, SECTION_CONTROLS_WIDTH);
         let explode_controls = bar(self.explode_controls, EXPLODE_CONTROLS_WIDTH);
         let isolation_controls = bar(input.scene.is_isolating(), ISOLATION_CONTROLS_WIDTH);
+        let capture_controls = bar(self.turntable_progress().is_some(), CAPTURE_CONTROLS_WIDTH);
         let controls: Vec<Rect> = [
             zoom_controls,
             section_controls,
             explode_controls,
             isolation_controls,
+            capture_controls,
         ]
         .into_iter()
         .flatten()
@@ -441,6 +492,7 @@ impl Viewer {
                     (rect.width() * ppp).round().max(1.0) as u32,
                     (rect.height() * ppp).round().max(1.0) as u32,
                 ];
+                self.view_px = size;
                 let settings = input.settings;
                 let top = linear_rgba(settings.background, 1.0);
                 let bottom = if settings.use_gradient {
@@ -455,6 +507,7 @@ impl Viewer {
                     background_bottom: bottom,
                     items: &items,
                     section: self.section.renderer_plane(bounds),
+                    pixel_scale: 1.0,
                 };
                 let texture = {
                     let mut egui_renderer = render_state.renderer.write();
@@ -466,9 +519,48 @@ impl Viewer {
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
-                if let Some(path) = self.screenshot.take() {
-                    let pixels = renderer.render_pixels(&frame_input);
-                    events.push(ViewerEvent::Screenshot(save_screenshot(pixels, path)));
+                match self.capture.take() {
+                    Some(Capture::Image { path, options }) => {
+                        let image = FrameInput {
+                            size: options.image_size(size),
+                            pixel_scale: options.pixel_scale(size),
+                            ..capture_input(frame_input, options.transparent)
+                        };
+                        let saved = renderer
+                            .render_pixels(&image)
+                            .ok_or_else(|| "the GPU did not return the image".to_owned())
+                            .and_then(|(size, pixels)| {
+                                capture::save_png(&path, size, pixels, options.transparent)
+                            })
+                            .map(|()| format!("Screenshot saved to {}", path.display()));
+                        events.push(ViewerEvent::Captured(saved));
+                    }
+                    Some(Capture::Turntable(mut export)) => {
+                        let mut camera = self.camera.clone();
+                        camera.set_pose(export.next_pose());
+                        let frame = FrameInput {
+                            camera: &camera,
+                            size: export.size(),
+                            pixel_scale: export.pixel_scale(),
+                            ..capture_input(frame_input, export.transparent())
+                        };
+                        let written = renderer
+                            .render_pixels(&frame)
+                            .ok_or_else(|| "the GPU did not return the image".to_owned())
+                            .and_then(|(_, pixels)| export.write_frame(pixels));
+                        match written {
+                            Ok(false) => {
+                                self.capture = Some(Capture::Turntable(export));
+                                ui.ctx().request_repaint();
+                            }
+                            Ok(true) => events.push(ViewerEvent::Captured(export.finish())),
+                            Err(error) => {
+                                export.cancel();
+                                events.push(ViewerEvent::Captured(Err(error)));
+                            }
+                        }
+                    }
+                    None => {}
                 }
             }
             None => {
@@ -495,6 +587,9 @@ impl Viewer {
         }
         if let Some(controls) = isolation_controls {
             show_isolation_controls(ui, rect, controls, input.scene, &mut events);
+        }
+        if let (Some(controls), Some(progress)) = (capture_controls, self.turntable_progress()) {
+            show_capture_controls(ui, rect, controls, progress, &mut events);
         }
         events
     }
@@ -1200,6 +1295,29 @@ fn show_explode_controls(
     });
 }
 
+fn show_capture_controls(
+    parent: &mut egui::Ui,
+    view: Rect,
+    rect: Rect,
+    (written, frames): (u32, u32),
+    events: &mut Vec<ViewerEvent>,
+) {
+    control_bar(parent, view, rect, |ui| {
+        ui.label(format!("{} Turntable {written}/{frames}", icon::FILM_STRIP));
+        ui.add(
+            egui::ProgressBar::new(written as f32 / frames.max(1) as f32)
+                .desired_width((ui.available_width() - 30.0).max(40.0)),
+        );
+        if ui
+            .small_button(icon::X)
+            .on_hover_text("Stop and delete what was written")
+            .clicked()
+        {
+            events.push(ViewerEvent::Command(Action::CancelTurntable));
+        }
+    });
+}
+
 fn show_isolation_controls(
     parent: &mut egui::Ui,
     view: Rect,
@@ -1333,18 +1451,28 @@ fn paint_spinner(painter: &egui::Painter, center: Pos2, radius: f32, color: Colo
 #[path = "../../tests/rust/viewer/test_navigation.rs"]
 mod tests;
 
-fn save_screenshot(pixels: Option<([u32; 2], Vec<u8>)>, path: PathBuf) -> Result<PathBuf, String> {
-    let ([width, height], pixels) =
-        pixels.ok_or_else(|| "the GPU did not return the image".to_owned())?;
-    image::save_buffer(
-        &path,
-        &pixels,
-        width,
-        height,
-        image::ExtendedColorType::Rgba8,
-    )
-    .map_err(|err| err.to_string())?;
-    Ok(path)
+/// A capture to make with the next frame of the view.
+enum Capture {
+    Image {
+        path: PathBuf,
+        options: CaptureOptions,
+    },
+    /// Written one frame per frame of the view.
+    Turntable(Box<TurntableExport>),
+}
+
+/// The frame as captured: without the background when it is transparent
+/// (premultiplied black, which `capture::save_png` straightens).
+fn capture_input(frame: FrameInput<'_>, transparent: bool) -> FrameInput<'_> {
+    if transparent {
+        FrameInput {
+            background_top: [0.0; 4],
+            background_bottom: [0.0; 4],
+            ..frame
+        }
+    } else {
+        frame
+    }
 }
 
 // -- colors ------------------------------------------------------------------

@@ -1,6 +1,7 @@
 //! Modal and floating windows: preferences, upload, about, unsaved changes
 //! and messages.
 
+pub mod capture;
 pub mod preferences;
 pub mod upload;
 
@@ -81,6 +82,7 @@ pub struct Dialogs {
     pub preferences_page: preferences::Page,
     pub about: bool,
     pub upload: Option<upload::UploadDialog>,
+    pub capture: capture::CaptureDialog,
     pub unsaved: Option<Intent>,
     pub external_change: Option<ExternalChange>,
     pub recovery_session: Option<RecoverySnapshot>,
@@ -129,6 +131,16 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         && !upload.window(ctx, &mut actions)
     {
         state.dialogs.upload = None;
+    }
+
+    if state.dialogs.capture.open {
+        capture::window(
+            ctx,
+            &mut state.dialogs.capture,
+            state.viewer.view_px(),
+            state.viewer.turntable_progress(),
+            &mut actions,
+        );
     }
 
     if state.dialogs.about {

@@ -197,12 +197,13 @@ fn in_mode(mode: DisplayMode) -> Style {
 }
 
 struct Frame {
+    side: u32,
     pixels: Vec<u8>,
 }
 
 impl Frame {
     fn at(&self, x: u32, y: u32) -> [u8; 4] {
-        let start = ((y * SIZE + x) * 4) as usize;
+        let start = ((y * self.side + x) * 4) as usize;
         <[u8; 4]>::try_from(&self.pixels[start..start + 4]).unwrap()
     }
 }
@@ -214,6 +215,19 @@ fn draw(
     view: StandardView,
     style: Style,
     section: Option<Section>,
+) -> Frame {
+    draw_sized(renderer, view, style, section, SIZE, 1.0, BACKGROUND)
+}
+
+/// `draw` in a `side` square image, with widths times `pixel_scale`.
+fn draw_sized(
+    renderer: &mut SceneRenderer,
+    view: StandardView,
+    style: Style,
+    section: Option<Section>,
+    side: u32,
+    pixel_scale: f32,
+    background: [f32; 4],
 ) -> Frame {
     let mesh = Arc::new(cube(1.0));
     let bounds = mesh.bounds;
@@ -235,15 +249,16 @@ fn draw(
     let (size, pixels) = renderer
         .render_pixels(&FrameInput {
             camera: &camera,
-            size: [SIZE, SIZE],
-            background_top: BACKGROUND,
-            background_bottom: BACKGROUND,
+            size: [side, side],
+            background_top: background,
+            background_bottom: background,
             items: &items,
             section: section.and_then(|section| section.renderer_plane(bounds)),
+            pixel_scale,
         })
         .expect("the frame is read back");
-    assert_eq!(size, [SIZE, SIZE]);
-    Frame { pixels }
+    assert_eq!(size, [side, side]);
+    Frame { side, pixels }
 }
 
 fn cut(offset: f32, caps: bool) -> Option<Section> {
@@ -397,5 +412,98 @@ fn display_modes_render_faces_edges_and_fills_as_documented() {
             hatch.iter().any(|p| p[2] < 60),
             "hatch lines in the edge color"
         );
+    });
+}
+
+#[test]
+fn large_captures_are_drawn_in_tiles_that_match_one_pass() {
+    with_gpu(|renderer| {
+        let style = in_mode(DisplayMode::Shaded);
+        let whole = draw(renderer, StandardView::Iso, style, None);
+        // Tiles of 48 pixels: three by three, the last ones reaching past
+        // the image.
+        renderer.tile_side = 48;
+        let tiled = draw(renderer, StandardView::Iso, style, None);
+        let hatched = draw(
+            renderer,
+            StandardView::Top,
+            in_mode(DisplayMode::HiddenLine),
+            cut(0.0, true),
+        );
+        renderer.tile_side = TILE_SIDE;
+        let hatched_whole = draw(
+            renderer,
+            StandardView::Top,
+            in_mode(DisplayMode::HiddenLine),
+            cut(0.0, true),
+        );
+
+        for (a, b) in [(&whole, &tiled), (&hatched_whole, &hatched)] {
+            let differences = a
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(b.pixels.as_chunks::<4>().0)
+                .filter(|(a, b)| a.iter().zip(b.iter()).any(|(a, b)| a.abs_diff(*b) > 2))
+                .count();
+            assert!(
+                differences <= (SIZE * SIZE / 500) as usize,
+                "{differences} pixels differ between the tiled and the whole image"
+            );
+        }
+    });
+}
+
+#[test]
+fn captures_leave_out_a_transparent_background_and_scale_edges() {
+    with_gpu(|renderer| {
+        let style = in_mode(DisplayMode::Shaded);
+        let transparent = draw_sized(
+            renderer,
+            StandardView::Iso,
+            style,
+            None,
+            SIZE,
+            1.0,
+            [0.0; 4],
+        );
+        assert_eq!(transparent.at(2, 2), [0, 0, 0, 0], "no background");
+        assert_eq!(transparent.at(94, 62)[3], 255, "an opaque face");
+        let silhouette = transparent
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| (1..255).contains(&pixel[3]))
+            .count();
+        assert!(silhouette > 0, "antialiased edges are partly transparent");
+
+        // Twice the size with twice the width: the visible edge straight
+        // down from the centre is twice as wide. Its width is measured as
+        // its coverage over the faces on either side, in linear space, so
+        // it does not depend on how the edge falls on the pixels.
+        let edge_width = |frame: &Frame, y: u32| -> f32 {
+            let linear = |c: u8| (f32::from(c) / 255.0).powf(2.2);
+            let (center, reach) = (frame.side / 2, frame.side / 16);
+            let face = |x: u32| linear(frame.at(x, y)[0]);
+            let (left, right) = (face(center - reach), face(center + reach));
+            (center - reach..center + reach)
+                .map(|x| 1.0 - face(x) / if x < center { left } else { right })
+                .sum()
+        };
+        let small = draw(renderer, StandardView::Iso, style, None);
+        let large = draw_sized(
+            renderer,
+            StandardView::Iso,
+            style,
+            None,
+            SIZE * 2,
+            2.0,
+            BACKGROUND,
+        );
+        let (thin, thick) = (edge_width(&small, 90), edge_width(&large, 180));
+        assert!((thin - 1.5).abs() < 0.4, "a 1.5 pixel edge: {thin}");
+        assert!((thick / thin - 2.0).abs() < 0.25, "{thin} then {thick}");
     });
 }

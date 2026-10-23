@@ -74,7 +74,7 @@ it does not turn the two open gaps into supported features.
 | `viewer.mouse` | Left orbit/select, middle or Ctrl+left pan, right or Shift+left zoom, and wheel zoom retain their bindings. | Verified | `tests/rust/viewer/test_navigation.rs::legacy_mouse_gestures_keep_their_navigation_modes` |
 | `viewer.navigation-cube` | Face/edge/corner views and 45-degree roll remain, with native hover feedback and animation. | Enhanced | `tests/rust/viewer/test_overlays.rs::arrows_are_hit_on_both_sides` |
 | `viewer.selection` | Object selection remains and now resolves stable OCCT face, edge and vertex identities. | Enhanced | `tests/rust/viewer/test_picking.rs::prioritizes_vertices_then_edges_then_faces` |
-| `viewer.screenshot` | PNG screenshots are implemented, but capture and save-dialog integration are not automated. | Unverified | Follow-up: [GUI-only validation](#gui-only-validation) |
+| `viewer.screenshot` | Tools > Screenshot still saves the view as PNG; larger sizes (drawn in tiles), a transparent background and turntable animations were added. Capture, tiling, transparency and PNG writing are tested; only the native save dialog is not. | Enhanced | `tests/rust/viewer/test_renderer.rs::captures_leave_out_a_transparent_background_and_scale_edges` |
 | `viewer.stereo` | Stereo, mono-eye and OCCT stereo-composition modes are not implemented by the wgpu renderer. | Gap | Decision: [Stereo projection](#stereo-projection) |
 | `panels.docking` | All legacy panels are dockable and resizable, but full drag/detach/layout equivalence has no automated UI test. | Unverified | Follow-up: [GUI-only validation](#gui-only-validation) |
 | `preferences.persistence` | Supported preferences and the dock layout persist across sessions. | Verified | `tests/rust/app/test_settings.rs::preferences_round_trip_through_json` |
@@ -182,12 +182,15 @@ configured.
 
 ### GUI-only validation
 
-Screenshot capture and free-form dock dragging cross native window/GPU
-boundaries. They remain **Unverified**, not presumed equivalent. `ENG-03`
-tracks a headless UI harness. The display modes are no longer in this group:
+Free-form dock dragging crosses native window boundaries. It remains
+**Unverified**, not presumed equivalent. `ENG-03` tracks a headless UI
+harness. The display modes and screenshots are no longer in this group:
 `tests/rust/viewer/test_renderer.rs` renders them offscreen on any wgpu
-adapter and checks pixels that each mode must produce; CI requires the
-software adapter (WARP) on Windows, so those checks always run there.
+adapter and checks pixels that each must produce (tiled captures included),
+and `tests/rust/viewer/test_capture.rs` checks the PNG and animated PNG
+files; CI requires the software adapter (WARP) on Windows, so the pixel
+checks always run there. The native save dialog is the only untested part
+of a screenshot.
 
 ## Change policy
 

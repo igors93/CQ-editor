@@ -102,8 +102,17 @@ MSAA when available. egui then shows it like an image, through a non-sRGB
 view of the same texture so colors are not encoded twice. Draw order:
 background (flat or gradient), opaque faces, edges and points, transparent
 faces back to front, then the inspector overlay on top. The same code renders
-into a texture of its own for screenshots (`render_pixels`), which also lets
-the tests draw on any adapter without a window.
+into textures of its own for screenshots (`render_pixels`), which also lets
+the tests draw on any adapter without a window. A capture larger than
+2048 pixels on a side is drawn in tiles: each pass scales and shifts clip
+space after the projection (`Tile::projection`), so both projections work
+and screen-space widths stay in image pixels, and the camera uniform's
+`frame` places the tile in the whole image for the background gradient. A
+transparent capture draws over transparent black; blending then leaves
+premultiplied colors, which `viewer/capture.rs` turns into the straight
+alpha of PNG (in linear space, since the colors are sRGB). Turntable frames
+are written one per frame of the view, with the `png` crate's animated PNG
+encoder.
 
 A **section plane** (`viewer/section.rs`) is a uniform: the fragment shaders
 discard what lies on the removed side of it for objects marked `clipped`. The

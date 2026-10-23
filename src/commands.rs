@@ -86,7 +86,13 @@ pub enum Action {
     // Tools
     Export(ExportFormat),
     ToggleInspect,
+    /// Opens the screenshot and animation options.
     Screenshot,
+    /// Asks where to save a screenshot with the chosen options.
+    SaveImage,
+    /// Asks where to save a turntable animation and starts it.
+    ExportTurntable,
+    CancelTurntable,
     Upload,
     // Help
     Documentation,

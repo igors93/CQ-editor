@@ -301,13 +301,8 @@ impl AppState {
                 }),
                 ViewerEvent::FocusRequested => self.actions.push(Action::FitSelection),
                 ViewerEvent::Command(action) => self.actions.push(action),
-                ViewerEvent::Screenshot(Ok(path)) => {
-                    self.set_status(
-                        StatusKind::Success,
-                        format!("Screenshot saved to {}", path.display()),
-                    );
-                }
-                ViewerEvent::Screenshot(Err(err)) => self.dialogs.error("Screenshot failed", err),
+                ViewerEvent::Captured(Ok(message)) => self.set_status(StatusKind::Success, message),
+                ViewerEvent::Captured(Err(err)) => self.dialogs.error("Capture failed", err),
             }
         }
     }
@@ -440,7 +435,15 @@ impl AppState {
 
             Action::Export(format) => self.export(format),
             Action::ToggleInspect => self.toggle_inspect(),
-            Action::Screenshot => self.screenshot(),
+            Action::Screenshot => self.dialogs.capture.open = true,
+            Action::SaveImage => self.save_image(),
+            Action::ExportTurntable => self.export_turntable(),
+            Action::CancelTurntable => {
+                if self.viewer.turntable_progress().is_some() {
+                    self.viewer.cancel_turntable();
+                    self.set_status(StatusKind::Info, "Turntable export cancelled");
+                }
+            }
             Action::Upload => {
                 self.dialogs.upload.get_or_insert_with(Default::default);
             }

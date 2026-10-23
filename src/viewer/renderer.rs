@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::{self, wgpu};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 use wgpu::util::DeviceExt as _;
 
 use super::camera::Camera;
@@ -28,6 +28,8 @@ const EGUI_VIEW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// With a stencil, for the caps of section planes.
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 const PREFERRED_SAMPLES: u32 = 4;
+/// Captures larger than this, on either side, are drawn in tiles.
+const TILE_SIDE: u32 = 2048;
 const OBJECT_UNIFORM_SIZE: u64 = std::mem::size_of::<ObjectUniform>() as u64;
 
 #[repr(C)]
@@ -44,6 +46,7 @@ struct CameraUniform {
     clip_plane: [f32; 4],
     section: [f32; 4],
     cap_corners: [[f32; 4]; 4],
+    frame: [f32; 4],
 }
 
 #[repr(C)]
@@ -105,6 +108,7 @@ pub struct SectionPlane {
 }
 
 /// Everything needed to draw one frame.
+#[derive(Clone, Copy)]
 pub struct FrameInput<'a> {
     pub camera: &'a Camera,
     /// Physical pixels.
@@ -114,6 +118,47 @@ pub struct FrameInput<'a> {
     pub background_bottom: [f32; 4],
     pub items: &'a [DrawItem],
     pub section: Option<SectionPlane>,
+    /// Multiplies edge widths and point sizes, so that a capture larger
+    /// than the view looks like the view.
+    pub pixel_scale: f32,
+}
+
+/// The part of an image one pass draws: `size` pixels at `offset` in an
+/// image of `image` pixels. Large captures are drawn tile by tile.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Tile {
+    offset: [u32; 2],
+    size: [u32; 2],
+    image: [u32; 2],
+}
+
+impl Tile {
+    fn whole(size: [u32; 2]) -> Self {
+        Self {
+            offset: [0, 0],
+            size,
+            image: size,
+        }
+    }
+
+    /// Maps the clip space of the whole image to this tile's: a scale and
+    /// a shift after the projection, so it works for both projections and
+    /// keeps screen-space sizes in pixels.
+    fn projection(&self) -> Mat4 {
+        let [width, height] = self.image.map(|v| v as f32);
+        let [tile_width, tile_height] = self.size.map(|v| v as f32);
+        let [x, y] = self.offset.map(|v| v as f32);
+        let (scale_x, scale_y) = (width / tile_width, height / tile_height);
+        // The tile's centre in normalized device coordinates (y up).
+        let center_x = (x + tile_width / 2.0) / width * 2.0 - 1.0;
+        let center_y = 1.0 - (y + tile_height / 2.0) / height * 2.0;
+        Mat4::from_cols(
+            Vec4::new(scale_x, 0.0, 0.0, 0.0),
+            Vec4::new(0.0, scale_y, 0.0, 0.0),
+            Vec4::Z,
+            Vec4::new(-center_x * scale_x, -center_y * scale_y, 0.0, 1.0),
+        )
+    }
 }
 
 struct GpuMesh {
@@ -169,6 +214,8 @@ pub struct SceneRenderer {
     meshes: HashMap<u64, GpuMesh>,
     target: Option<Target>,
     texture_id: Option<egui::TextureId>,
+    /// Largest side of one pass of `render_pixels`.
+    tile_side: u32,
 }
 
 impl SceneRenderer {
@@ -264,6 +311,7 @@ impl SceneRenderer {
             meshes: HashMap::new(),
             target: None,
             texture_id: None,
+            tile_side: TILE_SIDE,
         }
     }
 
@@ -275,29 +323,55 @@ impl SceneRenderer {
     ) -> egui::TextureId {
         let size = [input.size[0].max(1), input.size[1].max(1)];
         let texture_id = self.ensure_target(egui_renderer, size);
-        self.prepare(input, size);
+        self.upload_meshes(input);
+        self.write_objects(input.items, input.pixel_scale);
+        self.write_camera(input, Tile::whole(size));
         let target = self.target.as_ref().expect("target created above");
         self.draw(target, input);
         texture_id
     }
 
-    /// Draws a frame into a texture of its own and reads it back, so the
-    /// result does not depend on the size of the viewport. `None` when the
-    /// size exceeds what the device supports or the read-back fails.
+    /// Draws a frame into textures of its own and reads it back as tightly
+    /// packed sRGB RGBA rows, so its size does not depend on the view or on
+    /// the largest texture of the device: large images are drawn in tiles.
+    /// `None` when the read-back fails.
     pub fn render_pixels(&mut self, input: &FrameInput<'_>) -> Option<([u32; 2], Vec<u8>)> {
-        let size = [input.size[0].max(1), input.size[1].max(1)];
-        let limit = self.device.limits().max_texture_dimension_2d;
-        if size[0] > limit || size[1] > limit {
-            return None;
+        let [width, height] = [input.size[0].max(1), input.size[1].max(1)];
+        let side = self
+            .tile_side
+            .min(self.device.limits().max_texture_dimension_2d);
+        let tile_size = [width.min(side), height.min(side)];
+        let target = create_target(&self.device, tile_size, self.samples);
+        self.upload_meshes(input);
+        self.write_objects(input.items, input.pixel_scale);
+        let row_bytes = width as usize * 4;
+        let mut image = vec![0u8; row_bytes * height as usize];
+        for y in (0..height).step_by(tile_size[1] as usize) {
+            for x in (0..width).step_by(tile_size[0] as usize) {
+                // Edge tiles reach past the image; that part is dropped.
+                self.write_camera(
+                    input,
+                    Tile {
+                        offset: [x, y],
+                        size: tile_size,
+                        image: [width, height],
+                    },
+                );
+                self.draw(&target, input);
+                let (_, pixels) = self.read_target(&target)?;
+                let tile_row = tile_size[0] as usize * 4;
+                let columns = (width - x).min(tile_size[0]) as usize * 4;
+                for row in 0..(height - y).min(tile_size[1]) as usize {
+                    let from = row * tile_row;
+                    let to = (y as usize + row) * row_bytes + x as usize * 4;
+                    image[to..to + columns].copy_from_slice(&pixels[from..from + columns]);
+                }
+            }
         }
-        let target = create_target(&self.device, size, self.samples);
-        self.prepare(input, size);
-        self.draw(&target, input);
-        self.read_target(&target)
+        Some(([width, height], image))
     }
 
-    /// Uploads new meshes and the frame's uniforms.
-    fn prepare(&mut self, input: &FrameInput<'_>, size: [u32; 2]) {
+    fn upload_meshes(&mut self, input: &FrameInput<'_>) {
         self.meshes.retain(|_, mesh| mesh.source.strong_count() > 0);
         let uploading = Instant::now();
         let (mut uploaded, mut bytes) = (0, 0);
@@ -316,9 +390,6 @@ impl SceneRenderer {
                 uploading.elapsed().as_secs_f64() * 1e3
             );
         }
-
-        self.write_camera(input, size);
-        self.write_objects(input.items);
     }
 
     fn draw(&self, target: &Target, input: &FrameInput<'_>) {
@@ -497,16 +568,19 @@ impl SceneRenderer {
         self.texture_id.expect("texture registered")
     }
 
-    fn write_camera(&self, input: &FrameInput<'_>, size: [u32; 2]) {
+    fn write_camera(&self, input: &FrameInput<'_>, tile: Tile) {
         let camera = input.camera;
-        let (width, height) = (size[0] as f32, size[1] as f32);
+        let [image_width, image_height] = tile.image.map(|v| v as f32);
+        let [width, height] = tile.size.map(|v| v as f32);
+        let [x, y] = tile.offset.map(|v| v as f32);
         let vec4 = |v: Vec3, w: f32| [v.x, v.y, v.z, w];
         let section = input.section;
         let uniform = CameraUniform {
             clip_plane: section.map_or([0.0; 4], |s| vec4(s.normal, s.offset)),
             section: [f32::from(u8::from(section.is_some())), 0.0, 0.0, 0.0],
             cap_corners: section.map_or([[0.0; 4]; 4], |s| s.cap_corners.map(|c| vec4(c, 1.0))),
-            view_proj: camera.view_projection(width / height).to_cols_array_2d(),
+            view_proj: (tile.projection() * camera.view_projection(image_width / image_height))
+                .to_cols_array_2d(),
             eye: vec4(
                 camera.eye(),
                 if camera.is_perspective() { 1.0 } else { 0.0 },
@@ -517,6 +591,7 @@ impl SceneRenderer {
             viewport: [width, height, 1.0 / width, 1.0 / height],
             background_top: input.background_top,
             background_bottom: input.background_bottom,
+            frame: [x, y, image_width, image_height],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
@@ -524,7 +599,7 @@ impl SceneRenderer {
 
     /// One uniform block per item, at `object_stride` intervals; slot 0 is
     /// reserved for the background pass, so item `i` lives in slot `i + 1`.
-    fn write_objects(&mut self, items: &[DrawItem]) {
+    fn write_objects(&mut self, items: &[DrawItem], pixel_scale: f32) {
         let needed = items.len() + 1;
         if needed > self.object_capacity {
             self.object_capacity = needed.next_power_of_two();
@@ -547,8 +622,8 @@ impl SceneRenderer {
                 edge_color: style.edge_color,
                 highlight: style.highlight,
                 params: [
-                    style.edge_width,
-                    style.point_size,
+                    style.edge_width * pixel_scale,
+                    style.point_size * pixel_scale,
                     f32::from(u8::from(style.clipped)),
                     f32::from(u8::from(style.background_fill)),
                 ],

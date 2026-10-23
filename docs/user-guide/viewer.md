@@ -290,5 +290,34 @@ Export precision is set separately (see [Exporting](exporting.md)).
 
 ## Screenshots
 
-**Tools > Screenshot…** (toolbar camera icon) saves the 3D view as a PNG
-image.
+**Tools > Screenshot…** (toolbar camera icon) opens the screenshot options;
+**Save Image…** then asks where to save the PNG.
+
+| Option | Effect |
+| --- | --- |
+| View ×1 · ×2 · ×4 | The view's size in pixels, times 1, 2 or 4 |
+| Custom | Any width and height; what is shown keeps the view's height, so a wider image shows more on the sides |
+| Transparent | Leaves the background out: only the model, with antialiased edges, in a PNG with alpha |
+
+The image looks like the view at any size: edges and points get wider in
+proportion, and so do the dashes and section hatching of the Hidden Line
+mode. Images up to 8192 pixels on a side can be saved; when that is more
+than the graphics card can draw at once, the image is drawn in tiles.
+
+### Turntable animations
+
+The second part of the screenshot window exports one turn of the camera
+around the model, starting from the current view, at the size and with the
+background chosen above:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| Frames | 72 | Images per turn (4 to 720) |
+| fps | 24 | Frames per second when played, up to 60; 72 frames at 24 fps is a 3-second turn |
+| Direction | Counterclockwise | How the model turns, seen from above (about the vertical Z axis through the point the camera looks at) |
+| Format | Animated PNG | One looping animated PNG, which browsers and most image viewers play; or one PNG file per frame, `name_0001.png` and on, for video tools such as `ffmpeg -framerate 24 -i name_%04d.png name.mp4` |
+
+**Export Turntable…** asks for the file name and writes one frame per
+frame of the view, so the editor stays responsive. A bar at the bottom left
+of the view shows the progress; ✕ (or **Cancel** in the window) stops the
+export and deletes what was written.

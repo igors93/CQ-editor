@@ -1,7 +1,7 @@
 //! Requests on behalf of the editor and the panels: completion, selection,
 //! measurement, the CQ inspector, export, screenshots, console and upload.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::execution::Pending;
 use super::{AppState, StatusKind};
@@ -379,16 +379,25 @@ impl AppState {
         }
     }
 
-    pub(super) fn screenshot(&mut self) {
-        if let Some(mut path) = rfd::FileDialog::new()
-            .add_filter("PNG image", &["png"])
-            .set_file_name("screenshot.png")
-            .save_file()
-        {
-            if path.extension().is_none() {
-                path.set_extension("png");
-            }
-            self.viewer.request_screenshot(path);
+    pub(super) fn save_image(&mut self) {
+        if self.viewer.turntable_progress().is_some() {
+            self.set_status(StatusKind::Info, "Wait for the turntable export to finish");
+            return;
+        }
+        if let Some(path) = ask_png_path("screenshot.png") {
+            self.viewer
+                .request_image(path, self.dialogs.capture.options);
+        }
+    }
+
+    pub(super) fn export_turntable(&mut self) {
+        let Some(path) = ask_png_path("turntable.png") else {
+            return;
+        };
+        let (options, turntable) = (self.dialogs.capture.options, self.dialogs.capture.turntable);
+        match self.viewer.start_turntable(path, options, turntable) {
+            Ok(()) => self.set_status(StatusKind::Info, "Exporting the turntable…"),
+            Err(error) => self.dialogs.error("Capture failed", error),
         }
     }
 
@@ -452,4 +461,16 @@ impl AppState {
             upload.failed("Python is not ready");
         }
     }
+}
+
+/// Where to save a PNG, from the save dialog (`.png` added when missing).
+fn ask_png_path(file_name: &str) -> Option<PathBuf> {
+    let mut path = rfd::FileDialog::new()
+        .add_filter("PNG image", &["png"])
+        .set_file_name(file_name)
+        .save_file()?;
+    if path.extension().is_none() {
+        path.set_extension("png");
+    }
+    Some(path)
 }
