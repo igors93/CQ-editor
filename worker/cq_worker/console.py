@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import code
+from collections.abc import Callable
 from typing import Any
 
 import cadquery as cq
@@ -15,15 +16,27 @@ class ConsoleSession:
     """A persistent interpreter.
 
     Its namespace offers the script API (``show_object`` adds objects to the
-    viewer) and, after each run, the variables of the last script run.
+    viewer), ``selected()`` for what is picked in the 3D view and, after each
+    run, the variables of the last script run.
     """
 
     def __init__(self) -> None:
         self.shown = ShownObjects()
         self.namespace: dict[str, Any] = {}
+        #: Resolves the GUI's selection when ``selected()`` is called.
+        self._selection: Callable[[], list[cq.Shape]] = list
         self.reset()
 
     def reset(self) -> None:
+        def selected() -> list[cq.Shape]:
+            """The faces, edges and vertices picked in the 3D view, in the
+            order they were picked, as ``cq.Face``, ``cq.Edge`` or
+            ``cq.Vertex`` placed as shown. When no entity is picked, the
+            shapes of the selected objects. An empty list when nothing is
+            selected."""
+
+            return list(self._selection())
+
         self.namespace.clear()
         self.namespace.update(
             {
@@ -35,11 +48,17 @@ class ConsoleSession:
                 "debug": self._debug,
                 "rand_color": rand_color,
                 "log": lambda value: script_log.info(str(value)),
+                "selected": selected,
             }
         )
         self._interpreter = code.InteractiveConsole(
             self.namespace, filename="<console>"
         )
+
+    def set_selection(self, resolve: Callable[[], list[cq.Shape]]) -> None:
+        """What ``selected()`` returns from now on; resolved when called."""
+
+        self._selection = resolve
 
     def update_variables(self, variables: dict[str, Any]) -> None:
         self.namespace.update(

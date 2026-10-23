@@ -183,7 +183,10 @@ fn output(ui: &mut egui::Ui, console: &ConsoleState, colors: &Colors) {
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     if console.entries.is_empty() {
-                        ui.weak("Python console. Try: show_object(cq.Workplane().sphere(5))");
+                        ui.weak(
+                            "Python console. Try: show_object(cq.Workplane().sphere(5)) · \
+                             selected() returns what is picked in the 3D view",
+                        );
                     }
                     for entry in &console.entries {
                         let color = match entry.kind {

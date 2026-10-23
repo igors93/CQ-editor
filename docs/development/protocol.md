@@ -73,7 +73,7 @@ The worker handles one request at a time, in arrival order.
 | `inspect_geometry` | `id`, `key`, `frame`, `item` (or null for the whole frame), `scene` | `inspection_geometry` |
 | `measure` | `id`, 1 to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`) | `measurement` |
 | `selector` | `id`, `selections` of one object, part and kind | `selector` |
-| `console` | `id`, `source`, `scene`, `known_geometry` | `scene_add` (if objects were shown), then `console_result` |
+| `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |

@@ -235,3 +235,21 @@ fn selector_actions_need_picked_entities() {
     assert_eq!(state.status.as_ref().unwrap().kind, StatusKind::Warning);
     assert!(state.document.text.is_empty());
 }
+
+#[test]
+fn the_console_gets_the_picked_entities_and_the_selected_objects() {
+    use crate::worker::protocol::TopologyKind;
+    let mut state = test_state("");
+    assert_eq!(state.console_selection(), Default::default());
+
+    pick_face(&mut state);
+    let selection = state.console_selection();
+    assert_eq!(selection.objects, ["n1"]);
+    let [entity] = selection.entities.as_slice() else {
+        panic!("one picked face");
+    };
+    assert_eq!(
+        (entity.key.as_str(), entity.kind, entity.identifier),
+        ("n1", TopologyKind::Face, 6)
+    );
+}

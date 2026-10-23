@@ -68,3 +68,30 @@ def test_console_names_shown_and_debugged_objects_after_their_variables():
     # The wrapper keeps working after the scene was handed over.
     console.execute("debug(plate)")
     assert list(console.take_shown()) == ["plate"]
+
+
+def test_selected_returns_what_the_gui_selected_when_called():
+    console = ConsoleSession()
+    assert console.execute("nothing = selected()") is False
+    assert console.namespace["nothing"] == []
+
+    face = cq.Workplane().box(2, 2, 2).faces(">Z").val()
+    calls = []
+
+    def resolve():
+        calls.append(1)
+        return [face]
+
+    console.set_selection(resolve)
+    assert not calls, "resolved only when the command calls selected()"
+    console.execute("top = selected()[0]")
+    assert console.namespace["top"] is face
+    assert "picked in the 3D view" in console.namespace["selected"].__doc__
+
+
+def test_selected_survives_script_variables_but_not_a_reset():
+    console = ConsoleSession()
+    console.update_variables({"part": 1})
+    assert callable(console.namespace["selected"])
+    console.reset()
+    assert callable(console.namespace["selected"])

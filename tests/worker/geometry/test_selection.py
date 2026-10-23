@@ -7,8 +7,10 @@ from OCP.TopExp import TopExp
 from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from cq_worker import selection
+from cq_worker.measurement import MeasurementError
 from cq_worker.selection import (
     Features,
+    PickedSelection,
     Receiver,
     SelectorError,
     atoms,
@@ -255,3 +257,71 @@ def test_stale_or_unsupported_objects_report_why():
     registry, (node,) = show({"box": cq.Workplane().box(1, 1, 1)})
     with pytest.raises(SelectorError, match="Unknown face id 7"):
         selector_candidates(registry, references(node["key"], "face", [7]))
+
+
+# -- the console's selected() ---------------------------------------------------
+
+
+def test_picked_entities_resolve_to_live_shapes_placed_as_shown():
+    plate = cq.Workplane().box(10, 10, 2)
+    assembly = cq.Assembly().add(plate, name="plate", loc=cq.Location((0, 0, 50)))
+    registry, (node,) = show({"assembly": assembly})
+    key = node["children"][0]["key"]
+    top = topology_ids(plate, "face", plate.faces(">Z").vals())
+    edge = topology_ids(plate, "edge", plate.edges("|Z and >X and >Y").vals())
+
+    picked = PickedSelection.from_message(
+        {
+            "entities": references(key, "face", top) + references(key, "edge", edge),
+            "objects": [node["key"]],
+        }
+    )
+    face, line = picked.resolve(registry)
+
+    assert isinstance(face, cq.Face) and isinstance(line, cq.Edge)
+    assert face.Area() == pytest.approx(100)
+    # In the assembly's coordinates, as the 3D view shows it.
+    assert face.Center().z == pytest.approx(51)
+    assert line.Length() == pytest.approx(2)
+
+
+def test_without_picked_entities_the_selected_objects_are_returned():
+    box = cq.Workplane().box(1, 2, 3)
+    assembly = (
+        cq.Assembly()
+        .add(cq.Workplane().box(1, 1, 1), name="a")
+        .add(cq.Workplane().sphere(1), name="b", loc=cq.Location((5, 0, 0)))
+    )
+    registry, (box_node, assembly_node) = show({"box": box, "assembly": assembly})
+
+    solid, both = PickedSelection.from_message(
+        {"objects": [box_node["key"], assembly_node["key"]]}
+    ).resolve(registry)
+
+    # A shown workplane holding one solid is that solid, not a compound.
+    assert isinstance(solid, cq.Solid) and solid.Volume() == pytest.approx(6)
+    assert isinstance(both, cq.Compound) and len(both.Solids()) == 2
+    assert PickedSelection.from_message(None).resolve(registry) == []
+
+
+def test_a_stale_selection_explains_itself():
+    box = cq.Workplane().box(1, 1, 1)
+    registry, (node,) = show({"box": box})
+    gone = PickedSelection.from_message(
+        {"entities": references(node["key"], "face", [9])}
+    )
+    with pytest.raises(LookupError, match="pick it again"):
+        gone.resolve(registry)
+    registry.release([node["key"]])
+    stale = PickedSelection.from_message({"objects": [node["key"]]})
+    with pytest.raises(LookupError, match="previous Python session"):
+        stale.resolve(registry)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [[], {"entities": {}}, {"objects": [3]}, {"entities": [{"key": "n1"}]}],
+)
+def test_malformed_selections_are_rejected(message):
+    with pytest.raises(MeasurementError):
+        PickedSelection.from_message(message)

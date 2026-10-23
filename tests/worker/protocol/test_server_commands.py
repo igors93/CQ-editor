@@ -260,3 +260,40 @@ def test_step_upload_sends_actual_model_bytes(conversation, monkeypatch):
     assert len(captured["data"]) > 100
     assert b"ISO-10303-21" in captured["data"]
     assert talk.of_type("upload_finished")[0]["status"] == 202
+
+
+def test_console_selected_returns_the_picked_entities_and_objects(conversation):
+    script = "box = cq.Workplane().box(2, 4, 6)\nshow_object(box)\n"
+    top = {"key": "n1", "part": 0, "kind": "face", "identifier": 6}
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {
+            "cmd": "console",
+            "id": 2,
+            "source": "print(type(selected()[0]).__name__, selected()[0].Area())",
+            "selection": {"entities": [top], "objects": ["n1"]},
+        },
+        {
+            "cmd": "console",
+            "id": 3,
+            "source": "print(type(selected()[0]).__name__, selected()[0].Volume())",
+            "selection": {"entities": [], "objects": ["n1"]},
+        },
+        {"cmd": "console", "id": 4, "source": "print(selected())"},
+        {"cmd": "release", "keys": ["n1"]},
+        {
+            "cmd": "console",
+            "id": 5,
+            "source": "selected()",
+            "selection": {"objects": ["n1"]},
+        },
+        {"cmd": "console", "id": 6, "source": "x = 1", "selection": {"objects": [7]}},
+    )
+    talk.serve()
+
+    assert talk.output(2) == "Face 8.0\n"
+    assert talk.output(3) == "Solid 48.0\n"
+    assert talk.output(4) == "[]\n"
+    assert "LookupError" in talk.output(5) and "render again" in talk.output(5)
+    (error,) = talk.of_type("error")
+    assert error["id"] == 6 and "scene keys" in error["message"]

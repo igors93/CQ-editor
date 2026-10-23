@@ -86,6 +86,8 @@ pub enum Request {
         source: String,
         scene: SceneSettings,
         known_geometry: Vec<String>,
+        /// What `selected()` returns while this command runs.
+        selection: ConsoleSelection,
     },
     ConsoleReset {
         id: RequestId,
@@ -434,6 +436,15 @@ pub enum TopologyKind {
     Face,
     Edge,
     Vertex,
+}
+
+/// The GUI's selection for the console's `selected()`.
+#[derive(Serialize, Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConsoleSelection {
+    /// Picked faces, edges and vertices, in the order they were picked.
+    pub entities: Vec<TopologyReference>,
+    /// Selected objects, outermost first; used when no entity is picked.
+    pub objects: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

@@ -289,6 +289,11 @@ class Server:
     # -- console -----------------------------------------------------------
 
     def run_console(self, request: Message) -> Message:
+        try:
+            picked = selection.PickedSelection.from_message(request.get("selection"))
+        except measurement.MeasurementError as error:
+            raise RequestError(str(error)) from None
+        self.console.set_selection(lambda: picked.resolve(self.registry))
         more = self.console.execute(request.get("source", ""))
         shown = self.console.take_shown()
         if shown:

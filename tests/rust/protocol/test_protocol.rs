@@ -281,6 +281,33 @@ fn selector_requests_and_replies_round_trip() {
 }
 
 #[test]
+fn console_commands_carry_the_selection_for_selected() {
+    let request = Request::Console {
+        id: 5,
+        source: "selected()".into(),
+        scene: SceneSettings {
+            linear_tolerance: 0.001,
+            angular_tolerance: 0.2,
+            merge_assemblies: false,
+        },
+        known_geometry: Vec::new(),
+        selection: ConsoleSelection {
+            entities: vec![TopologyReference {
+                key: "s1-n1".into(),
+                part: 0,
+                kind: TopologyKind::Face,
+                identifier: 6,
+            }],
+            objects: vec!["s1-n1".into()],
+        },
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["cmd"], "console");
+    assert_eq!(json["selection"]["entities"][0]["kind"], "face");
+    assert_eq!(json["selection"]["objects"][0], "s1-n1");
+}
+
+#[test]
 fn scene_additions_name_their_request() {
     let added = |text| match serde_json::from_str::<Message>(text) {
         Ok(Message::SceneAdd { id, objects }) => (id, objects.len()),

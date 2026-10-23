@@ -22,6 +22,25 @@ Python process as your scripts.
   >>> show_object(cq.Workplane().sphere(5), name="ball", color="tomato")
   ```
 
+* `selected()` returns what is picked in the 3D view, for measurements and
+  experiments: the picked faces, edges and vertices as `cq.Face`,
+  `cq.Edge` and `cq.Vertex`, in the order they were picked and placed as
+  shown (an assembly part in the assembly's coordinates). When no entity is
+  picked, it returns the shapes of the selected objects (a shown workplane
+  holding one solid gives that `cq.Solid`), and an empty list when nothing
+  is selected:
+
+  ```python
+  >>> top, hole = selected()        # a face and an edge, Ctrl+clicked
+  >>> top.Area(), hole.radius()
+  >>> top.distance(hole)
+  >>> selected()[0].Volume()        # with an object selected instead
+  ```
+
+  The selection is read when `selected()` runs. Picks from before a Python
+  restart, or of a model that changed since, raise a `LookupError` that
+  says so.
+
 * `print` output and errors appear in the console itself.
 
 | Key | Action |

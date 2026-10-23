@@ -1,9 +1,11 @@
-"""CadQuery selectors for the faces, edges or vertices picked in the GUI.
+"""What is picked in the GUI, as code: selectors and live shapes.
 
-The GUI picks entities by their 1-based OCCT topology id. A script needs a
-*selector* instead, such as ``.faces(">Z")`` or ``.edges("|Z and >Y")``.
-:func:`selector_candidates` finds the simplest selector strings that select
-exactly the picked entities of one object, and ranks them.
+The GUI picks entities by their 1-based OCCT topology id.
+:class:`PickedSelection` resolves its selection to the live shapes that the
+console's ``selected()`` returns. A script needs a *selector* instead, such
+as ``.faces(">Z")`` or ``.edges("|Z and >Y")``: :func:`selector_candidates`
+finds the simplest selector strings that select exactly the picked entities
+of one object, and ranks them.
 
 Candidates are searched cheaply: the center, direction and geometry type of
 every entity are read once, and each simple selector (``>Z``, ``|X``,
@@ -27,6 +29,7 @@ from typing import Any
 
 import cadquery as cq
 import numpy as np
+from OCP.TopoDS import TopoDS_Iterator
 
 from .measurement import MeasurementError, TopologyReference
 from .scene import Registry, TopologyIndex, to_compound
@@ -56,6 +59,72 @@ _DIAGONALS = {"XY": (1.0, 1.0, 0.0), "XZ": (1.0, 0.0, 1.0), "YZ": (0.0, 1.0, 1.0
 
 class SelectorError(MeasurementError):
     """The picked entities cannot be described by a selector."""
+
+
+@dataclass(frozen=True)
+class PickedSelection:
+    """What the GUI had selected when it sent a console command."""
+
+    #: Picked faces, edges and vertices, in the order they were picked.
+    entities: tuple[TopologyReference, ...] = ()
+    #: Keys of the selected objects (outermost first, in tree order).
+    objects: tuple[str, ...] = ()
+
+    @classmethod
+    def from_message(cls, message: Any) -> PickedSelection:
+        if message is None:
+            return cls()
+        if not isinstance(message, dict):
+            raise MeasurementError("The selection must be an object")
+        entities = message.get("entities", [])
+        objects = message.get("objects", [])
+        if not isinstance(entities, list) or not isinstance(objects, list):
+            raise MeasurementError("Selected entities and objects must be lists")
+        if not all(isinstance(key, str) and key for key in objects):
+            raise MeasurementError("Selected objects must be scene keys")
+        return cls(
+            tuple(TopologyReference.from_message(value) for value in entities),
+            tuple(objects),
+        )
+
+    def resolve(self, registry: Registry) -> list[cq.Shape]:
+        """The picked entities placed as shown, or, when none is picked,
+        the shapes of the selected objects."""
+
+        try:
+            if self.entities:
+                return [
+                    registry.get(r.key).subshape(r.part, r.kind, r.identifier)
+                    for r in self.entities
+                ]
+            return [_object_shape(registry, key) for key in self.objects]
+        except KeyError as error:
+            raise LookupError(error.args[0]) from None
+        except (IndexError, ValueError) as error:
+            raise LookupError(
+                f"{error}; the model changed since it was picked, pick it again"
+            ) from None
+
+
+def _object_shape(registry: Registry, key: str) -> cq.Shape:
+    """One shape for an object and its assembly children, as shown: a
+    compound of a single solid is that solid."""
+
+    shapes = registry.subtree_shapes([key])
+    shape = shapes[0] if len(shapes) == 1 else cq.Compound.makeCompound(shapes)
+    while isinstance(shape, cq.Compound):
+        children = list(_children(shape))
+        if len(children) != 1:
+            break
+        shape = children[0]
+    return shape
+
+
+def _children(shape: cq.Shape) -> Iterable[cq.Shape]:
+    iterator = TopoDS_Iterator(shape.wrapped)
+    while iterator.More():
+        yield cq.Shape.cast(iterator.Value())
+        iterator.Next()
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@ use crate::editor::{CompletionRequest, HoverRequest};
 use crate::panels::{EntryKind, SelectorUse};
 use crate::scene::{NodeKey, Overlay, TopologySelection};
 use crate::worker::protocol::{
-    CompletionTarget, ExportFormat, Request, SelectorCandidate, TopologyReference,
+    CompletionTarget, ConsoleSelection, ExportFormat, Request, SelectorCandidate, TopologyReference,
 };
 
 impl AppState {
@@ -93,6 +93,15 @@ impl AppState {
         }
         self.request_topology_results();
         self.refresh_inspector();
+    }
+
+    /// What the console's `selected()` returns: the picked entities, or
+    /// the selected objects.
+    pub(super) fn console_selection(&self) -> ConsoleSelection {
+        ConsoleSelection {
+            entities: self.topology_references(),
+            objects: self.scene.selected_roots(),
+        }
     }
 
     /// The selected entities as the worker names them.
@@ -330,6 +339,7 @@ impl AppState {
         self.console.record_input(&source);
         let scene = self.settings.scene_settings();
         let known_geometry = self.scene.known_geometry();
+        let selection = self.console_selection();
         let mut sent = None;
         if self.send_tracked(Pending::Console, |id| {
             sent = Some(id);
@@ -338,6 +348,7 @@ impl AppState {
                 source,
                 scene,
                 known_geometry: known_geometry.clone(),
+                selection,
             }
         }) {
             if let Some(id) = sent {
