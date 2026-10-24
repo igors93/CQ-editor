@@ -422,6 +422,16 @@ fn the_ground_grid_follows_its_setting_and_the_zoom() {
     };
     let (_, minor, major) = viewer.ground.clone().unwrap();
     let items = viewer.draw_items(&input, false);
+    let z_axis = viewer.axis_meshes.as_ref().unwrap().1[2].id;
+    assert_eq!(
+        items
+            .iter()
+            .find(|item| item.mesh.id == z_axis)
+            .unwrap()
+            .layer,
+        Layer::Scene,
+        "the Z axis keeps normal scene depth and may cross the model"
+    );
     let grid_items: Vec<_> = items
         .iter()
         .filter(|item| item.mesh.id == minor.id || item.mesh.id == major.id)

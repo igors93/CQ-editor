@@ -1185,7 +1185,7 @@ impl Viewer {
                         mesh.clone(),
                         rgb_to_linear(axis.color, 1.0),
                         1.5,
-                        Layer::Reference,
+                        Layer::Scene,
                     ));
                 }
             }
