@@ -99,7 +99,13 @@ covers its transitions without a window or a process.
 
 `viewer/renderer.rs` draws the scene off screen into an sRGB texture with 4×
 MSAA when available. egui then shows it like an image, through a non-sRGB
-view of the same texture so colors are not encoded twice. Draw order:
+view of the same texture so colors are not encoded twice. Devices that
+cannot view a texture in another format (wgpu's OpenGL backend, used where
+Vulkan is missing and by Mesa's software llvmpipe) get a plain copy instead,
+which a small pass (`present.wgsl`) fills after each frame by encoding the
+colors by hand; offscreen targets (captures, stereo eyes) need neither.
+Multisampling is used only when both the color and the depth-stencil format
+support it. Draw order:
 background (flat or gradient), opaque faces, edges and points, transparent
 faces back to front, then the inspector overlay on top. The same code renders
 into textures of its own for screenshots (`render_pixels`), which also lets

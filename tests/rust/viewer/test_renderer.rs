@@ -84,6 +84,17 @@ fn the_stereo_shader_is_valid_wgsl_matching_its_uniform() {
     );
 }
 
+#[test]
+fn the_present_shader_is_valid_wgsl() {
+    let module = validated(include_str!("../../../src/viewer/present.wgsl"));
+    let entry_points: Vec<&str> = module
+        .entry_points
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(entry_points, ["vs_present", "fs_present"]);
+}
+
 // -- on a GPU ------------------------------------------------------------------
 
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -497,7 +508,10 @@ fn captures_leave_out_a_transparent_background_and_scale_edges() {
             .iter()
             .filter(|pixel| (1..255).contains(&pixel[3]))
             .count();
-        assert!(silhouette > 0, "antialiased edges are partly transparent");
+        // Without multisampling a pixel is covered or not.
+        if renderer.samples() > 1 {
+            assert!(silhouette > 0, "antialiased edges are partly transparent");
+        }
 
         // Twice the size with twice the width: the visible edge straight
         // down from the centre is twice as wide. Its width is measured as
@@ -523,8 +537,20 @@ fn captures_leave_out_a_transparent_background_and_scale_edges() {
             BACKGROUND,
         );
         let (thin, thick) = (edge_width(&small, 90), edge_width(&large, 180));
-        assert!((thin - 1.5).abs() < 0.4, "a 1.5 pixel edge: {thin}");
-        assert!((thick / thin - 2.0).abs() < 0.25, "{thin} then {thick}");
+        // Whole pixels without multisampling: 2 for 1.5, 3 or 4 for 3.
+        let (expected, tolerance) = if renderer.samples() > 1 {
+            ((1.5, 0.4), 0.25)
+        } else {
+            ((2.0, 0.6), 0.6)
+        };
+        assert!(
+            (thin - expected.0).abs() < expected.1,
+            "a 1.5 pixel edge: {thin}"
+        );
+        assert!(
+            (thick / thin - 2.0).abs() < tolerance,
+            "{thin} then {thick}"
+        );
     });
 }
 
@@ -655,5 +681,53 @@ fn stereo_modes_compose_on_the_gpu_as_the_reference_does() {
             };
             assert!(worst <= tolerance, "{mode:?}: off by {worst}");
         }
+    });
+}
+
+#[test]
+fn egui_gets_the_same_texels_where_textures_cannot_be_viewed_as_plain() {
+    // OpenGL cannot view the sRGB target as plain 8-bit values, so egui is
+    // given a copy encoded by hand; it must hold exactly the same bytes.
+    with_gpu(|renderer| {
+        let mesh = Arc::new(cube(1.0));
+        let mut camera = Camera {
+            scene_radius: 2.0,
+            ..Camera::default()
+        };
+        camera.set_pose(Pose {
+            target: Vec3::ZERO,
+            rotation: StandardView::Iso.rotation(),
+            extent: 2.0,
+        });
+        let items = [DrawItem {
+            mesh,
+            transform: Mat4::IDENTITY,
+            style: Style {
+                face_color: [1.0, 0.0, 0.0, 0.6],
+                ..in_mode(DisplayMode::Shaded)
+            },
+            layer: Layer::Scene,
+        }];
+        let (srgb, encoded) = renderer
+            .presented_pixels(&FrameInput {
+                camera: &camera,
+                size: [SIZE, SIZE],
+                // A gradient, so many levels go through the encoding.
+                background_top: [1.0, 0.5, 0.0, 1.0],
+                background_bottom: [0.0, 0.1, 0.9, 0.5],
+                items: &items,
+                section: None,
+                pixel_scale: 1.0,
+                eye: Eye::Center,
+            })
+            .unwrap();
+        assert_eq!(srgb.len(), encoded.len());
+        let worst = srgb
+            .iter()
+            .zip(&encoded)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert_eq!(worst, 0, "the encoded copy differs by up to {worst}");
     });
 }

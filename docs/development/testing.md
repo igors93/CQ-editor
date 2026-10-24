@@ -46,7 +46,9 @@ stderr) on a machine that has none. Set `CQ_EDITOR_REQUIRE_GPU=1` to make a
 missing adapter fail instead (CI does on Windows), and
 `WGPU_ADAPTER_NAME` (part of a name) or `WGPU_BACKEND` to choose one, for
 example `WGPU_ADAPTER_NAME="Microsoft Basic Render Driver"` for the
-software adapter CI uses on Windows.
+software adapter CI uses on Windows. On Linux, CI renders with Mesa's
+llvmpipe through wgpu's OpenGL backend; `WGPU_BACKEND=gl` reproduces that
+backend's limits on any machine.
 
 Rust tests live in `tests/rust/` but are **included from the source module
 they test** with `#[cfg(test)] #[path = "…"] mod tests;`. They can therefore

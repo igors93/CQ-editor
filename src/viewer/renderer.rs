@@ -2,7 +2,9 @@
 //!
 //! The scene is drawn off screen (4x MSAA when available) into an sRGB
 //! texture that egui then shows like an image. egui samples textures as
-//! gamma-encoded values, so it is handed a non-sRGB view of the same texture.
+//! gamma-encoded values, so it is handed a non-sRGB view of the same
+//! texture, or, on devices that cannot view a texture in another format
+//! (the OpenGL backend), a plain copy encoded by `present.wgsl`.
 //!
 //! Draw order: background, opaque faces (each followed by its section cap),
 //! edges and points, hidden edges (hidden-line mode), transparent faces
@@ -199,8 +201,35 @@ struct Target {
     multisampled: Option<wgpu::TextureView>,
     resolved: wgpu::Texture,
     resolved_view: wgpu::TextureView,
-    egui_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
+    /// What egui shows; only the view's own target has it.
+    egui: Option<EguiTexture>,
+}
+
+/// The view's image as egui reads it: gamma-encoded 8-bit values.
+enum EguiTexture {
+    /// A plain view of the sRGB texture: the same texels, not decoded.
+    View(wgpu::TextureView),
+    /// For devices without `DownlevelFlags::VIEW_FORMATS` (OpenGL): a
+    /// plain texture that `present.wgsl` fills after each frame.
+    Encoded {
+        view: wgpu::TextureView,
+        bind_group: wgpu::BindGroup,
+    },
+}
+
+impl Target {
+    fn egui_view(&self) -> &wgpu::TextureView {
+        match self.egui.as_ref().expect("the view's target") {
+            EguiTexture::View(view) | EguiTexture::Encoded { view, .. } => view,
+        }
+    }
+}
+
+/// Fills an `EguiTexture::Encoded` (`present.wgsl`).
+struct Present {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
 }
 
 struct Pipelines {
@@ -242,6 +271,9 @@ pub struct SceneRenderer {
     compose: Compose,
     /// What the eyes of the stereo projection are drawn into.
     eye_targets: Option<[Target; 2]>,
+    present: Present,
+    /// The device can view the sRGB target as plain for egui.
+    view_formats: bool,
 }
 
 /// Items of the last pass drawn, and skipped as out of view.
@@ -262,15 +294,15 @@ impl SceneRenderer {
 
     /// A renderer on any device, including one without a window.
     pub fn with_device(device: wgpu::Device, queue: wgpu::Queue, adapter: &wgpu::Adapter) -> Self {
-        let format_features = adapter.get_texture_format_features(COLOR_FORMAT);
-        let samples = if format_features
-            .flags
-            .sample_count_supported(PREFERRED_SAMPLES)
-        {
-            PREFERRED_SAMPLES
-        } else {
-            1
-        };
+        // Both attachments must support the sample count (software
+        // OpenGL, for one, may not).
+        let multisampled = [COLOR_FORMAT, DEPTH_FORMAT].into_iter().all(|format| {
+            adapter
+                .get_texture_format_features(format)
+                .flags
+                .sample_count_supported(PREFERRED_SAMPLES)
+        });
+        let samples = if multisampled { PREFERRED_SAMPLES } else { 1 };
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders.wgsl"));
 
@@ -329,6 +361,11 @@ impl SceneRenderer {
         });
         let pipelines = Pipelines::new(&device, &layout, &shader, samples);
         let compose = Compose::new(&device);
+        let present = Present::new(&device);
+        let view_formats = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VIEW_FORMATS);
 
         Self {
             device,
@@ -349,6 +386,8 @@ impl SceneRenderer {
             stats: Default::default(),
             compose,
             eye_targets: None,
+            present,
+            view_formats,
         }
     }
 
@@ -365,6 +404,7 @@ impl SceneRenderer {
         let view_projection = self.write_camera(input, Tile::whole(size));
         let target = self.target.as_ref().expect("target created above");
         self.draw(target, input, view_projection);
+        self.present(target);
         texture_id
     }
 
@@ -421,6 +461,7 @@ impl SceneRenderer {
         self.draw_eyes(input, mode);
         let target = self.target.as_ref().expect("target created above");
         self.compose_eyes(mode, &target.resolved_view);
+        self.present(target);
         texture_id
     }
 
@@ -572,6 +613,12 @@ impl SceneRenderer {
         self.stats.get()
     }
 
+    /// Samples per pixel: 4 with multisampling, else 1.
+    #[cfg(test)]
+    fn samples(&self) -> u32 {
+        self.samples
+    }
+
     fn draw(&self, target: &Target, input: &FrameInput<'_>, view_projection: Mat4) {
         // Items wholly outside the view are skipped, faces, edges and caps,
         // allowing for the widest edge or point drawn across the border.
@@ -681,7 +728,69 @@ impl SceneRenderer {
 
     /// Reads a target back as tightly packed sRGB RGBA rows.
     fn read_target(&self, target: &Target) -> Option<([u32; 2], Vec<u8>)> {
-        let [width, height] = target.size;
+        self.read_texture(&target.resolved, target.size)
+    }
+
+    /// The view's target drawn, as the sRGB texture and as egui's plain
+    /// copy encoded by `present.wgsl` (for the tests, on any device).
+    #[cfg(test)]
+    fn presented_pixels(&mut self, input: &FrameInput<'_>) -> Option<(Vec<u8>, Vec<u8>)> {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let target = create_view_target(&self.device, &self.present, size, self.samples, false);
+        self.upload_meshes(input);
+        self.write_objects(input.items, input.pixel_scale);
+        let view_projection = self.write_camera(input, Tile::whole(size));
+        self.draw(&target, input, view_projection);
+        self.present(&target);
+        let Some(EguiTexture::Encoded { view, .. }) = &target.egui else {
+            unreachable!("created encoded");
+        };
+        Some((
+            self.read_target(&target)?.1,
+            self.read_texture(view.texture(), size)?.1,
+        ))
+    }
+
+    /// Fills egui's plain copy of `target`, when it has one.
+    fn present(&self, target: &Target) {
+        let Some(EguiTexture::Encoded {
+            view, bind_group, ..
+        }) = &target.egui
+        else {
+            return;
+        };
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("present"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("present"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.present.pipeline);
+            pass.set_bind_group(0, bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.queue.submit([encoder.finish()]);
+    }
+
+    /// Reads a color texture back as tightly packed RGBA rows.
+    fn read_texture(&self, texture: &wgpu::Texture, size: [u32; 2]) -> Option<([u32; 2], Vec<u8>)> {
+        let [width, height] = size;
         let row_bytes = width * 4;
         let padded_row = row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -698,7 +807,7 @@ impl SceneRenderer {
             });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target.resolved,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -748,18 +857,24 @@ impl SceneRenderer {
         size: [u32; 2],
     ) -> egui::TextureId {
         if self.target.as_ref().is_none_or(|t| t.size != size) {
-            let target = create_target(&self.device, size, self.samples);
+            let target = create_view_target(
+                &self.device,
+                &self.present,
+                size,
+                self.samples,
+                self.view_formats,
+            );
             match self.texture_id {
                 Some(id) => egui_renderer.update_egui_texture_from_wgpu_texture(
                     &self.device,
-                    &target.egui_view,
+                    target.egui_view(),
                     wgpu::FilterMode::Linear,
                     id,
                 ),
                 None => {
                     self.texture_id = Some(egui_renderer.register_native_texture(
                         &self.device,
-                        &target.egui_view,
+                        target.egui_view(),
                         wgpu::FilterMode::Linear,
                     ));
                 }
@@ -992,7 +1107,69 @@ fn create_object_buffer(
     (buffer, bind_group)
 }
 
+/// A target drawn off screen and read back (captures, stereo eyes).
 fn create_target(device: &wgpu::Device, size: [u32; 2], samples: u32) -> Target {
+    create_target_with(device, size, samples, &[])
+}
+
+/// The view's target, which egui shows: through a plain view of the sRGB
+/// texture when the device can make one (`view_formats`), else through a
+/// plain copy that `SceneRenderer::present` fills.
+fn create_view_target(
+    device: &wgpu::Device,
+    present: &Present,
+    size: [u32; 2],
+    samples: u32,
+    view_formats: bool,
+) -> Target {
+    if view_formats {
+        let mut target = create_target_with(device, size, samples, &[EGUI_VIEW_FORMAT]);
+        target.egui = Some(EguiTexture::View(target.resolved.create_view(
+            &wgpu::TextureViewDescriptor {
+                format: Some(EGUI_VIEW_FORMAT),
+                ..Default::default()
+            },
+        )));
+        return target;
+    }
+    let mut target = create_target(device, size, samples);
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene for egui"),
+        size: wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: EGUI_VIEW_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("present"),
+        layout: &present.layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&target.resolved_view),
+        }],
+    });
+    target.egui = Some(EguiTexture::Encoded {
+        view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+        bind_group,
+    });
+    target
+}
+
+fn create_target_with(
+    device: &wgpu::Device,
+    size: [u32; 2],
+    samples: u32,
+    view_formats: &[wgpu::TextureFormat],
+) -> Target {
     let extent = wgpu::Extent3d {
         width: size[0],
         height: size[1],
@@ -1018,13 +1195,9 @@ fn create_target(device: &wgpu::Device, size: [u32; 2], samples: u32) -> Target 
         wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_SRC,
-        &[EGUI_VIEW_FORMAT],
+        view_formats,
     );
     let resolved_view = resolved.create_view(&wgpu::TextureViewDescriptor::default());
-    let egui_view = resolved.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(EGUI_VIEW_FORMAT),
-        ..Default::default()
-    });
     let multisampled = (samples > 1).then(|| {
         texture(
             "scene msaa",
@@ -1049,8 +1222,8 @@ fn create_target(device: &wgpu::Device, size: [u32; 2], samples: u32) -> Target 
         multisampled,
         resolved,
         resolved_view,
-        egui_view,
         depth_view,
+        egui: None,
     }
 }
 
@@ -1108,6 +1281,56 @@ fn upload(device: &wgpu::Device, mesh: &Arc<Mesh>) -> GpuMesh {
             wgpu::BufferUsages::VERTEX,
         ),
         point_count: mesh.points.len() as u32,
+    }
+}
+
+impl Present {
+    fn new(device: &wgpu::Device) -> Self {
+        let shader = device.create_shader_module(wgpu::include_wgsl!("present.wgsl"));
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("present"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("present"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("present"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_present"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_present"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: EGUI_VIEW_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        Self { pipeline, layout }
     }
 }
 

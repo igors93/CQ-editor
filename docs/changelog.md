@@ -118,8 +118,11 @@ tracked in the compatibility matrix instead of being assumed.
   application logs now identify the exact runtime versions
 * Changed: theme follows the system by default; the separate editor color
   scheme preference was merged into the application theme
-* Changed: stereo projection modes were dropped (orthographic and
-  perspective remain)
+* Changed: the Quad Buffer stereo mode cannot be presented by the new
+  renderer and shows the red-cyan anaglyph, with a note saying so
+* Fixed: the 3D view failed on systems where wgpu falls back to OpenGL
+  (no Vulkan, or software rendering), which cannot view the scene's sRGB
+  texture in another format; it now gets a plain copy encoded by a small pass
 * Fixed: `rand_color()` defaulted to a fully transparent color
 * Fixed: after Stop, Restart Python or a worker crash, the first run could
   free its own objects, so the CQ Inspector, export and upload failed; scene
