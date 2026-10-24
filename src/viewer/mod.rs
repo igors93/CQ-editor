@@ -1185,7 +1185,7 @@ impl Viewer {
                         mesh.clone(),
                         rgb_to_linear(axis.color, 1.0),
                         1.5,
-                        Layer::Scene,
+                        Layer::Reference,
                     ));
                 }
             }
@@ -1197,9 +1197,9 @@ impl Viewer {
                 minor.clone(),
                 color(0.35 * ground.minor_opacity),
                 1.0,
-                Layer::Scene,
+                Layer::Reference,
             ));
-            items.push(line_item(major.clone(), color(0.7), 1.0, Layer::Scene));
+            items.push(line_item(major.clone(), color(0.7), 1.0, Layer::Reference));
         }
 
         if let Some(grid) = &scene.overlay.grid {

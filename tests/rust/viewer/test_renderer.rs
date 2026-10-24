@@ -305,6 +305,78 @@ fn cut(offset: f32, caps: bool) -> Option<Section> {
 const CENTER: u32 = SIZE / 2;
 
 #[test]
+fn reference_guides_stay_behind_opaque_models_on_the_gpu() {
+    with_gpu(|renderer| {
+        let solid = Arc::new(cube(1.0));
+        let guide = Arc::new(Mesh::lines(vec![[-2.0, 0.0, 2.0], [2.0, 0.0, 2.0]]));
+        let guide_style = Style {
+            face_color: [0.0; 4],
+            edge_color: [0.0, 1.0, 0.0, 1.0],
+            highlight: [0.0; 4],
+            edge_width: 7.0,
+            point_size: 1.0,
+            faces: false,
+            edges: true,
+            points: false,
+            clipped: false,
+            background_fill: false,
+            hidden_edges: false,
+        };
+        let mut camera = Camera {
+            scene_radius: 4.0,
+            ..Camera::default()
+        };
+        camera.set_pose(Pose {
+            target: Vec3::ZERO,
+            rotation: StandardView::Top.rotation(),
+            extent: 2.0,
+        });
+        let render = |renderer: &mut SceneRenderer, guide_layer: Option<Layer>| {
+            let mut items = vec![DrawItem {
+                mesh: solid.clone(),
+                transform: Mat4::IDENTITY,
+                style: red(),
+                layer: Layer::Scene,
+            }];
+            if let Some(layer) = guide_layer {
+                items.push(DrawItem {
+                    mesh: guide.clone(),
+                    transform: Mat4::IDENTITY,
+                    style: guide_style,
+                    layer,
+                });
+            }
+            renderer
+                .render_pixels(&FrameInput {
+                    camera: &camera,
+                    size: [SIZE, SIZE],
+                    background_top: BACKGROUND,
+                    background_bottom: BACKGROUND,
+                    items: &items,
+                    section: None,
+                    pixel_scale: 1.0,
+                    eye: Eye::Center,
+                })
+                .unwrap()
+                .1
+        };
+
+        let model = render(renderer, None);
+        let reference = render(renderer, Some(Layer::Reference));
+        let scene_line = render(renderer, Some(Layer::Scene));
+        let center = ((CENTER * SIZE + CENTER) * 4) as usize;
+        let pixel = |frame: &[u8]| <[u8; 4]>::try_from(&frame[center..center + 4]).unwrap();
+
+        assert_eq!(pixel(&reference), pixel(&model));
+        assert_ne!(pixel(&scene_line), pixel(&model));
+        assert!(
+            pixel(&scene_line)[1] > pixel(&scene_line)[0],
+            "the control line should be green and visible over the model"
+        );
+    });
+}
+
+#[test]
 fn a_section_plane_cuts_the_model_and_fills_the_cut_on_the_gpu() {
     with_gpu(|renderer| {
         let top = |renderer: &mut SceneRenderer, style: Style, section: Option<Section>| {

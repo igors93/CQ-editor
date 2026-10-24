@@ -87,6 +87,9 @@ pub struct Style {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
+    /// Reference guides drawn behind the model without writing depth. Opaque
+    /// scene geometry therefore always covers axes and ground grids.
+    Reference,
     Scene,
     /// Drawn after the scene, faces pulled towards the viewer and edges and
     /// points always visible.
@@ -234,6 +237,7 @@ struct Present {
 
 struct Pipelines {
     background: wgpu::RenderPipeline,
+    reference_edges: wgpu::RenderPipeline,
     faces: wgpu::RenderPipeline,
     transparent_faces: wgpu::RenderPipeline,
     /// Inverts the stencil per remaining surface of a clipped object.
@@ -693,6 +697,13 @@ impl SceneRenderer {
                     .copied()
                     .filter(move |&(index, layer)| layer == pass_layer && in_view[index])
             };
+
+            // Reference guides are deliberately painted before scene geometry
+            // and do not write depth. This keeps axes and grids visible around
+            // a model without making them look as if they pass through it.
+            for (index, _) in scene(Layer::Reference) {
+                self.draw_edges(&mut pass, &self.pipelines.reference_edges, input, index);
+            }
 
             let caps = input.section.is_some_and(|section| section.caps);
             for (index, _) in scene(Layer::Scene).filter(|&(i, _)| is_opaque(&input.items[i])) {
@@ -1515,6 +1526,16 @@ impl Pipelines {
                 "fs_background",
                 &[],
                 None,
+                Always,
+                false,
+                no_bias,
+            ),
+            reference_edges: builder.build(
+                "reference edges",
+                "vs_edge",
+                "fs_edge",
+                &segment_buffers,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
                 Always,
                 false,
                 no_bias,

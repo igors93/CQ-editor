@@ -427,9 +427,7 @@ fn the_ground_grid_follows_its_setting_and_the_zoom() {
         .filter(|item| item.mesh.id == minor.id || item.mesh.id == major.id)
         .collect();
     assert_eq!(grid_items.len(), 2);
-    assert!(
-        grid_items
-            .iter()
-            .all(|item| !item.style.clipped && !item.style.faces)
-    );
+    assert!(grid_items.iter().all(|item| {
+        item.layer == Layer::Reference && !item.style.clipped && !item.style.faces
+    }));
 }

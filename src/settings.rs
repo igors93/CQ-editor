@@ -442,7 +442,7 @@ impl Default for Viewer {
             orbit_method: OrbitMethod::Turntable,
             animate: true,
             large_models: LargeModels::Automatic,
-            ground_grid: false,
+            ground_grid: true,
             scale_bar: true,
             units: Units::Millimeters,
             stereo_mode: StereoMode::Anaglyph,
