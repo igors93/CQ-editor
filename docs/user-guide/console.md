@@ -43,6 +43,26 @@ Python process as your scripts.
 
 * `print` output and errors appear in the console itself.
 
+* **Rich results**: a value with a picture shows it, as in Jupyter. A
+  matplotlib figure, or any object with `_repr_png_` or `_repr_jpeg_`
+  (PIL images, for example), is drawn in the console, scaled to fit, above
+  its text. `display(a, b, …)` shows each value the same way, also from
+  inside a loop or a function:
+
+  ```python
+  >>> import matplotlib.pyplot as plt
+  >>> fig, ax = plt.subplots()
+  >>> ax.plot(sizes, volumes)
+  >>> fig                           # the plot appears in the console
+  >>> display(fig, "done")
+  ```
+
+  Only PNG and JPEG images are shown; HTML, Markdown, SVG and LaTeX show
+  their plain text. An image over 4 MB or 4096 pixels, or beyond the 20th
+  of one command, is replaced by a note. Each command may produce up to 100
+  rich results. The console keeps its newest 50 images within a shared memory
+  budget, replacing older images with a note when necessary.
+
 | Key | Action |
 | --- | --- |
 | Enter | Run the input |

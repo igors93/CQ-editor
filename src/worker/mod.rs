@@ -22,6 +22,8 @@ use protocol::{Message, ReadyInfo, Request, RequestId};
 
 /// Text, completion and other control messages are expected to stay small.
 const MAX_CONTROL_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
+/// A rich result may contain one base64-encoded 4 MiB image.
+const MAX_DISPLAY_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 /// Mesh-bearing replies need a separate, deliberately larger wire ceiling.
 const MAX_MESH_MESSAGE_BYTES: usize = 512 * 1024 * 1024;
 /// Native libraries can write directly to stderr, so bound those lines too.
@@ -459,6 +461,12 @@ fn worker_message_limit(line: &[u8]) -> usize {
         br#""type":"scene_add""#,
     ];
     let header = &line[..line.len().min(HEADER_BYTES)];
+    if header
+        .windows(br#""type":"display""#.len())
+        .any(|window| window == br#""type":"display""#)
+    {
+        return MAX_DISPLAY_MESSAGE_BYTES;
+    }
     if MESH_TYPES
         .iter()
         .any(|kind| header.windows(kind.len()).any(|window| window == *kind))

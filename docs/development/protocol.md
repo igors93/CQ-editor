@@ -1,4 +1,4 @@
-# Worker protocol (version 6)
+# Worker protocol (version 7)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":6,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":7,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -74,7 +74,7 @@ The worker handles one request at a time, in arrival order.
 | `measure` | `id`, up to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`), and `objects` (keys) measured when `selections` is empty | `measurement` |
 | `measurement_code` | `id`, `selections`, `objects` as for `measure` | `measurement_code` |
 | `selector` | `id`, `selections` of one object, part and kind | `selector` |
-| `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `scene_add` (if objects were shown), then `console_result` |
+| `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `display` for each result, `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
@@ -109,6 +109,7 @@ The worker handles one request at a time, in arrival order.
 | `measurement_code` | `id`, `code`, `verified`, `problem` | Python repeating the measurement with the script's variables; `verified` when running it on a copy of the console namespace reproduced every value |
 | `selector` | `id`, `method` (`faces`, `edges` or `vertices`), `candidates` | CadQuery selectors for the entities, best first. Each candidate has `expression` (to append to the object, e.g. `.faces(">Z")`), `selector` (`">Z"`, null for an index), `description` and `index_based`. Every candidate was verified with CadQuery on the object the script holds |
 | `scene_add` | `id`, `objects` | Objects shown from the console |
+| `display` | `id`, `text`, `image` (null, or `format`: `png` or `jpeg`, `data`: base64) | A console result: the value of an expression, or each argument of `display()`. See [Rich console results](#rich-console-results) |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
 | `upload_finished` | `id`, `status`, `body` | HTTP status and response body |
@@ -248,6 +249,33 @@ While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `select
 `imports`, `release` and `check_updates` are served. Anything else is
 answered with an `error` (*Not available while debugging; continue or stop
 first*).
+
+## Rich console results
+
+While a `console` request runs, `sys.displayhook` and the console's
+`display()` gather each value's representations as Jupyter does
+(`_repr_mimebundle_`, `_repr_png_`, `_repr_jpeg_`, and matplotlib figures
+through `savefig`), in `worker/cq_worker/display.py`. A representation that
+raises is skipped; the value still gets its `repr`.
+
+Only what the console shows leaves the worker: the plain text and one image.
+HTML, Markdown, SVG, LaTeX and JSON are never sent, so no markup or script
+from user code reaches the GUI. The worker bounds each message: the text to
+64K characters, the image to 4 MB, recognized by its PNG or JPEG signature,
+at most 20 images and 100 rich results per command; what is left out is
+described in the text. Oversized base64 is rejected before decoding. Standard
+output and error are flushed before each `display`, so the console keeps the
+order in which things happened. A dedicated 8 MB wire ceiling accepts a
+maximum-size rich result without granting it the 512 MB mesh-message limit.
+
+The GUI does not trust the image either. The reader thread decodes it, never
+the thread that draws: only `png` and `jpeg`, at most 4096 pixels on either
+side and 128 MB of memory; an image that fails is replaced by *[image not
+shown: …]* in the text. The console keeps its newest 50 images; older ones
+leave an *[image]* note, and decoded pixels also share a 128 MB retention
+budget. Results are accepted only while their console request is still
+pending. A slow `_repr_*_` only takes the worker's time, and Stop interrupts
+it like any other code.
 
 ## Stopping
 

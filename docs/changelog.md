@@ -29,6 +29,10 @@ tracked in the compatibility matrix instead of being assumed.
 * New: environments from the preferences: pick a Python found on the
   computer, create a virtual environment with CadQuery and jedi, or install
   packages into the Python in use, with pip's output shown and Cancel
+* New: the console shows pictures, as Jupyter does: a matplotlib figure or
+  an object with `_repr_png_` / `_repr_jpeg_` is drawn in the console, and
+  `display()` shows several values; images are checked and limited before
+  they reach the editor, and HTML is shown as plain text
 * New: Run > Profile (Alt+F5) shows in the gutter the time each line took,
   with what it called, and in a tooltip its CadQuery operations by time
 * New: Stop interrupts the script or console command first, keeping Python,

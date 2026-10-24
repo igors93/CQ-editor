@@ -60,7 +60,7 @@ it does not turn the open gap into a supported feature.
 | `debugger.breakpoints` | Gutter breakpoints remain and now follow inserted or deleted lines. | Enhanced | `tests/rust/editor/test_editor.rs::breakpoints_and_the_error_line_follow_inserted_and_deleted_lines` |
 | `debugger.errors` | Tracebacks retain script lines and nested call frames; variables remain described separately. | Verified | `tests/worker/execution/test_execution.py::test_errors_inside_script_functions_keep_the_call_chain` |
 | `console.state` | The Python console remains interactive, multiline and persistent across commands. | Verified | `tests/worker/execution/test_console.py::test_console_keeps_variables_between_commands` |
-| `console.rich-output` | The old in-process IPython/Jupyter rich display is not reproduced by the text console. | Gap | Decision: [Rich console](#rich-console) |
+| `console.rich-output` | Expression results and `display()` show images (matplotlib figures, `_repr_png_`, `_repr_jpeg_`) and plain text, checked and bounded; HTML, SVG and LaTeX show their plain text. | Changed | Decision: [Rich console](#rich-console); tested by `tests/worker/execution/test_display.py::test_the_console_sends_results_and_images_after_what_was_printed` |
 | `inspector.workplane` | The CQ Inspector still traverses Workplane parents and can display a stack item, plane and grid. | Verified | `tests/worker/protocol/test_server.py::test_inspection` |
 | `objects.tree` | Objects and assembly children retain visibility, selection, removal and clearing semantics. | Verified | `tests/rust/scene/test_scene.rs::hiding_a_parent_hides_the_subtree` |
 | `objects.properties` | Visibility and colors can be preserved by name; color and opacity editing are a tested superset. | Enhanced | `tests/rust/scene/test_scene.rs::properties_survive_a_reload_by_name` |
@@ -166,11 +166,16 @@ layout), where OCCT could also stretch them for 3D televisions.
 ### Rich console
 
 The old console embedded an in-process Jupyter kernel and could render rich
-IPython output. The isolated worker intentionally provides a persistent text
-console so user code cannot freeze the GUI. Restoring rich display requires a
-serialized MIME-bundle protocol, output limits and untrusted HTML handling;
-it is tracked as `FEAT-E6`. Plain Python evaluation, multiline input,
-completion, history, `show_object`, `debug`, stdout and errors remain covered.
+IPython output. The isolated worker keeps user code out of the GUI process,
+so rich results travel as serialized MIME bundles (`FEAT-E6`): expression
+results and `display()` show their image (matplotlib figures, anything with
+`_repr_png_` or `_repr_jpeg_`) and their plain text. The worker only sends
+PNG or JPEG images it has checked, within size and count limits, and the
+GUI decodes them away from the drawing thread, within its own limits. HTML,
+Markdown, SVG and LaTeX are deliberately not rendered: they would need a web
+view and would let user code put markup or scripts in the GUI; their plain
+text is shown instead. Plain Python evaluation, multiline input, completion,
+history, `show_object`, `debug`, stdout and errors remain covered.
 
 ### Theme settings
 

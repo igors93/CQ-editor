@@ -35,7 +35,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.23"
 rfd = "0.17"
-image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 # Animated PNG for turntable exports (already a dependency of `image`).
 png = "0.18"
 log = { version = "0.4", features = ["std"] }

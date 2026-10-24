@@ -30,6 +30,7 @@ from . import (
 )
 from .console import ConsoleSession
 from .debugger import Action, Debugger
+from .display import Displayer
 from .environment import runtime_environment
 from .execution import (
     SCRIPT_FILENAME,
@@ -139,7 +140,13 @@ class Server:
 
         self.channel = channel
         self.registry = Registry(f"s{session}-n" if session else "n")
-        self.console = ConsoleSession()
+        self.console = ConsoleSession(
+            Displayer(
+                lambda fields: self.channel.send(
+                    {"id": self.channel.current_id, **fields}
+                )
+            )
+        )
         self.geometry_cache = GeometryCache()
         #: Stack frames of inspected workplanes, by scene key.
         self.inspections: dict[str, list[cq.Workplane]] = {}

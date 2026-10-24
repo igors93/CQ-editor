@@ -31,8 +31,12 @@ fn exact_line_limit_is_accepted() {
 }
 
 #[test]
-fn mesh_messages_have_a_separate_larger_limit() {
+fn image_and_mesh_messages_have_separate_larger_limits() {
     let control = br#"{"type":"output","text":"hello"}"#;
+    let display = format!(
+        r#"{{"type":"display","image":{{"data":"{}"}}}}"#,
+        "x".repeat(MAX_CONTROL_MESSAGE_BYTES)
+    );
     let run = format!(
         r#"{{"id":1,"type":"run_finished","padding":"{}"}}"#,
         "x".repeat(MAX_CONTROL_MESSAGE_BYTES)
@@ -43,6 +47,10 @@ fn mesh_messages_have_a_separate_larger_limit() {
     );
 
     assert_eq!(worker_message_limit(control), MAX_CONTROL_MESSAGE_BYTES);
+    assert_eq!(
+        worker_message_limit(display.as_bytes()),
+        MAX_DISPLAY_MESSAGE_BYTES
+    );
     assert_eq!(worker_message_limit(run.as_bytes()), MAX_MESH_MESSAGE_BYTES);
     assert_eq!(
         worker_message_limit(inspection.as_bytes()),

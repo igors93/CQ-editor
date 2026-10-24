@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import builtins
 import code
+import sys
 from collections.abc import Callable
 from typing import Any
 
 import cadquery as cq
 
+from .display import Displayer
 from .execution import ShownObjects, rand_color, script_log
 
 
@@ -20,11 +22,13 @@ class ConsoleSession:
     run, the variables of the last script run.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, displayer: Displayer | None = None) -> None:
         self.shown = ShownObjects()
         self.namespace: dict[str, Any] = {}
         #: Resolves the GUI's selection when ``selected()`` is called.
         self._selection: Callable[[], list[cq.Shape]] = list
+        #: Sends rich results to the GUI; without it they are printed.
+        self._displayer = displayer
         self.reset()
 
     def reset(self) -> None:
@@ -49,6 +53,7 @@ class ConsoleSession:
                 "rand_color": rand_color,
                 "log": lambda value: script_log.info(str(value)),
                 "selected": selected,
+                "display": self._display,
             }
         )
         self._interpreter = code.InteractiveConsole(
@@ -71,8 +76,16 @@ class ConsoleSession:
         """Feed ``source`` line by line; ``True`` if a statement is incomplete."""
 
         more = False
-        for line in source.split("\n"):
-            more = self._interpreter.push(line)
+        previous = sys.displayhook
+        if self._displayer is not None:
+            # Expression results become rich output, images included.
+            self._displayer.start()
+            sys.displayhook = self._displayer.displayhook
+        try:
+            for line in source.split("\n"):
+                more = self._interpreter.push(line)
+        finally:
+            sys.displayhook = previous
         return more
 
     def take_shown(self) -> ShownObjects:
@@ -87,3 +100,12 @@ class ConsoleSession:
 
     def _debug(self, obj, name=None) -> None:
         self.shown.debug(obj, name)
+
+    def _display(self, *values) -> None:
+        """Shows each value in the console, as an image when it has one
+        (a matplotlib figure, a PIL image, anything with ``_repr_png_``)."""
+
+        if self._displayer is None:
+            print(*values)
+        else:
+            self._displayer.display(*values)

@@ -342,6 +342,11 @@ impl AppState {
                     self.viewer.fit(&self.scene, false, self.now());
                 }
             }
+            Message::Display(output) => {
+                if matches!(self.execution.pending(output.id), Some(Pending::Console)) {
+                    self.console.push_display(output);
+                }
+            }
             Message::ConsoleResult { id, more } => {
                 self.execution.answer(id);
                 self.console.more = more;

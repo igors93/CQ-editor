@@ -696,3 +696,30 @@ fn checking_by_hand_reports_cq_editor_and_cadquery() {
     assert!(message.text.contains("is the latest version"));
     assert!(message.text.contains("CadQuery 2.8.0"));
 }
+
+#[test]
+fn console_results_from_the_worker_reach_the_console() {
+    use crate::app::execution::Pending;
+    use crate::worker::protocol::{DisplayImage, DisplayOutput, Message};
+
+    let mut state = test_state("");
+    state.execution.track(3, Pending::Console);
+    state.handle_message(Message::Display(DisplayOutput {
+        id: 3,
+        text: "<Figure size 2x1>".into(),
+        image: Some(DisplayImage {
+            size: [2, 1],
+            rgba: vec![255; 8],
+        }),
+    }));
+    let entry = state.console.entries.last().unwrap();
+    assert!(entry.image.is_some());
+    assert_eq!(entry.text, "<Figure size 2x1>\n");
+
+    state.handle_message(Message::Display(DisplayOutput {
+        id: 4,
+        text: "stale".into(),
+        image: None,
+    }));
+    assert_eq!(state.console.entries.len(), 1, "stale output is ignored");
+}

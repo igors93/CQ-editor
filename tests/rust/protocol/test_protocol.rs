@@ -549,3 +549,88 @@ fn update_checks_name_the_running_cq_editor() {
         serde_json::from_str(r#"{"type":"updates","id":3,"current":"2.8","newer":[]}"#).unwrap();
     assert!(matches!(reply, Message::Updates { editor: None, .. }));
 }
+
+fn png(width: u32, height: u32) -> String {
+    let pixels =
+        image::RgbaImage::from_fn(width, height, |x, _| image::Rgba([x as u8, 128, 255, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    b64(&bytes.into_inner())
+}
+
+fn jpeg(width: u32, height: u32) -> String {
+    let pixels = image::RgbImage::from_pixel(width, height, image::Rgb([32, 64, 128]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut bytes, image::ImageFormat::Jpeg)
+        .unwrap();
+    b64(&bytes.into_inner())
+}
+
+fn display(image: &str) -> DisplayOutput {
+    let line = format!(r#"{{"type":"display","id":4,"text":"figure","image":{image}}}"#);
+    match serde_json::from_str(&line).unwrap() {
+        Message::Display(output) => output,
+        other => panic!("not a display: {other:?}"),
+    }
+}
+
+#[test]
+fn console_images_are_decoded_when_they_arrive() {
+    let output = display(&format!(r#"{{"format":"png","data":"{}"}}"#, png(2, 1)));
+    assert_eq!(output.id, 4);
+    assert_eq!(output.text, "figure");
+    let image = output.image.unwrap();
+    assert_eq!(image.size, [2, 1]);
+    assert_eq!(image.rgba, [0, 128, 255, 255, 1, 128, 255, 255]);
+
+    let text_only = display("null");
+    assert!(text_only.image.is_none());
+    assert_eq!(text_only.text, "figure");
+
+    let jpeg = display(&format!(r#"{{"format":"jpeg","data":"{}"}}"#, jpeg(3, 2)));
+    assert_eq!(jpeg.image.unwrap().size, [3, 2]);
+
+    let missing_id = r#"{"type":"display","text":"orphan","image":null}"#;
+    assert!(serde_json::from_str::<Message>(missing_id).is_err());
+}
+
+#[test]
+fn console_images_that_cannot_be_trusted_become_a_note() {
+    let cases = [
+        (
+            r#"{"format":"svg","data":"PHN2Zy8+"}"#.to_owned(),
+            "svg is not shown",
+        ),
+        (
+            r#"{"format":"png","data":"not base64!"}"#.to_owned(),
+            "bad data",
+        ),
+        (
+            format!(r#"{{"format":"jpeg","data":"{}"}}"#, png(1, 1)),
+            "image not shown",
+        ),
+        (
+            format!(
+                r#"{{"format":"png","data":"{}"}}"#,
+                png(MAX_DISPLAY_SIDE + 1, 1)
+            ),
+            "image not shown",
+        ),
+        (
+            format!(
+                r#"{{"format":"png","data":"{}"}}"#,
+                b64(&vec![0; MAX_DISPLAY_IMAGE_BYTES + 1])
+            ),
+            "too large",
+        ),
+    ];
+    for (image, note) in cases {
+        let output = display(&image);
+        assert!(output.image.is_none(), "{image:.60}");
+        assert!(output.text.starts_with("figure\n[image not shown: "));
+        assert!(output.text.contains(note), "{}", output.text);
+    }
+}

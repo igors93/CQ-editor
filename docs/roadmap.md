@@ -46,8 +46,9 @@ builds 3D models**. Everything on this roadmap has to respect that:
 The core modeling workflow is implemented and substantially tested, but full
 functional equivalence is not claimed. Scripts, the `show_object` contract,
 legacy shortcuts and mouse bindings have automated compatibility coverage.
-Stereo rendering, the rich Jupyter console and bundled distribution remain
-explicit gaps; some native GUI interactions still require an end-to-end test.
+No compatibility row is a gap any more; the stereo QuadBuffer fallback and
+the console's plain-text HTML are documented changes, and some native GUI
+interactions still require an end-to-end test.
 Several areas are enhanced (topology picking, assembly instancing, crash
 recovery, local history and conflict-safe autoreload; see the
 [changelog](changelog.md)).
@@ -471,7 +472,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 | ✅ | FEAT-E3 🟢 | **Environment manager**: create or choose a virtual environment and install CadQuery, jedi and add-on packages from Preferences | Done: Preferences > General lists the Pythons found (**Detected**), creates a virtual environment with CadQuery, jedi and extra packages (**Create Environment…**, then **Use this environment**) and runs `pip install` into the Python in use (**Install Packages…**). Commands run in the background without a shell, with pip's output shown live and Cancel; pip options are refused. Tests: `an_environment_is_created_and_gets_a_package_without_the_network`, `a_cancelled_job_stops_its_command_and_skips_the_rest`, `package_lists_are_names_versions_or_wheels_never_options` |
 | ✅ | FEAT-E4 🟢 | **Self-contained installers:** Windows `.exe`, macOS `.pkg` for Apple Silicon and Intel, and Linux `.sh` bundle the pinned Python/CadQuery runtime. CI installs and smoke-tests each artifact; native launchers are created on all systems and Windows/Linux register "Open with CQ-editor" for `.py` files |
 | ✅ | FEAT-E5 🔵 | **Self-update check** for CQ-editor (today only CadQuery releases are checked) | Done: the worker lists CQ-editor's newer GitHub releases (no drafts or pre-releases); Help > Check for Updates reports CQ-editor and CadQuery, and a silent daily check (Preferences > General, on by default) announces a newer release and offers *Download CQ-editor x.y.z…* in the Help menu, opening only GitHub release pages. Tests: `test_editor_releases_are_newer_published_ones_newest_first`, `the_daily_check_only_speaks_when_a_newer_cq_editor_is_out`, `the_check_runs_once_a_day_unless_turned_off` |
-| | FEAT-E6 🔵 | **Rich console output**: transport bounded and sanitized Jupyter MIME bundles from the isolated worker without allowing user code to block the GUI |
+| ✅ | FEAT-E6 🔵 | **Rich console output**: transport bounded and sanitized Jupyter MIME bundles from the isolated worker without allowing user code to block the GUI | Done: expression results and `display()` gather Jupyter MIME bundles in the worker (`_repr_mimebundle_`, `_repr_png_`, `_repr_jpeg_`, matplotlib figures); only plain text and one checked PNG/JPEG image are sent, bounded in size, count and per command. Oversized base64 is rejected before allocation, rich messages have their own wire limit, and stale results are ignored. The GUI decodes images on the reader thread within pixel and memory limits and draws them in the console, keeping the newest 50. Tests: `test_only_checked_images_and_plain_text_leave_the_worker`, `test_the_displayer_bounds_text_only_results_per_command`, `test_the_console_sends_results_and_images_after_what_was_printed`, `console_images_that_cannot_be_trusted_become_a_note`, `the_image_memory_budget_drops_oldest_pixels` |
 
 ### F. Extensibility (advanced path)
 

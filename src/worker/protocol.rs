@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 pub type RequestId = u64;
 
@@ -275,6 +275,9 @@ pub enum Message {
         id: RequestId,
         more: bool,
     },
+    /// A rich result of a console command: its text and, perhaps, an image
+    /// already decoded (on the reader thread, not the one that draws).
+    Display(DisplayOutput),
     ExportFinished {
         id: RequestId,
         path: String,
@@ -349,6 +352,100 @@ pub struct RunFinished {
     /// Filled in by the reader thread, not sent by the worker.
     #[serde(skip)]
     pub receipt: Receipt,
+}
+
+/// The largest image the console shows, on either side, in pixels.
+pub const MAX_DISPLAY_SIDE: u32 = 4096;
+/// Decoded image bytes accepted, matching the worker-side limit.
+const MAX_DISPLAY_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+/// Largest base64 string that can encode [`MAX_DISPLAY_IMAGE_BYTES`].
+const MAX_DISPLAY_DATA: usize = 4 * MAX_DISPLAY_IMAGE_BYTES.div_ceil(3);
+
+/// A console result as the worker sends it.
+#[derive(Deserialize)]
+struct RawDisplay {
+    id: RequestId,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    image: Option<RawImage>,
+}
+
+#[derive(Deserialize)]
+struct RawImage {
+    format: String,
+    data: String,
+}
+
+/// A console result: text, and an image checked and decoded, or a note in
+/// the text saying why it is not shown.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(from = "RawDisplay")]
+pub struct DisplayOutput {
+    pub id: RequestId,
+    pub text: String,
+    pub image: Option<DisplayImage>,
+}
+
+/// Decoded pixels, RGBA, row by row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DisplayImage {
+    pub size: [usize; 2],
+    pub rgba: Vec<u8>,
+}
+
+impl From<RawDisplay> for DisplayOutput {
+    fn from(raw: RawDisplay) -> Self {
+        let mut text = raw.text;
+        let image = raw
+            .image
+            .and_then(|image| match decode_display_image(&image) {
+                Ok(image) => Some(image),
+                Err(problem) => {
+                    text.push_str(&format!("\n[image not shown: {problem}]"));
+                    None
+                }
+            });
+        Self {
+            id: raw.id,
+            text,
+            image,
+        }
+    }
+}
+
+/// Only PNG and JPEG, within [`MAX_DISPLAY_SIDE`] and a memory limit: the
+/// worker runs user code, so its images are not trusted.
+fn decode_display_image(image: &RawImage) -> Result<DisplayImage, String> {
+    let format = match image.format.as_str() {
+        "png" => image::ImageFormat::Png,
+        "jpeg" => image::ImageFormat::Jpeg,
+        other => return Err(format!("{other} is not shown")),
+    };
+    if image.data.len() > MAX_DISPLAY_DATA {
+        return Err("too large".to_owned());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&image.data)
+        .map_err(|error| format!("bad data ({error})"))?;
+    if bytes.len() > MAX_DISPLAY_IMAGE_BYTES {
+        return Err("too large".to_owned());
+    }
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DISPLAY_SIDE);
+    limits.max_image_height = Some(MAX_DISPLAY_SIDE);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader
+        .decode()
+        .map_err(|error| error.to_string())?
+        .to_rgba8();
+    let size = [decoded.width() as usize, decoded.height() as usize];
+    Ok(DisplayImage {
+        size,
+        rgba: decoded.into_raw(),
+    })
 }
 
 /// CQ-editor's releases newer than the running one, newest first.
