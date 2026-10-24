@@ -222,13 +222,21 @@ pub struct CodeEditor {
 
 impl Default for CodeEditor {
     fn default() -> Self {
+        Self::with_id(egui::Id::new("code_editor_text"))
+    }
+}
+
+impl CodeEditor {
+    /// An editor whose widgets keep their state (caret, scrolling) in egui
+    /// under `id`: each tab has its own, so switching tabs keeps them.
+    pub fn with_id(id: egui::Id) -> Self {
         Self {
             breakpoints: BTreeSet::new(),
             line_profile: BTreeMap::new(),
             debug_line: None,
             error_line: None,
             marked_text: None,
-            text_id: egui::Id::new("code_editor_text"),
+            text_id: id,
             selection: Selection::caret(0),
             pending_selection: None,
             pending_scroll_line: None,
@@ -245,9 +253,7 @@ impl Default for CodeEditor {
             layout: LayoutCache::default(),
         }
     }
-}
 
-impl CodeEditor {
     /// 1-based line and column of the cursor, for the status bar.
     pub fn cursor_position(&self, text: &str) -> (usize, usize) {
         let (line, column) = text_ops::line_column(text, self.selection.cursor.min(text.len()));
@@ -334,6 +340,11 @@ impl CodeEditor {
             .collect();
         self.breakpoints = text_ops::relocate_lines(text, &saved);
         self.marked_text = Some(text.to_owned());
+    }
+
+    /// Gives the keyboard to the text on the next frame.
+    pub fn focus(&mut self) {
+        self.pending_focus = true;
     }
 
     pub fn go_to_line(&mut self, text: &str, line: usize) {
@@ -548,7 +559,7 @@ impl CodeEditor {
         }
     }
 
-    fn close_popups(&mut self) {
+    pub fn close_popups(&mut self) {
         self.completion.open = false;
         self.calltip = None;
     }
@@ -638,7 +649,7 @@ impl CodeEditor {
         // so the line numbers stay in view.
         let mut text_ui = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
         let geometry = egui::ScrollArea::both()
-            .id_salt("code_editor_scroll")
+            .id_salt(self.text_id.with("scroll"))
             .auto_shrink([false, false])
             .show(&mut text_ui, |ui| {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;

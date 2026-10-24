@@ -44,9 +44,9 @@ it does not turn the open gap into a supported feature.
 
 | Contract id | Original capability and current result | State | Evidence or decision |
 | --- | --- | --- | --- |
-| `file.lifecycle` | New, Open, Save and Save As preserve the editable Python file workflow. Saves are now atomic. | Enhanced | `tests/rust/editor/test_document.rs::preserves_line_endings_and_tracks_modification` |
+| `file.lifecycle` | New, Open, Save and Save As preserve the editable Python file workflow. Saves are now atomic, and files open in tabs, so opening one no longer replaces the current file. | Enhanced | `tests/rust/editor/test_document.rs::preserves_line_endings_and_tracks_modification` |
 | `file.autoreload` | Automatic reload and imported-file watching remain; local edits now require an explicit conflict decision. | Enhanced | `tests/rust/editor/test_document.rs::reload_refuses_to_discard_unsaved_changes` |
-| `file.recovery` | Unsaved buffers gain crash recovery and local history. | Enhanced | `tests/rust/editor/test_recovery.rs::checkpoint_restores_unsaved_work_after_a_simulated_crash` |
+| `file.recovery` | Unsaved buffers gain crash recovery and local history, for every open tab. | Enhanced | `tests/rust/editor/test_recovery.rs::checkpoint_restores_unsaved_work_after_a_simulated_crash` |
 | `editor.syntax` | Python syntax highlighting and the injected CQ-editor names remain recognized. | Verified | `tests/rust/editor/test_highlight.rs::recognizes_python_constructs` |
 | `editor.editing` | Line numbers, breakpoints, indentation and Toggle Comment remain; markers now follow edits. | Enhanced | `tests/rust/editor/test_text_ops.rs::comments_blocks_at_the_common_indentation` |
 | `editor.search` | Find and repeated match navigation remain available. | Verified | `tests/rust/editor/test_editor.rs::finds_matches_with_and_without_case` |

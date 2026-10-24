@@ -24,7 +24,9 @@ fn checkpoint_restores_unsaved_work_after_a_simulated_crash() {
     drop(running_store);
 
     let restarted_store = RecoveryStore::new(root.join("store"));
-    let snapshot = restarted_store.load_session().unwrap().unwrap();
+    let mut session = restarted_store.load_session().unwrap();
+    assert_eq!(session.len(), 1);
+    let snapshot = session.remove(0);
     assert_eq!(snapshot.path.as_deref(), Some(source.as_path()));
     assert_eq!(snapshot.text, "unsaved work\n");
     let recovered = snapshot.into_document();
@@ -45,10 +47,8 @@ fn checkpoint_recovers_an_unsaved_untitled_document() {
     drop(running_store);
 
     let restarted_store = RecoveryStore::new(root.clone());
-    let recovered = restarted_store
-        .load_session()
-        .unwrap()
-        .unwrap()
+    let recovered = restarted_store.load_session().unwrap()[0]
+        .clone()
         .into_document();
     assert_eq!(recovered.path(), None);
     assert_eq!(recovered.text, "draft without a file\n");
@@ -80,7 +80,7 @@ fn checkpoints_are_deduplicated_and_available_as_local_history() {
     assert!(history.iter().any(|entry| entry.text == "version two\n"));
 
     store.clear_session().unwrap();
-    assert!(store.load_session().unwrap().is_none());
+    assert!(store.load_session().unwrap().is_empty());
     assert_eq!(store.history(Some(&source)).unwrap().len(), 3);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -120,9 +120,66 @@ fn an_unmodified_document_clears_only_the_active_session() {
     let disk = document.disk_version().unwrap().unwrap();
     document.apply_disk_version(disk).unwrap();
     assert!(!store.checkpoint(&document).unwrap());
-    assert!(store.load_session().unwrap().is_none());
+    assert!(store.load_session().unwrap().is_empty());
     assert_eq!(store.history(Some(&source)).unwrap().len(), 2);
 
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn the_session_keeps_every_unsaved_tab_and_versions_only_what_changed() {
+    let root = temporary_directory("tabs");
+    let (first_path, mut first) = saved_document(&root, "first.py");
+    let (second_path, mut second) = saved_document(&root, "second.py");
+    let clean = Document::untitled("");
+    let mut store = RecoveryStore::new(root.join("store"));
+
+    first.text = "first edit\n".into();
+    second.text = "second edit\n".into();
+    assert!(store.checkpoint_all(&[&first, &clean, &second]).unwrap());
+    assert!(!store.checkpoint_all(&[&first, &clean, &second]).unwrap());
+    second.text = "second edit again\n".into();
+    assert!(store.checkpoint_all(&[&first, &clean, &second]).unwrap());
+
+    let session = RecoveryStore::new(root.join("store"))
+        .load_session()
+        .unwrap();
+    let texts: Vec<&str> = session.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        ["first edit\n", "second edit again\n"],
+        "in tab order"
+    );
+    assert_eq!(session[0].path.as_deref(), Some(first_path.as_path()));
+
+    // The unchanged document got no second version: a baseline and an edit.
+    assert_eq!(store.history(Some(&first_path)).unwrap().len(), 2);
+    assert_eq!(store.history(Some(&second_path)).unwrap().len(), 3);
+
+    // Saving one keeps the other in the session.
+    let disk = first.disk_version().unwrap().unwrap();
+    first.apply_disk_version(disk).unwrap();
+    assert!(store.checkpoint_all(&[&first, &second]).unwrap());
+    let session = store.load_session().unwrap();
+    assert_eq!(session.len(), 1);
+    assert_eq!(session[0].path.as_deref(), Some(second_path.as_path()));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_session_of_an_earlier_release_is_still_recovered() {
+    let root = temporary_directory("legacy-session");
+    std::fs::create_dir_all(&root).unwrap();
+    let legacy = snapshot(None, "draft\n", 1);
+    std::fs::write(
+        root.join("active-session.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    let session = RecoveryStore::new(root.clone()).load_session().unwrap();
+    assert_eq!(session.len(), 1);
+    assert_eq!(session[0].text, "draft\n");
     std::fs::remove_dir_all(root).unwrap();
 }
 

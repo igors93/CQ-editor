@@ -21,9 +21,40 @@ pub enum Action {
     OpenExample(usize),
     Save,
     SaveAs,
+    /// Saves every tab with unsaved changes.
+    SaveAll,
     LocalHistory,
     ToggleAutoreload,
     Quit,
+    // Tabs
+    /// Closes the shown tab.
+    CloseTab,
+    /// Closes the tab of this document (by generation).
+    CloseDocument(u64),
+    CloseOtherTabs(u64),
+    CloseAllTabs,
+    ActivateTab(u64),
+    NextTab,
+    PreviousTab,
+    // Project
+    /// Asks for a folder and shows it in the Project panel.
+    OpenFolder,
+    OpenFolderPath(PathBuf),
+    CloseFolder,
+    /// Reads the project's folders again.
+    RefreshProject,
+    /// Asks for the name of a new file in this folder.
+    NewFileIn(PathBuf),
+    NewFolderIn(PathBuf),
+    /// Asks for a new name of this file or folder.
+    RenamePath(PathBuf),
+    /// Asks to confirm deleting this file or folder.
+    DeletePath(PathBuf),
+    /// The script F5 runs while a file of the project is shown; `None`
+    /// runs the shown file.
+    SetMainScript(Option<PathBuf>),
+    /// Opens the system's file manager on this file's folder.
+    RevealPath(PathBuf),
     // Edit
     Undo,
     Redo,
@@ -115,7 +146,19 @@ pub enum Action {
     /// Opens the page of the newer CQ-editor release found.
     DownloadUpdate,
     // From panels and the view
+    /// A line of the script F5 runs.
     GoToLine(usize),
+    /// A line of the open document `document` (by generation), the script
+    /// of a traceback.
+    GoToScriptLine {
+        document: u64,
+        line: usize,
+    },
+    /// A line of a file, such as a module in a traceback, opened if needed.
+    OpenFileAt {
+        path: PathBuf,
+        line: usize,
+    },
     Select {
         key: Option<NodeKey>,
         topology: Option<TopologySelection>,
@@ -200,6 +243,12 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::OpenFile, ctrl(Key::O)),
         (Action::SaveAs, ctrl_shift(Key::S)),
         (Action::Save, ctrl(Key::S)),
+        (Action::OpenFolder, ctrl_shift(Key::O)),
+        (Action::CloseTab, ctrl(Key::W)),
+        (Action::PreviousTab, ctrl_shift(Key::Tab)),
+        (Action::NextTab, ctrl(Key::Tab)),
+        (Action::PreviousTab, ctrl(Key::PageUp)),
+        (Action::NextTab, ctrl(Key::PageDown)),
         (Action::Quit, ctrl(Key::Q)),
         (Action::ToggleComment, ctrl(Key::Slash)),
         (Action::Autocomplete, ctrl(Key::Space)),

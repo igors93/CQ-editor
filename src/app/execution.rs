@@ -39,14 +39,18 @@ impl Phase {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
     Run,
-    /// Completions for the editor; `automatic` ones were offered while
-    /// typing a name, not asked for.
+    /// Completions for the editor of the document (generation)
+    /// `document`; `automatic` ones were offered while typing a name, not
+    /// asked for.
     Completion {
         automatic: bool,
+        document: u64,
     },
     ConsoleCompletion,
-    /// Documentation of the name under the pointer.
-    Describe,
+    /// Documentation of the name under the pointer in `document`.
+    Describe {
+        document: u64,
+    },
     Inspect,
     /// The construction geometry of one inspector entry: the workplane and
     /// its selected (frame, item).

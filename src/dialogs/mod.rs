@@ -1,5 +1,5 @@
-//! Modal and floating windows: preferences, upload, about, unsaved changes
-//! and messages.
+//! Modal and floating windows: preferences, upload, about, unsaved changes,
+//! the Project panel's prompts and messages.
 
 pub mod capture;
 pub mod environment;
@@ -20,10 +20,8 @@ use crate::worker::Problem;
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Intent {
-    New,
-    Open,
-    OpenPath(PathBuf),
-    OpenExample(usize),
+    /// Close the tabs of these documents (by generation).
+    Close(Vec<u64>),
     Quit,
 }
 
@@ -53,6 +51,52 @@ pub struct ExternalChange {
 enum RecoverySessionChoice {
     Restore,
     Discard,
+}
+
+/// The unsaved documents of an interrupted session, waiting for a decision.
+pub struct RecoverySession {
+    pub documents: Vec<RecoverySnapshot>,
+    /// The one previewed.
+    pub selected: usize,
+}
+
+/// A question of the Project panel: a name for a new or renamed file or
+/// folder, or the confirmation of a deletion.
+pub enum FilePrompt {
+    NewFile {
+        folder: PathBuf,
+        name: String,
+        error: Option<String>,
+    },
+    NewFolder {
+        folder: PathBuf,
+        name: String,
+        error: Option<String>,
+    },
+    Rename {
+        path: PathBuf,
+        name: String,
+        error: Option<String>,
+    },
+    Delete {
+        path: PathBuf,
+        /// Open files below it with unsaved changes, which would be lost.
+        unsaved: Vec<String>,
+        error: Option<String>,
+    },
+}
+
+impl FilePrompt {
+    pub fn rename(path: &Path) -> Self {
+        FilePrompt::Rename {
+            path: path.to_path_buf(),
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            error: None,
+        }
+    }
 }
 
 pub struct HistoryDialog {
@@ -87,7 +131,10 @@ pub struct Dialogs {
     pub environment: Option<environment::EnvironmentDialog>,
     pub unsaved: Option<Intent>,
     pub external_change: Option<ExternalChange>,
-    pub recovery_session: Option<RecoverySnapshot>,
+    /// Conflicts in other tabs, asked about once the shown one is resolved.
+    pub external_queue: Vec<ExternalChange>,
+    pub recovery_session: Option<RecoverySession>,
+    pub file_prompt: Option<FilePrompt>,
     pub history: Option<HistoryDialog>,
     /// A file that is not UTF-8, waiting for permission to read it as
     /// Windows-1252.
@@ -159,23 +206,43 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     let recovery_choice = state
         .dialogs
         .recovery_session
-        .as_ref()
-        .and_then(|snapshot| recovery_session(ctx, snapshot));
+        .as_mut()
+        .and_then(|session| recovery_session(ctx, session));
     if let Some(choice) = recovery_choice
-        && let Some(snapshot) = state.dialogs.recovery_session.take()
+        && let Some(session) = state.dialogs.recovery_session.take()
     {
-        state.resolve_recovery_session(snapshot, choice == RecoverySessionChoice::Restore);
+        state.resolve_recovery_session(session, choice == RecoverySessionChoice::Restore);
     }
     if recovery_was_open {
         state.queue(actions);
         return;
     }
 
-    if let Some(intent) = state.dialogs.unsaved.clone()
-        && let Some(choice) = unsaved_changes(ctx, &state.document.display_name())
+    if let Some(intent) = state.dialogs.unsaved.clone() {
+        let names = state.names_of(&state.unsaved_of(&intent));
+        // Saved meanwhile: nothing is left to ask about.
+        let choice = if names.is_empty() {
+            Some(UnsavedChoice::Discard)
+        } else {
+            unsaved_changes(ctx, &names, intent == Intent::Quit)
+        };
+        if let Some(choice) = choice {
+            state.dialogs.unsaved = None;
+            state.resolve_unsaved(intent, choice);
+        }
+    }
+
+    if let Some(prompt) = &mut state.dialogs.file_prompt
+        && let Some(confirmed) = file_prompt(ctx, prompt)
     {
-        state.dialogs.unsaved = None;
-        state.resolve_unsaved(intent, choice);
+        if confirmed {
+            let prompt = state.dialogs.file_prompt.take().expect("shown");
+            if let Some(error) = state.confirm_file_prompt(&prompt) {
+                state.dialogs.file_prompt = Some(prompt.with_error(error));
+            }
+        } else {
+            state.dialogs.file_prompt = None;
+        }
     }
 
     if let Some(path) = state.dialogs.legacy_encoding.clone()
@@ -263,13 +330,14 @@ fn about(ctx: &egui::Context, state: &mut AppState) {
     }
 }
 
-/// Returns the user's choice once made.
-fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
+/// Returns the user's choice once made about the unsaved changes to the
+/// files `names`.
+fn unsaved_changes(ctx: &egui::Context, names: &[String], quitting: bool) -> Option<UnsavedChoice> {
     let mut choice = None;
     let response = egui::Modal::new(egui::Id::new("unsaved_changes"))
         .frame(modal_frame(ctx))
         .show(ctx, |ui| {
-            ui.set_width(360.0);
+            ui.set_width(380.0);
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(icon::WARNING)
@@ -278,7 +346,24 @@ fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
                 );
                 ui.vertical(|ui| {
                     ui.label(RichText::new("Unsaved changes").strong().size(16.0));
-                    ui.label(format!("Save the changes to {name} first?"));
+                    match names {
+                        [name] => {
+                            ui.label(format!("Save the changes to {name} first?"));
+                        }
+                        _ => {
+                            ui.label(format!("Save the changes to {} files first?", names.len()));
+                            egui::ScrollArea::vertical()
+                                .max_height(140.0)
+                                .show(ui, |ui| {
+                                    for name in names {
+                                        ui.label(format!("{}  {name}", icon::FILE_PY));
+                                    }
+                                });
+                        }
+                    }
+                    if quitting {
+                        ui.weak("Unsaved changes are lost when CQ-editor closes without saving.");
+                    }
                 });
             });
             ui.add_space(12.0);
@@ -289,9 +374,10 @@ fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
                 if ui.button("Don't save").clicked() {
                     choice = Some(UnsavedChoice::Discard);
                 }
+                let save = if names.len() > 1 { "Save all" } else { "Save" };
                 if ui
                     .add(
-                        egui::Button::new(RichText::new("Save").strong())
+                        egui::Button::new(RichText::new(save).strong())
                             .fill(ui.visuals().selection.bg_fill),
                     )
                     .clicked()
@@ -302,6 +388,132 @@ fn unsaved_changes(ctx: &egui::Context, name: &str) -> Option<UnsavedChoice> {
         });
     if response.should_close() && choice.is_none() {
         choice = Some(UnsavedChoice::Cancel);
+    }
+    choice
+}
+
+impl FilePrompt {
+    fn with_error(mut self, message: String) -> Self {
+        match &mut self {
+            FilePrompt::NewFile { error, .. }
+            | FilePrompt::NewFolder { error, .. }
+            | FilePrompt::Rename { error, .. }
+            | FilePrompt::Delete { error, .. } => *error = Some(message),
+        }
+        self
+    }
+}
+
+/// Asks for a name, or to confirm a deletion. Returns `Some(true)` once
+/// confirmed and `Some(false)` once cancelled.
+fn file_prompt(ctx: &egui::Context, prompt: &mut FilePrompt) -> Option<bool> {
+    let mut choice = None;
+    let display = |path: &Path| {
+        path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    };
+    let (title, text, confirm) = match prompt {
+        FilePrompt::NewFile { folder, .. } => (
+            "New file",
+            format!(
+                "A new file in {}. Without an extension, it is a Python script.",
+                display(folder)
+            ),
+            "Create",
+        ),
+        FilePrompt::NewFolder { folder, .. } => (
+            "New folder",
+            format!("A new folder in {}.", display(folder)),
+            "Create",
+        ),
+        FilePrompt::Rename { path, .. } => (
+            "Rename",
+            format!("A new name for {}.", display(path)),
+            "Rename",
+        ),
+        FilePrompt::Delete { path, .. } => {
+            let what = if path.is_dir() {
+                format!("Delete the folder {} and everything in it?", display(path))
+            } else {
+                format!("Delete {}?", display(path))
+            };
+            ("Delete", what, "Delete")
+        }
+    };
+    let response = egui::Modal::new(egui::Id::new("file_prompt"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(400.0);
+            ui.label(RichText::new(title).strong().size(16.0));
+            ui.label(text);
+            ui.add_space(6.0);
+            let (name, error) = match prompt {
+                FilePrompt::NewFile { name, error, .. }
+                | FilePrompt::NewFolder { name, error, .. }
+                | FilePrompt::Rename { name, error, .. } => (Some(name), error),
+                FilePrompt::Delete {
+                    unsaved,
+                    error,
+                    path,
+                } => {
+                    if !unsaved.is_empty() {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            format!(
+                                "{} {} unsaved changes, which will be lost.",
+                                unsaved.join(", "),
+                                if unsaved.len() == 1 { "has" } else { "have" }
+                            ),
+                        );
+                    }
+                    if path.is_file() {
+                        ui.weak("Its last version stays in the local history.");
+                    } else {
+                        ui.weak("This cannot be undone.");
+                    }
+                    (None, error)
+                }
+            };
+            if let Some(name) = name {
+                let field = ui.add(egui::TextEdit::singleline(name).desired_width(f32::INFINITY));
+                // The only text field: it keeps the keyboard, even from the
+                // code editor below the prompt.
+                if !field.has_focus() {
+                    field.request_focus();
+                }
+                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    choice = Some(true);
+                }
+                if field.changed() {
+                    *error = None;
+                }
+            }
+            if let Some(error) = error {
+                ui.colored_label(ui.visuals().error_fg_color, error.as_str());
+            }
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
+                }
+                let destructive = matches!(prompt, FilePrompt::Delete { .. });
+                let fill = if destructive {
+                    ui.visuals().error_fg_color.gamma_multiply(0.35)
+                } else {
+                    ui.visuals().selection.bg_fill
+                };
+                if ui
+                    .add(egui::Button::new(RichText::new(confirm).strong()).fill(fill))
+                    .clicked()
+                {
+                    choice = Some(true);
+                }
+            });
+        });
+    if response.should_close() && choice.is_none() {
+        choice = Some(false);
     }
     choice
 }
@@ -454,7 +666,7 @@ fn external_change(
 
 fn recovery_session(
     ctx: &egui::Context,
-    snapshot: &RecoverySnapshot,
+    session: &mut RecoverySession,
 ) -> Option<RecoverySessionChoice> {
     let mut choice = None;
     egui::Modal::new(egui::Id::new("recovery_session"))
@@ -473,25 +685,57 @@ fn recovery_session(
                             .strong()
                             .size(16.0),
                     );
-                    ui.label(format!(
-                        "CQ-editor found an interrupted session for {}.",
-                        snapshot.display_name()
-                    ));
-                    ui.weak(format!("Recovery checkpoint: {}", snapshot_time(snapshot)));
+                    match session.documents.as_slice() {
+                        [snapshot] => {
+                            ui.label(format!(
+                                "CQ-editor found an interrupted session for {}.",
+                                snapshot.display_name()
+                            ));
+                        }
+                        documents => {
+                            ui.label(format!(
+                                "CQ-editor found an interrupted session with unsaved changes \
+                                 to {} files.",
+                                documents.len()
+                            ));
+                        }
+                    }
+                    if let Some(snapshot) = session.documents.first() {
+                        ui.weak(format!("Recovery checkpoint: {}", snapshot_time(snapshot)));
+                    }
                 });
             });
+            if session.documents.len() > 1 {
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    for (index, snapshot) in session.documents.iter().enumerate() {
+                        if ui
+                            .selectable_label(session.selected == index, snapshot.display_name())
+                            .on_hover_text(snapshot.path.as_ref().map_or_else(
+                                || "Untitled".to_owned(),
+                                |path| path.display().to_string(),
+                            ))
+                            .clicked()
+                        {
+                            session.selected = index;
+                        }
+                    }
+                });
+            }
             ui.add_space(10.0);
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                egui::ScrollArea::both()
-                    .id_salt("recovery_preview")
-                    .max_height(180.0)
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(RichText::new(&snapshot.text).monospace())
-                                .selectable(true),
-                        );
-                    });
-            });
+            if let Some(snapshot) = session.documents.get(session.selected) {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::both()
+                        .id_salt("recovery_preview")
+                        .max_height(180.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(RichText::new(&snapshot.text).monospace())
+                                    .selectable(true),
+                            );
+                        });
+                });
+            }
             ui.add_space(10.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui

@@ -1,5 +1,9 @@
 //! Rendering and debugging the script. [`Execution`](super::execution)
 //! decides; these methods send the requests and apply the results.
+//!
+//! A run executes the script F5 runs ([`AppState::run_target`]): the shown
+//! document, or the project's main script. Its error line, debug line and
+//! profile go to that document's editor, shown or not.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -31,16 +35,19 @@ impl AppState {
             );
             return;
         }
-        let Some(parameter) = parameters::parameters(&self.document.text)
+        let now = self.now();
+        let target = self.run_target();
+        let Some((document, editor)) = self.open_mut(target) else {
+            return;
+        };
+        let Some(parameter) = parameters::parameters(&document.text)
             .into_iter()
             .find(|parameter| parameter.line == line && parameter.name == name)
         else {
             return;
         };
         let literal = parameter.literal_for(value);
-        let now = self.now();
-        self.editor
-            .adjust_text(&mut self.document, parameter.literal, &literal, now);
+        editor.adjust_text(document, parameter.literal, &literal, now);
         self.parameter_render_at = Some(now + PARAMETER_RENDER_DELAY);
     }
 
@@ -97,8 +104,15 @@ impl AppState {
             }
         }
 
+        let target = self.prepare_run_target();
+        let Some((document, editor)) = self.open_mut(target) else {
+            return;
+        };
         // A reload may have changed the text since the editor last drew.
-        self.editor.sync_markers(&self.document.text);
+        editor.sync_markers(&document.text);
+        let script = document.text.clone();
+        let path = document.path().map(|p| p.display().to_string());
+        let breakpoints = editor.breakpoints.iter().copied().collect();
         let id = self.worker.next_id();
         // Pinned, so a debugging session may reference them even after it
         // clears the view below.
@@ -107,16 +121,16 @@ impl AppState {
         self.run_script = Some((
             id,
             Arc::new(RunScript {
-                document: self.document_generation,
-                text: self.document.text.clone(),
+                document: target,
+                text: script.clone(),
             }),
         ));
         let request = Request::Run {
             id,
-            script: self.document.text.clone(),
-            path: self.document.path().map(|p| p.display().to_string()),
+            script,
+            path,
             debug,
-            breakpoints: self.editor.breakpoints.iter().copied().collect(),
+            breakpoints,
             settings: self.settings.run_settings(),
             scene: self.settings.scene_settings(),
             known_geometry,
@@ -128,7 +142,9 @@ impl AppState {
         }
         self.execution.started(id, debug);
         // The times of an earlier profile no longer describe the script.
-        self.editor.line_profile.clear();
+        if let Some((_, editor)) = self.open_mut(target) {
+            editor.line_profile.clear();
+        }
         if profile {
             self.set_status(StatusKind::Info, "Profiling…");
         }
@@ -146,9 +162,25 @@ impl AppState {
         }
     }
 
+    /// The document the run `id` executes: the one it started with, or the
+    /// shown one.
+    pub(super) fn run_document(&self, id: RequestId) -> u64 {
+        self.run_script
+            .as_ref()
+            .filter(|(run, _)| *run == id)
+            .map_or(self.document_generation, |(_, script)| script.document)
+    }
+
+    fn set_error_line(&mut self, document: u64, line: Option<usize>) {
+        if let Some((_, editor)) = self.open_mut(document) {
+            editor.error_line = line;
+        }
+    }
+
     pub(super) fn finish_run(&mut self, result: RunFinished) {
         let RunEnd { stale, rerun } = self.execution.ended(result.id);
-        self.editor.set_debug_line(None);
+        let target = self.run_document(result.id);
+        self.clear_debug_lines();
 
         if stale {
             let keys = result.objects.into_iter().flatten().map(|node| node.key);
@@ -163,7 +195,7 @@ impl AppState {
         match &result.error {
             Some(error) if result.interrupted => {
                 // Not an error: the user asked for it.
-                self.editor.error_line = None;
+                self.set_error_line(target, None);
                 let location = error
                     .line
                     .map(|line| format!(" at line {line}"))
@@ -172,21 +204,29 @@ impl AppState {
                 logging::push(Level::Info, "script", &error.text);
             }
             Some(error) => {
-                self.editor.error_line = error.line;
+                self.set_error_line(target, error.line);
                 let location = error
                     .line
                     .map(|l| format!(" (line {l})"))
                     .unwrap_or_default();
+                // Named when it is not the file shown.
+                let file = match self.document_of(target) {
+                    Some(document) if target != self.document_generation => {
+                        format!("{}: ", document.display_name())
+                    }
+                    _ => String::new(),
+                };
                 self.set_status(
                     StatusKind::Error,
-                    format!("{}: {}{location}", error.type_name, error.message),
+                    format!("{file}{}: {}{location}", error.type_name, error.message),
                 );
                 logging::push(Level::Error, "script", &error.text);
             }
-            None => self.editor.error_line = None,
+            None => self.set_error_line(target, None),
         }
         let ok = result.ok;
         self.traceback = result.error.filter(|_| !result.interrupted);
+        self.traceback_document = Some(target);
 
         if let Some(objects) = result.objects {
             let preserved = self
@@ -220,13 +260,20 @@ impl AppState {
                 }
                 if ok {
                     let plural = if count == 1 { "" } else { "s" };
-                    self.set_status(
-                        StatusKind::Success,
-                        format!(
-                            "Rendered {count} object{plural} in {:.2} s",
-                            result.duration
-                        ),
+                    let rendered = format!(
+                        "Rendered {count} object{plural} in {:.2} s",
+                        result.duration
                     );
+                    match self.unsaved_modules(target).as_slice() {
+                        [] => self.set_status(StatusKind::Success, rendered),
+                        unsaved => self.set_status(
+                            StatusKind::Warning,
+                            format!(
+                                "{rendered}; unsaved changes to {} were not used, save them first",
+                                unsaved.join(", ")
+                            ),
+                        ),
+                    }
                 }
             }
         }
@@ -257,7 +304,7 @@ impl AppState {
     /// A run of the worker failed before it could finish.
     pub(super) fn run_failed(&mut self, id: RequestId, message: String) {
         let RunEnd { stale, rerun } = self.execution.ended(id);
-        self.editor.set_debug_line(None);
+        self.clear_debug_lines();
         if stale {
             log::warn!("A run of the previous document failed: {message}");
         } else {
@@ -269,16 +316,22 @@ impl AppState {
     }
 
     pub(super) fn debug_command(&mut self, action: DebugAction) {
-        if self.execution.resume().is_none() {
+        let Some(id) = self.execution.resume() else {
             return;
-        }
-        self.editor.sync_markers(&self.document.text);
-        let breakpoints = self.editor.breakpoints.iter().copied().collect();
+        };
+        let target = self.run_document(id);
+        let breakpoints = match self.open_mut(target) {
+            Some((document, editor)) => {
+                editor.sync_markers(&document.text);
+                editor.breakpoints.iter().copied().collect()
+            }
+            None => Vec::new(),
+        };
         self.worker.send(&Request::Debug {
             action,
             breakpoints,
         });
-        self.editor.set_debug_line(None);
+        self.clear_debug_lines();
     }
 
     pub(super) fn stop_debugging(&mut self) {
@@ -335,11 +388,11 @@ impl AppState {
     /// Puts a profiled run's times in the gutter, on the lines of the
     /// document as it is now.
     fn show_profile(&mut self, id: RequestId, profile: RunProfile) {
-        let Some(run_text) = self
+        let Some((target, run_text)) = self
             .run_script
             .as_ref()
             .filter(|(run, _)| *run == id)
-            .map(|(_, script)| script.text.clone())
+            .map(|(_, script)| (script.document, script.text.clone()))
         else {
             return;
         };
@@ -362,11 +415,12 @@ impl AppState {
                     .push((operation.name, operation.seconds, operation.calls));
             }
         }
-        self.editor
-            .set_line_profile(lines, &run_text, &self.document.text);
+        let Some((document, editor)) = self.open_mut(target) else {
+            return;
+        };
+        editor.set_line_profile(lines, &run_text, &document.text);
         // On the lines of the document as it is now.
-        let slowest = self
-            .editor
+        let slowest = editor
             .line_profile
             .iter()
             .max_by(|a, b| a.1.seconds.total_cmp(&b.1.seconds))
@@ -418,10 +472,12 @@ impl AppState {
             );
             return;
         };
-        if script.document != self.document_generation {
+        // Its script is shown, in whichever tab it is.
+        if !self.activate(script.document) {
             self.set_status(
                 StatusKind::Warning,
-                "This object comes from another script; render again to go to its source",
+                "This object comes from another script, which is no longer open; render again \
+                 to go to its source",
             );
             return;
         }

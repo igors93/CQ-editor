@@ -6,6 +6,7 @@ mod log;
 mod measurements;
 mod objects;
 mod parameters;
+mod project;
 mod traceback;
 mod variables;
 
@@ -33,10 +34,11 @@ pub enum Tab {
     Console,
     Traceback,
     Log,
+    Project,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 10] = [
+    pub const ALL: [Tab; 11] = [
         Tab::Editor,
         Tab::Viewer,
         Tab::Objects,
@@ -47,6 +49,7 @@ impl Tab {
         Tab::Console,
         Tab::Traceback,
         Tab::Log,
+        Tab::Project,
     ];
 
     pub fn title(self) -> &'static str {
@@ -61,6 +64,7 @@ impl Tab {
             Tab::Console => "Console",
             Tab::Traceback => "Traceback",
             Tab::Log => "Log",
+            Tab::Project => "Project",
         }
     }
 
@@ -76,12 +80,14 @@ impl Tab {
             Tab::Console => icon::TERMINAL_WINDOW,
             Tab::Traceback => icon::WARNING_CIRCLE,
             Tab::Log => icon::LIST_BULLETS,
+            Tab::Project => icon::FOLDER_SIMPLE,
         }
     }
 }
 
 /// Editor on the left, 3D view in the middle, objects and variables on the
 /// right and console, traceback and log at the bottom, like the original.
+/// The Project panel joins it, left of the editor, once a folder is open.
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewer]);
     let tree = dock.main_surface_mut();
@@ -126,6 +132,11 @@ impl TabViewer for TabContext<'_> {
                 }
             }
             Tab::Traceback if self.state.traceback.is_some() => title.push_str(" •"),
+            Tab::Project => {
+                if let Some(project) = &self.state.project {
+                    title = format!("{}  {}", tab.icon(), project.name());
+                }
+            }
             _ => {}
         }
         title.into()
@@ -144,6 +155,7 @@ impl TabViewer for TabContext<'_> {
             Tab::Console => console::ui(ui, self.state),
             Tab::Traceback => traceback::ui(ui, self.state),
             Tab::Log => log::ui(ui, self.state),
+            Tab::Project => project::ui(ui, self.state),
         }
     }
 

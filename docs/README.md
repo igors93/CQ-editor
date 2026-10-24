@@ -22,6 +22,7 @@ interactive console and exporters.
 | [Writing scripts](user-guide/scripting.md) | `show_object`, colors, assemblies, `debug`, `log`, the script environment |
 | [3D view](user-guide/viewer.md) | Mouse controls, navigation cube, standard views, selecting faces, edges and vertices |
 | [Code editor](user-guide/editor.md) | Editing, completion, search, files, automatic reload, crash recovery, local history |
+| [Projects and multiple files](user-guide/projects.md) | Tabs, the Project panel, the main script, errors across files |
 | [Debugging and inspection](user-guide/debugging.md) | Breakpoints, stepping, the CQ Inspector |
 | [Console, variables and logs](user-guide/console.md) | Interactive Python, Variables, Traceback and Log panels |
 | [Exporting and sharing](user-guide/exporting.md) | STEP, STL, BREP, screenshots, model upload |

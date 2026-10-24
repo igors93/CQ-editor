@@ -1,8 +1,9 @@
 //! Crash recovery and bounded local document history.
 //!
-//! The active unsaved buffer is stored separately from history so startup can
-//! distinguish a recoverable interrupted session. Every file is written with
-//! the same atomic, synchronized primitive used by normal document saves.
+//! The unsaved buffers of the open tabs are stored as the active session,
+//! separately from history, so startup can distinguish a recoverable
+//! interrupted session. Every file is written with the same atomic,
+//! synchronized primitive used by normal document saves.
 //!
 //! History lives in one folder per document, named after a hash of its path
 //! (untitled buffers share one), and every version's file name carries its
@@ -11,6 +12,7 @@
 //! (which also removes the history of deleted or renamed files) and the
 //! oldest versions beyond [`MAX_HISTORY_BYTES`] are pruned.
 
+use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -21,6 +23,9 @@ use serde::{Deserialize, Serialize};
 use crate::document::{Document, LineEnding, atomic_create, atomic_write};
 
 const SCHEMA_VERSION: u32 = 1;
+/// The session file holds every unsaved document since multiple tabs; the
+/// single snapshot of earlier releases (schema 1) is still read.
+const SESSION_SCHEMA_VERSION: u32 = 2;
 pub const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(5);
 pub const MAX_HISTORY_PER_DOCUMENT: usize = 20;
 /// Versions older than this are removed, whatever document they belong to.
@@ -77,6 +82,13 @@ impl RecoverySnapshot {
     }
 }
 
+/// The active session: the unsaved documents, in tab order.
+#[derive(Serialize, Deserialize)]
+struct SessionFile {
+    schema: u32,
+    documents: Vec<RecoverySnapshot>,
+}
+
 /// A history version on disk, known from its file name alone.
 struct VersionFile {
     path: PathBuf,
@@ -85,7 +97,13 @@ struct VersionFile {
 
 pub struct RecoveryStore {
     root: PathBuf,
-    last_content: Option<u64>,
+    /// Content of the session last written, to skip identical ones.
+    last_session: Option<u64>,
+    /// Content of each document of that session, so only the documents
+    /// that changed since get a history version.
+    last_contents: HashSet<u64>,
+    /// Documents whose saved baseline was archived since the session began.
+    baselines: HashSet<Option<PathBuf>>,
     last_timestamp_ms: u64,
     session_active: bool,
     /// Whether this session already migrated and pruned the whole history.
@@ -98,7 +116,9 @@ impl RecoveryStore {
         let session_active = root.join("active-session.json").is_file();
         Self {
             root,
-            last_content: None,
+            last_session: None,
+            last_contents: HashSet::new(),
+            baselines: HashSet::new(),
             last_timestamp_ms: 0,
             session_active,
             maintained: false,
@@ -119,47 +139,89 @@ impl RecoveryStore {
         self.history_dir().join(document_folder(path))
     }
 
-    pub fn load_session(&self) -> io::Result<Option<RecoverySnapshot>> {
+    /// The unsaved documents of an interrupted session; empty when there
+    /// is none.
+    pub fn load_session(&self) -> io::Result<Vec<RecoverySnapshot>> {
         let path = self.session_path();
         match std::fs::read(&path) {
-            Ok(bytes) => decode(&bytes).map(Some),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Ok(bytes) => decode_session(&bytes),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => Err(error),
         }
     }
 
     /// Persists a modified buffer as the active session and as a history
-    /// version. Repeated identical contents do not create duplicate versions.
+    /// version; see [`RecoveryStore::checkpoint_all`].
+    #[cfg(test)]
     pub fn checkpoint(&mut self, document: &Document) -> io::Result<bool> {
-        if !document.is_modified() {
+        self.checkpoint_all(&[document])
+    }
+
+    /// Persists the modified documents among `documents` as the active
+    /// session, and each one that changed since the last checkpoint as a
+    /// history version. Repeated identical contents write nothing, and
+    /// without modified documents the session is cleared. Returns whether
+    /// a session was written.
+    pub fn checkpoint_all(&mut self, documents: &[&Document]) -> io::Result<bool> {
+        let modified: Vec<&Document> = documents
+            .iter()
+            .copied()
+            .filter(|document| document.is_modified())
+            .collect();
+        if modified.is_empty() {
             self.clear_session()?;
             return Ok(false);
         }
         self.maintain();
 
-        if self.last_content.is_none()
-            && let Some(path) = document.path()
-            && let Err(error) = self.archive_path(path)
-        {
-            log::warn!(
-                "Cannot archive the saved baseline {}: {error}",
-                path.display()
-            );
+        // The saved version of each file first, so it is older than its
+        // edits in the history.
+        for document in &modified {
+            let path = document.path().map(Path::to_path_buf);
+            if self.baselines.insert(path.clone())
+                && let Some(path) = path
+                && let Err(error) = self.archive_path(&path)
+            {
+                log::warn!(
+                    "Cannot archive the saved baseline {}: {error}",
+                    path.display()
+                );
+            }
         }
 
         let timestamp = self.next_timestamp();
-        let snapshot = RecoverySnapshot::capture(document, timestamp);
-        let content_key = content_key(&snapshot);
-        if self.last_content == Some(content_key) {
+        let snapshots: Vec<RecoverySnapshot> = modified
+            .iter()
+            .map(|document| RecoverySnapshot::capture(document, timestamp))
+            .collect();
+        let contents: Vec<u64> = snapshots.iter().map(content_key).collect();
+        let session = {
+            let mut hasher = DefaultHasher::new();
+            contents.hash(&mut hasher);
+            hasher.finish()
+        };
+        if self.last_session == Some(session) {
             return Ok(false);
         }
 
-        let encoded = serde_json::to_vec(&snapshot).map_err(io::Error::other)?;
+        for (snapshot, content) in snapshots.iter().zip(&contents) {
+            if self.last_contents.contains(content) {
+                continue;
+            }
+            let encoded = serde_json::to_vec(snapshot).map_err(io::Error::other)?;
+            self.append_history(snapshot, &encoded)?;
+        }
+
+        let encoded = serde_json::to_vec(&SessionFile {
+            schema: SESSION_SCHEMA_VERSION,
+            documents: snapshots,
+        })
+        .map_err(io::Error::other)?;
         std::fs::create_dir_all(&self.root)?;
         atomic_write(&self.session_path(), &encoded)?;
         self.session_active = true;
-        self.append_history(&snapshot, &encoded)?;
-        self.last_content = Some(content_key);
+        self.last_session = Some(session);
+        self.last_contents = contents.into_iter().collect();
         self.last_timestamp_ms = timestamp;
         Ok(true)
     }
@@ -191,17 +253,17 @@ impl RecoveryStore {
     }
 
     pub fn clear_session(&mut self) -> io::Result<()> {
-        if !self.session_active {
-            self.last_content = None;
-            return Ok(());
+        if self.session_active {
+            match std::fs::remove_file(self.session_path()) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            self.session_active = false;
         }
-        match std::fs::remove_file(self.session_path()) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        self.last_content = None;
-        self.session_active = false;
+        self.last_session = None;
+        self.last_contents.clear();
+        self.baselines.clear();
         Ok(())
     }
 
@@ -435,6 +497,23 @@ fn remove_file(path: &Path) -> io::Result<()> {
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
+    }
+}
+
+/// The documents of a session file, of this release or a single snapshot
+/// of an earlier one.
+fn decode_session(bytes: &[u8]) -> io::Result<Vec<RecoverySnapshot>> {
+    match serde_json::from_slice::<SessionFile>(bytes) {
+        Ok(session) if session.schema == SESSION_SCHEMA_VERSION => session
+            .documents
+            .into_iter()
+            .map(RecoverySnapshot::validate)
+            .collect(),
+        Ok(session) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported recovery session version {}", session.schema),
+        )),
+        Err(_) => decode(bytes).map(|snapshot| vec![snapshot]),
     }
 }
 

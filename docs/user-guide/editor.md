@@ -14,7 +14,7 @@ breakpoints. It also takes care that your work is never lost.
 | Indent / unindent | Tab / Shift+Tab. With several lines selected, Tab indents them all. Indentation is 4 spaces |
 | Auto-indent | Enter keeps the indentation, indents after a line ending with `:` and dedents after `return`, `pass`, `break`, `continue` or `raise` |
 | Toggle comment | Ctrl+/ comments or uncomments the selected lines |
-| Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z), also in the **Edit** menu. Typing is undone a burst at a time: a pause, a new line or a click elsewhere starts the next step. An indent, a comment, an accepted completion, a *Replace all* and a reload from disk are each one step. The history belongs to the open document |
+| Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z), also in the **Edit** menu. Typing is undone a burst at a time: a pause, a new line or a click elsewhere starts the next step. An indent, a comment, an accepted completion, a *Replace all* and a reload from disk are each one step. Each tab has its own history |
 | Go to line | Ctrl+G opens a bar above the editor: type a line, or `line:column`, and press Enter |
 | Line wrap | Off by default (*Preferences > Editor*) |
 | Font size | 13 by default (8–28) |
@@ -104,17 +104,23 @@ slowed), and a debugging session is never profiled.
 
 | Command | Shortcut | Notes |
 | --- | --- | --- |
-| New | Ctrl+N | Empty untitled script |
-| Open… | Ctrl+O | Python files (`*.py`) |
-| Open Recent | | The last 10 files |
+| New | Ctrl+N | Empty untitled script, in a new tab |
+| Open… | Ctrl+O | Python files (`*.py`), several at once, each in a tab |
+| Open Folder… | Ctrl+Shift+O | Shows the folder in the Project panel |
+| Open Recent | | The last 10 files, then recent folders |
 | Save | Ctrl+S | Untitled scripts and examples ask for a location |
 | Save As… | Ctrl+Shift+S | |
+| Save All | | Every tab with unsaved changes |
+| Close Tab | Ctrl+W | Asks first when the tab has unsaved changes |
 | Quit | Ctrl+Q | |
 
-* CQ-editor reopens the last file when it starts. A file given on the
-  command line takes precedence.
-* Closing the window, opening another file or quitting with unsaved changes
-  asks **Save**, **Don't save** or **Cancel**.
+* Every open file has a **tab**; see [Projects and multiple
+  files](projects.md) for tabs, the Project panel and the main script.
+* CQ-editor reopens the tabs of the last session when it starts, and shows
+  the file that was shown. A file given on the command line is opened too,
+  and shown.
+* Closing a tab, closing the window or quitting with unsaved changes asks
+  **Save**, **Don't save** or **Cancel**, once for all the files concerned.
 * **Examples** (File > Examples) open as read-only buffers. You can edit and
   run them; saving asks for a new location.
 
@@ -175,7 +181,10 @@ script in your favorite editor while CQ-editor shows the result:
 * *Autoreload: watch imported modules* also re-runs when local modules
   imported by the script change;
 * a save that only touches the timestamp, without changing the contents,
-  does not re-run anything.
+  does not re-run anything;
+* the other open tabs are watched too, and reloaded when another program
+  changes their file (see [Projects and multiple
+  files](projects.md#automatic-reload)).
 
 ### When the file changes while you have unsaved edits
 
@@ -200,8 +209,9 @@ checkpoint** every 5 seconds (and before risky operations such as reloading
 or saving).
 
 * **After a crash** or a forced shutdown, the next start shows **Unsaved work
-  can be recovered**, with the time of the checkpoint. Choose **Restore
-  session** or **Discard recovery**.
+  can be recovered**, with the time of the checkpoint and every file that
+  had unsaved changes. Choose **Restore session**, which puts each back in
+  its tab, or **Discard recovery**.
 * **File > Local History…** lists earlier versions of the current document:
   checkpoints, saved versions and the contents a *Save As* replaced. Select
   one to preview it, then **Restore this version**. The newest **20
@@ -211,4 +221,5 @@ or saving).
 
 Recovery data stays on your computer, in the `recovery/` folder of the
 [application data folder](../getting-started/installation.md#where-cq-editor-keeps-its-files).
-A normal save or a deliberate *Don't save* ends the recovery session.
+Saving a file, or a deliberate *Don't save*, takes it out of the recovery
+session; the session ends once no tab has unsaved changes.

@@ -1,5 +1,7 @@
-//! Window chrome around the dock area: menu bar, toolbar and status bar.
+//! Window chrome around the dock area: menu bar, toolbar and status bar,
+//! and the editor's tab strip.
 
+pub mod editor_tabs;
 pub mod menu_bar;
 mod named_views;
 pub mod status_bar;

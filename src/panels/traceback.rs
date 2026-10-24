@@ -1,4 +1,7 @@
-//! The error of the last run. Clicking a frame of the script jumps to its line.
+//! The error of the last run. Clicking a frame jumps to its line: in the
+//! script that ran, or in the imported module, which opens in a tab.
+
+use std::path::Path;
 
 use egui::RichText;
 use egui_extras::{Column, TableBuilder};
@@ -14,7 +17,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         return;
     };
     let mut actions = Vec::new();
-    let script_name = state.document.display_name();
+    let script = state.traceback_document;
+    let script_name = script
+        .and_then(|document| state.document_of(document))
+        .map_or_else(|| "script".to_owned(), |document| document.display_name());
 
     egui::Frame::NONE
         .inner_margin(egui::Margin::symmetric(8, 6))
@@ -62,6 +68,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             body.rows(row_height, error.frames.len(), |mut row| {
                 let frame = &error.frames[row.index()];
                 let in_script = frame.file == SCRIPT_FILENAME;
+                // A module of the project, or any Python file that exists.
+                let module = (!in_script)
+                    .then(|| Path::new(&frame.file))
+                    .filter(|path| path.is_absolute() && path.is_file());
                 let file = if in_script {
                     script_name.as_str()
                 } else {
@@ -73,6 +83,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 row.col(|ui| {
                     if in_script {
                         ui.add(cell(RichText::new(file).strong()));
+                    } else if module.is_some() {
+                        let name = Path::new(file)
+                            .file_name()
+                            .map_or_else(|| file.to_owned(), |n| n.to_string_lossy().into_owned());
+                        ui.add(cell(RichText::new(name))).on_hover_text(format!(
+                            "{file}\nClick to open it at line {}",
+                            frame.line
+                        ));
                     } else {
                         ui.add(cell(RichText::new(file).weak()))
                             .on_hover_text(&frame.file);
@@ -87,8 +105,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 row.col(|ui| {
                     ui.add(cell(RichText::new(&frame.code).monospace()).truncate());
                 });
-                if in_script && row.response().clicked() {
-                    actions.push(Action::GoToLine(frame.line));
+                if row.response().clicked() {
+                    match (in_script, script, module) {
+                        (true, Some(document), _) => actions.push(Action::GoToScriptLine {
+                            document,
+                            line: frame.line,
+                        }),
+                        (true, None, _) => actions.push(Action::GoToLine(frame.line)),
+                        (false, _, Some(path)) => actions.push(Action::OpenFileAt {
+                            path: path.to_path_buf(),
+                            line: frame.line,
+                        }),
+                        (false, _, None) => {}
+                    }
                 }
             });
         });

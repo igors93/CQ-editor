@@ -38,6 +38,13 @@ fn preferences_round_trip_through_json() {
     settings.objects.preserve_properties = true;
     settings.execution.reload_imported_modules = false;
     settings.add_recent_file(Path::new("part.py"));
+    settings.open_files = vec!["part.py".into(), "parts/axle.py".into()];
+    settings.project = Some("project".into());
+    settings.remember_project(ProjectState {
+        root: "project".into(),
+        main: Some("project/main.py".into()),
+        expanded: vec!["project/parts".into()],
+    });
 
     let json = serde_json::to_string(&settings).unwrap();
     let loaded: Settings = serde_json::from_str(&json).unwrap();
@@ -183,4 +190,64 @@ fn the_original_projection_and_stereo_names_are_kept() {
     ]) {
         assert_eq!(serde_json::to_value(mode).unwrap(), name);
     }
+}
+
+#[test]
+fn project_folders_are_remembered_most_recent_first_and_bounded() {
+    let mut settings = Settings::default();
+    for i in 0..MAX_PROJECTS + 3 {
+        settings.remember_project(ProjectState {
+            root: format!("p{i}").into(),
+            ..ProjectState::default()
+        });
+    }
+    settings.remember_project(ProjectState {
+        root: "p5".into(),
+        main: Some("p5/main.py".into()),
+        expanded: Vec::new(),
+    });
+    assert_eq!(settings.projects.len(), MAX_PROJECTS);
+    assert_eq!(settings.projects[0].root, Path::new("p5"));
+    let p5 = settings.project_state(Path::new("p5")).unwrap();
+    assert_eq!(p5.main.as_deref(), Some(Path::new("p5/main.py")));
+    assert_eq!(
+        settings
+            .projects
+            .iter()
+            .filter(|p| p.root == Path::new("p5"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn what_is_remembered_of_a_file_follows_its_rename() {
+    let mut settings = Settings::default();
+    let old = Path::new("/p/parts/axle.py");
+    settings.add_recent_file(old);
+    settings.open_files = vec![old.into(), "/p/main.py".into()];
+    settings.last_file = Some(old.into());
+    settings.remember_breakpoints(
+        old,
+        vec![SavedBreakpoint {
+            line: 2,
+            text: "x = 1".into(),
+        }],
+    );
+    settings.remember_project(ProjectState {
+        root: "/p".into(),
+        main: Some(old.into()),
+        expanded: vec!["/p/parts".into()],
+    });
+
+    settings.relocate(Path::new("/p/parts"), Path::new("/p/components"));
+    let new = Path::new("/p/components/axle.py");
+    assert_eq!(settings.recent_files[0], new);
+    assert_eq!(settings.open_files[0], new);
+    assert_eq!(settings.open_files[1], Path::new("/p/main.py"));
+    assert_eq!(settings.last_file.as_deref(), Some(new));
+    assert_eq!(settings.breakpoints_of(new).len(), 1);
+    let project = settings.project_state(Path::new("/p")).unwrap();
+    assert_eq!(project.main.as_deref(), Some(new));
+    assert_eq!(project.expanded, [PathBuf::from("/p/components")]);
 }

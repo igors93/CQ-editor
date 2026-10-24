@@ -88,11 +88,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         );
         separator(ui);
 
+        // Names the project's main script when another file is shown.
+        let render = match state.main_script() {
+            Some(main) if Some(main) != state.document.path() => format!(
+                "Render {}",
+                main.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            _ => "Render".to_owned(),
+        };
         tool(
             ui,
             actions,
             icon::PLAY,
-            "Render",
+            &render,
             Action::Render,
             true,
             false,

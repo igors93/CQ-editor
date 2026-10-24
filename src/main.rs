@@ -17,6 +17,7 @@ mod file_watcher;
 mod logging;
 mod panels;
 mod parameters;
+mod project;
 mod recovery;
 mod scene;
 mod settings;

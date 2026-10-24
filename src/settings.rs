@@ -14,6 +14,8 @@ const MAX_RECENT_FILES: usize = 10;
 const MAX_BREAKPOINT_FILES: usize = 100;
 /// Files whose named views are remembered, most recently used first.
 const MAX_VIEW_FILES: usize = 100;
+/// Project folders remembered, most recently opened first.
+const MAX_PROJECTS: usize = 20;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -24,12 +26,30 @@ pub struct Settings {
     pub objects: Objects,
     pub execution: Execution,
     pub recent_files: Vec<PathBuf>,
-    /// File reopened on startup.
+    /// File shown on startup: the active tab of the last session.
     pub last_file: Option<PathBuf>,
+    /// Files open in tabs when the editor was last closed, in tab order.
+    pub open_files: Vec<PathBuf>,
+    /// The folder shown in the Project panel.
+    pub project: Option<PathBuf>,
+    /// Recently opened project folders and their state, most recent first.
+    pub projects: Vec<ProjectState>,
     /// Breakpoints of recently edited files, most recent first.
     pub breakpoints: Vec<FileBreakpoints>,
     /// Named views of recently edited files, most recent first.
     pub views: Vec<FileViews>,
+}
+
+/// What is remembered of a project folder.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ProjectState {
+    pub root: PathBuf,
+    /// The script F5 runs while a file of the project is shown; `None`
+    /// once cleared, so it is not guessed again.
+    pub main: Option<PathBuf>,
+    /// Folders expanded in the Project panel.
+    pub expanded: Vec<PathBuf>,
 }
 
 /// The named views of one file.
@@ -76,6 +96,39 @@ impl Settings {
         self.recent_files.retain(|p| p != path);
         self.recent_files.insert(0, path.to_path_buf());
         self.recent_files.truncate(MAX_RECENT_FILES);
+    }
+
+    pub fn project_state(&self, root: &Path) -> Option<&ProjectState> {
+        self.projects.iter().find(|project| project.root == root)
+    }
+
+    /// Remembers a project folder's state and moves it to the front of the
+    /// recent folders.
+    pub fn remember_project(&mut self, state: ProjectState) {
+        self.projects.retain(|project| project.root != state.root);
+        self.projects.insert(0, state);
+        self.projects.truncate(MAX_PROJECTS);
+    }
+
+    /// Follows a file or folder renamed from `from` to `to`: what is
+    /// remembered under the old path is kept under the new one.
+    pub fn relocate(&mut self, from: &Path, to: &Path) {
+        let moved = |path: &mut PathBuf| {
+            if let Some(new) = crate::project::relocated(path, from, to) {
+                *path = new;
+            }
+        };
+        self.recent_files.iter_mut().for_each(moved);
+        self.open_files.iter_mut().for_each(moved);
+        self.last_file.iter_mut().for_each(moved);
+        self.breakpoints
+            .iter_mut()
+            .for_each(|file| moved(&mut file.path));
+        self.views.iter_mut().for_each(|file| moved(&mut file.path));
+        for project in &mut self.projects {
+            project.main.iter_mut().for_each(moved);
+            project.expanded.iter_mut().for_each(moved);
+        }
     }
 
     pub fn breakpoints_of(&self, path: &Path) -> &[SavedBreakpoint] {

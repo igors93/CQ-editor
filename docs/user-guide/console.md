@@ -104,8 +104,10 @@ When a run fails, the **Traceback** panel shows:
   are kept;
 * a copy button for the full Python traceback.
 
-Click a row that belongs to your script to jump to that line. When the last
-run succeeded, the panel shows *No errors*.
+Click a row that belongs to your script to jump to that line, in the tab of
+the script that ran. A row in another Python file that exists, such as a
+module of your project, opens that file at the line. When the last run
+succeeded, the panel shows *No errors*.
 
 ## Log
 

@@ -45,6 +45,9 @@ console. Your code stays the single source of truth.
   * insight into the evolution of the model.
 * **Export** to STEP (assemblies keep names and colors), STL and BREP.
 * **Python console** that shares the variables of the last run.
+* **Multi-file projects**: every file in a tab, a Project panel with the
+  folder's files, and a main script that F5 renders while you edit its
+  modules.
 * **Robust by design**: scripts run in a separate Python process, so a long
   or crashing script never freezes or takes down the editor. Saves are
   atomic, and unsaved work is recovered after a crash.
@@ -109,7 +112,7 @@ Everything is in the [`docs/`](docs/README.md) folder:
 
 * [Installation](docs/getting-started/installation.md): requirements, how Python is found, where files are stored
 * [Your first model](docs/getting-started/first-model.md): a guided tour
-* [User guide](docs/README.md#user-guide): [interface](docs/user-guide/interface.md), [writing scripts](docs/user-guide/scripting.md), [3D view](docs/user-guide/viewer.md), [editor](docs/user-guide/editor.md), [debugging](docs/user-guide/debugging.md), [console](docs/user-guide/console.md), [exporting](docs/user-guide/exporting.md), [preferences](docs/user-guide/preferences.md), [shortcuts](docs/user-guide/shortcuts.md), [troubleshooting](docs/user-guide/troubleshooting.md)
+* [User guide](docs/README.md#user-guide): [interface](docs/user-guide/interface.md), [writing scripts](docs/user-guide/scripting.md), [3D view](docs/user-guide/viewer.md), [editor](docs/user-guide/editor.md), [projects](docs/user-guide/projects.md), [debugging](docs/user-guide/debugging.md), [console](docs/user-guide/console.md), [exporting](docs/user-guide/exporting.md), [preferences](docs/user-guide/preferences.md), [shortcuts](docs/user-guide/shortcuts.md), [troubleshooting](docs/user-guide/troubleshooting.md)
 * [Development](docs/README.md#development): [architecture](docs/development/architecture.md), [worker protocol](docs/development/protocol.md), [building](docs/development/building.md), [testing](docs/development/testing.md), [CadQuery/OCP compatibility](docs/development/dependency-compatibility.md), [contributing](docs/development/contributing.md)
 * [Roadmap](docs/roadmap.md) and [changelog](docs/changelog.md)
 

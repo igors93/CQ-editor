@@ -174,7 +174,9 @@ hole_d = 8.5
 **Split big models into modules.** Put shared parts in `parts.py` next to the
 script and `import parts`. With *Reload imported modules* on, edits to
 `parts.py` apply on the next run. With *Autoreload: watch imported modules*,
-saving `parts.py` even triggers the run.
+saving `parts.py` even triggers the run. Open the folder (**File > Open
+Folder…**) to edit the modules in tabs while F5 keeps rendering the main
+script: see [Projects and multiple files](projects.md).
 
 **Show intermediate steps while you work** and remove them later:
 

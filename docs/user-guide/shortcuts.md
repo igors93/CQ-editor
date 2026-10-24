@@ -12,6 +12,9 @@ On macOS, **Ctrl** means **Cmd**.
 | Open… | Ctrl+O |
 | Save | Ctrl+S |
 | Save As… | Ctrl+Shift+S |
+| Open Folder… | Ctrl+Shift+O |
+| Close Tab | Ctrl+W |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab, or Ctrl+PageDown / Ctrl+PageUp |
 | Quit | Ctrl+Q |
 | Undo (in the editor) | Ctrl+Z |
 | Redo (in the editor) | Ctrl+Y or Ctrl+Shift+Z |

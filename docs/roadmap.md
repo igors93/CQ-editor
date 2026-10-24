@@ -456,7 +456,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 | Status | Id | Feature |
 | :---: | --- | --- |
-| | FEAT-D1 🔵 | **Multiple documents in tabs**, plus a project sidebar with the folder's file tree, for multi-module projects |
+| ✅ | FEAT-D1 🔵 | **Multiple documents in tabs**, plus a project sidebar with the folder's file tree, for multi-module projects | Done: every open file has a tab with its own caret, scrolling, undo history and breakpoints (Ctrl+Tab, Ctrl+W); File > Open Folder shows the Project panel, which opens, creates, renames and deletes files and chooses the main script that F5 renders while a project file is shown. Tracebacks open the module of a frame; tabs and the folder are restored with the session, and closing or quitting asks about every unsaved tab, which crash recovery covers too. Tests: `f5_renders_the_main_script_while_a_project_file_is_shown`, `errors_and_parameters_belong_to_the_script_that_runs`, `quitting_asks_about_every_modified_tab_at_once`, `the_session_keeps_every_unsaved_tab_and_versions_only_what_changed` |
 | | FEAT-D2 🔵 | **Headless command line**: `cq-editor --export part.step script.py` (and `--check`) for batch jobs and CI, reusing the worker |
 | | FEAT-D3 ⚪ | **More export formats** in the menu: glTF/GLB (the worker already uses OCCT's glTF writer), 3MF, AMF, VRML, and DXF/SVG of sections, with an options dialog (units, assembly mode) |
 | | FEAT-D4 ⚪ | **Import by drag and drop**: dropping a STEP, STL or DXF file inserts the matching `cq.importers…` line into the script |

@@ -1,5 +1,7 @@
-//! Automatic reload: the script and the local modules it imports are
-//! watched, and a change reloads the script and renders it again.
+//! Automatic reload: the script F5 runs, the local modules it imports and
+//! the files open in tabs are watched. A changed tab is reloaded (or, with
+//! unsaved edits, asked about), and a change to the script or its modules
+//! renders it again.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -10,24 +12,65 @@ use crate::dialogs::ExternalChange;
 use crate::document::ExternalUpdate;
 use crate::worker::protocol::Request;
 
+/// What the watcher follows; it is told again when this changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct WatchKey {
+    autoreload: bool,
+    watch_imports: bool,
+    /// The script F5 runs, whose imports are asked for.
+    script: Option<PathBuf>,
+    files: Vec<PathBuf>,
+}
+
 impl AppState {
     pub(super) fn sync_watcher(&mut self) {
-        let key = (
-            self.settings.editor.autoreload,
-            self.settings.editor.watch_imported_modules,
-            self.document.path().map(Path::to_path_buf),
-        );
+        let editor = &self.settings.editor;
+        let (autoreload, watch_imports) = (editor.autoreload, editor.watch_imported_modules);
+        let script = self.run_target_path();
+        let mut files = Vec::new();
+        if autoreload {
+            files.extend(script.clone());
+            if watch_imports {
+                files.extend(self.imports.iter().cloned());
+            }
+            files.extend(
+                self.documents_in_order()
+                    .into_iter()
+                    .filter_map(|(_, document)| document.path().map(Path::to_path_buf)),
+            );
+            files.sort();
+            files.dedup();
+        }
+        let key = WatchKey {
+            autoreload,
+            watch_imports,
+            script,
+            files,
+        };
         if self.watch_key.as_ref() == Some(&key) {
             return;
         }
-        let (autoreload, _, path) = key.clone();
+        let ask = self.watch_key.as_ref().is_none_or(|previous| {
+            (
+                previous.autoreload,
+                previous.watch_imports,
+                &previous.script,
+            ) != (key.autoreload, key.watch_imports, &key.script)
+        });
+        self.start_watching(&key, ask);
         self.watch_key = Some(key);
-        match path.filter(|_| autoreload) {
-            Some(path) => {
-                self.watcher.set_files(vec![path]);
-                self.request_imports();
-            }
-            None => self.watcher.clear(),
+    }
+
+    fn start_watching(&mut self, key: &WatchKey, ask_imports: bool) {
+        if key.files.is_empty() {
+            self.watcher.clear();
+        } else {
+            self.watcher.set_files(key.files.clone());
+        }
+        if ask_imports {
+            // Imports of another script, or of none, are of no use now.
+            self.imports.clear();
+            self.request_imports();
         }
     }
 
@@ -35,7 +78,7 @@ impl AppState {
     pub(super) fn watched_imports_of(&self) -> Option<PathBuf> {
         let editor = &self.settings.editor;
         (editor.autoreload && editor.watch_imported_modules)
-            .then(|| self.document.path().map(Path::to_path_buf))
+            .then(|| self.run_target_path())
             .flatten()
     }
 
@@ -64,75 +107,98 @@ impl AppState {
             return;
         }
 
-        let document_path = self.document.path().map(Path::to_path_buf);
-        let document_changed = document_path
+        let script = self.run_target_path();
+        let imported_changed = changed.iter().any(|path| self.imports.contains(path));
+        // A script that is not open always counts; an open one only when
+        // its contents changed.
+        let mut script_changed = script
             .as_ref()
-            .is_some_and(|path| changed.iter().any(|changed| changed == path));
-        let imported_changed = changed
-            .iter()
-            .any(|changed| Some(changed) != document_path.as_ref());
-
-        if !document_changed {
-            if let Some(conflict) = &mut self.dialogs.external_change {
-                conflict.rerun_after_resolution |= imported_changed;
-            } else if imported_changed {
-                self.start_run(false);
+            .is_some_and(|script| changed.contains(script) && self.find_open(script).is_none());
+        let mut conflicts = Vec::new();
+        for path in &changed {
+            let Some(generation) = self.find_open(path) else {
+                continue;
+            };
+            let is_script = script.as_ref() == Some(path);
+            match self.reload_tab(generation) {
+                Some(ExternalUpdate::Unchanged) | None => {}
+                Some(ExternalUpdate::Conflict) => {
+                    let Some(disk) = self
+                        .document_of(generation)
+                        .and_then(|document| document.disk_version().ok().flatten())
+                    else {
+                        continue;
+                    };
+                    conflicts.push(ExternalChange {
+                        path: path.clone(),
+                        disk,
+                        show_comparison: false,
+                        rerun_after_resolution: is_script,
+                    });
+                }
+                Some(ExternalUpdate::MatchesBuffer | ExternalUpdate::Reload) => {
+                    script_changed |= is_script;
+                }
             }
-            return;
         }
 
-        let version = match self.document.disk_version() {
-            Ok(Some(version)) => version,
-            Ok(None) => return,
+        if !conflicts.is_empty() {
+            self.dialogs.external_queue.extend(conflicts);
+            if self.dialogs.external_change.is_none() {
+                let next = self.dialogs.external_queue.remove(0);
+                if let Some(open) = self.find_open(&next.path) {
+                    self.activate(open);
+                }
+                self.dialogs.external_change = Some(next);
+            }
+            self.set_status(
+                StatusKind::Warning,
+                "File changed on disk; waiting for your decision",
+            );
+        }
+        if script_changed || imported_changed {
+            match &mut self.dialogs.external_change {
+                Some(conflict) => conflict.rerun_after_resolution = true,
+                None => self.start_run(false),
+            }
+        }
+    }
+
+    /// Reloads the open document `generation` from disk when that loses
+    /// nothing. Returns how the disk version relates to the buffer;
+    /// a conflict is left for the user to decide.
+    pub(super) fn reload_tab(&mut self, generation: u64) -> Option<ExternalUpdate> {
+        let (document, _) = self.open_mut(generation)?;
+        let version = match document.disk_version() {
+            Ok(version) => version?,
             Err(error) => {
-                log::warn!("Cannot read the changed script: {error}");
+                log::warn!("Cannot read the changed file: {error}");
                 self.dialogs
-                    .error("Cannot read the changed script", error.to_string());
-                return;
+                    .error("Cannot read the changed file", error.to_string());
+                return None;
             }
         };
-
-        match self.document.classify_external_update(&version) {
-            // A timestamp-only rewrite of the main file must neither erase
-            // local edits nor trigger a needless rebuild.
-            ExternalUpdate::Unchanged => {
-                if imported_changed {
-                    self.start_run(false);
+        let update = document.classify_external_update(&version);
+        let applied = match update {
+            // A timestamp-only rewrite must neither erase local edits nor
+            // trigger a needless rebuild.
+            ExternalUpdate::Unchanged | ExternalUpdate::Conflict => return Some(update),
+            ExternalUpdate::MatchesBuffer => document.apply_disk_version(version),
+            ExternalUpdate::Reload => document.reload(version),
+        };
+        match applied {
+            Ok(_) => {
+                let name = document.display_name();
+                self.set_status(StatusKind::Info, format!("Reloaded {name}"));
+                if update == ExternalUpdate::MatchesBuffer {
+                    self.checkpoint_recovery();
                 }
+                Some(update)
             }
-            ExternalUpdate::Conflict => {
-                self.dialogs.external_change = Some(ExternalChange {
-                    path: document_path.expect("a watched document has a path"),
-                    disk: version,
-                    show_comparison: false,
-                    rerun_after_resolution: true,
-                });
-                self.set_status(
-                    StatusKind::Warning,
-                    "File changed on disk; waiting for your decision",
-                );
+            Err(error) => {
+                log::warn!("Cannot reload the file: {error}");
+                None
             }
-            ExternalUpdate::MatchesBuffer => match self.document.apply_disk_version(version) {
-                Ok(_) => {
-                    self.set_status(
-                        StatusKind::Info,
-                        format!("Reloaded {}", self.document.display_name()),
-                    );
-                    self.clear_recovery_session();
-                    self.start_run(false);
-                }
-                Err(error) => log::warn!("Cannot reload the script: {error}"),
-            },
-            ExternalUpdate::Reload => match self.document.reload(version) {
-                Ok(_) => {
-                    self.set_status(
-                        StatusKind::Info,
-                        format!("Reloaded {}", self.document.display_name()),
-                    );
-                    self.start_run(false);
-                }
-                Err(error) => log::warn!("Cannot reload the script: {error}"),
-            },
         }
     }
 }

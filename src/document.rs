@@ -129,7 +129,7 @@ impl LineEnding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Document {
     pub text: String,
     path: Option<PathBuf>,
@@ -220,6 +220,12 @@ impl Document {
 
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// The file was renamed or moved: the buffer stays as it is, modified
+    /// or not, and saves go to `path` from now on.
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.path = Some(path);
     }
 
     pub fn line_ending(&self) -> LineEnding {

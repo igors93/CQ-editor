@@ -279,7 +279,13 @@ fn stop_interrupts_first_and_restarts_python_only_when_pressed_again() {
 
     // Without a script, a console command is what Stop stops.
     let mut execution = Execution::default();
-    execution.track(9, Pending::Completion { automatic: false });
+    execution.track(
+        9,
+        Pending::Completion {
+            automatic: false,
+            document: 0,
+        },
+    );
     execution.track(8, Pending::Console);
     assert_eq!(execution.stop(now), StopPlan::Interrupt(8));
     execution.answer(8);

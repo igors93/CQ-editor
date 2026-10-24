@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+* New: multiple files in tabs (FEAT-D1). Each tab keeps its caret,
+  scrolling, undo history and breakpoints; Ctrl+Tab / Ctrl+Shift+Tab switch,
+  Ctrl+W closes, and File > Save All saves them all. Opening a file no
+  longer replaces the one shown, so it no longer asks to save it first
+* New: File > Open Folder (Ctrl+Shift+O) shows the folder in a Project panel
+  that opens, creates, renames and deletes files and folders; renames keep
+  open tabs, breakpoints and named views in step
+* New: a project's main script, guessed when clear and chosen from the
+  panel, a tab or the Run menu: while a file of the project is shown, F5,
+  Profile and Debug run the main script, whose errors, debug line and
+  parameters stay in its tab. The status bar names it, and a render warns
+  about unsaved modules that Python will not see
+* New: the Traceback panel opens the imported module of a frame at its line
+* New: the open tabs and the project folder are restored at the next start;
+  closing or quitting asks about every unsaved tab at once, and crash
+  recovery and automatic reload cover every tab
 * Fixed: text and partially visible rows in docked panels are clipped to their
   own tab body instead of painting over split separators or neighbouring tabs
 * Fixed: rich console results are tied to the command that produced them;

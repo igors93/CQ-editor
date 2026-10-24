@@ -22,14 +22,21 @@ impl AppState {
         let source = self.document.text.clone();
         let path = self.document.path().map(|p| p.display().to_string());
         let automatic = request.automatic;
-        self.send_tracked(Pending::Completion { automatic }, |id| Request::Complete {
-            id,
-            source,
-            line: request.line,
-            column: request.column,
-            path,
-            target: CompletionTarget::Editor,
-        });
+        let document = self.document_generation;
+        self.send_tracked(
+            Pending::Completion {
+                automatic,
+                document,
+            },
+            |id| Request::Complete {
+                id,
+                source,
+                line: request.line,
+                column: request.column,
+                path,
+                target: CompletionTarget::Editor,
+            },
+        );
     }
 
     /// Asks for the documentation of the name under the editor's pointer.
@@ -39,7 +46,8 @@ impl AppState {
         }
         let source = self.document.text.clone();
         let path = self.document.path().map(|p| p.display().to_string());
-        self.send_tracked(Pending::Describe, |id| Request::Describe {
+        let document = self.document_generation;
+        self.send_tracked(Pending::Describe { document }, |id| Request::Describe {
             id,
             source,
             line: request.line,
@@ -347,9 +355,10 @@ impl AppState {
             self.set_status(StatusKind::Warning, "Nothing to export");
             return;
         }
+        // Named after the script that made the model.
         let stem = self
-            .document
-            .path()
+            .run_target_path()
+            .as_deref()
             .and_then(Path::file_stem)
             .map_or_else(|| "model".to_owned(), |s| s.to_string_lossy().into_owned());
         let Some(mut path) = rfd::FileDialog::new()
@@ -449,7 +458,9 @@ impl AppState {
 
     pub(super) fn start_upload(&mut self, url: String, file_type: String) {
         let keys = self.objects_to_process();
-        let source = self.document.text.clone();
+        let source = self
+            .document_of(self.run_target())
+            .map_or_else(String::new, |document| document.text.clone());
         if !self.send_tracked(Pending::Upload, |id| Request::Upload {
             id,
             url,

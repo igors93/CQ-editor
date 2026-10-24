@@ -71,7 +71,12 @@ fn automatic_range(value: f64, integer: bool) -> RangeInclusive<f64> {
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     let mut actions = Vec::new();
     let editable = !state.is_debugging();
-    let found = state.parameters.of(&state.document.text).to_vec();
+    // Those of the script F5 runs, which may be another tab's.
+    let target = state.run_target();
+    let text = state
+        .document_of(target)
+        .map_or_else(String::new, |document| document.text.clone());
+    let found = state.parameters.of(&text).to_vec();
 
     if found.is_empty() {
         super::empty_state(

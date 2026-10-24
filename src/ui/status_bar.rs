@@ -78,6 +78,16 @@ pub fn ui(ui: &mut egui::Ui, state: &AppState) {
             );
             let (line, column) = state.editor.cursor_position(&state.document.text);
             ui.label(RichText::new(format!("Ln {line}, Col {column}")).small());
+            if let Some(main) = state.main_script()
+                && Some(main) != state.document.path()
+            {
+                let name = main.file_name().unwrap_or_default().to_string_lossy();
+                ui.label(RichText::new(format!("{} {name}", icon::PLAY_CIRCLE)).small())
+                    .on_hover_text(format!(
+                        "F5 renders the project's main script:\n{}",
+                        main.display()
+                    ));
+            }
             if state.settings.editor.autoreload {
                 ui.label(
                     RichText::new(format!("{} Autoreload", icon::ARROWS_CLOCKWISE))

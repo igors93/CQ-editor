@@ -71,11 +71,18 @@ fn check_item(
 
 fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     item(ui, actions, icon::FILE_PLUS, "New", Action::NewFile);
-    item(ui, actions, icon::FOLDER_OPEN, "Open…", Action::OpenFile);
+    item(ui, actions, icon::FILE_ARROW_UP, "Open…", Action::OpenFile);
+    item(
+        ui,
+        actions,
+        icon::FOLDER_OPEN,
+        "Open Folder…",
+        Action::OpenFolder,
+    );
     ui.menu_button(
         format!("{}  Open Recent", icon::CLOCK_COUNTER_CLOCKWISE),
         |ui| {
-            if state.settings.recent_files.is_empty() {
+            if state.settings.recent_files.is_empty() && state.settings.projects.is_empty() {
                 ui.weak("No recent files");
             }
             for path in &state.settings.recent_files {
@@ -92,6 +99,24 @@ fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
                     ui.close();
                 }
             }
+            if !state.settings.projects.is_empty() {
+                ui.separator();
+            }
+            for project in &state.settings.projects {
+                let root = &project.root;
+                let name = root.file_name().map_or_else(
+                    || root.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                if ui
+                    .button(format!("{}  {name}", icon::FOLDER))
+                    .on_hover_text(root.display().to_string())
+                    .clicked()
+                {
+                    actions.push(Action::OpenFolderPath(root.clone()));
+                    ui.close();
+                }
+            }
         },
     );
     item(ui, actions, icon::FLOPPY_DISK, "Save", Action::Save);
@@ -102,12 +127,30 @@ fn file_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         "Save As…",
         Action::SaveAs,
     );
+    item_enabled(
+        ui,
+        actions,
+        icon::FLOPPY_DISK,
+        "Save All",
+        Action::SaveAll,
+        state.any_modified(),
+    );
     item(
         ui,
         actions,
         icon::CLOCK_COUNTER_CLOCKWISE,
         "Local History…",
         Action::LocalHistory,
+    );
+    ui.separator();
+    item(ui, actions, icon::X, "Close Tab", Action::CloseTab);
+    item_enabled(
+        ui,
+        actions,
+        icon::FOLDER_SIMPLE,
+        "Close Folder",
+        Action::CloseFolder,
+        state.project.is_some(),
     );
     ui.separator();
     check_item(
@@ -244,6 +287,7 @@ fn run_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     let paused = state.is_paused();
     let debugging = state.is_debugging();
     item(ui, actions, icon::PLAY, "Render", Action::Render);
+    main_script_item(ui, state, actions);
     item(ui, actions, icon::TIMER, "Profile", Action::Profile);
     item_enabled(
         ui,
@@ -317,6 +361,34 @@ fn run_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         "Restart Python",
         Action::RestartPython,
     );
+}
+
+/// Makes the shown script the project's main script, or lets F5 render the
+/// shown file again.
+fn main_script_item(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
+    let shown = state.document.path();
+    let in_project = state
+        .project
+        .as_ref()
+        .zip(shown)
+        .is_some_and(|(project, path)| project.contains(path) && crate::project::is_script(path));
+    match state.main_script() {
+        Some(main) if Some(main) == shown => item(
+            ui,
+            actions,
+            icon::PLAY_CIRCLE,
+            "Clear Main Script",
+            Action::SetMainScript(None),
+        ),
+        _ => item_enabled(
+            ui,
+            actions,
+            icon::PLAY_CIRCLE,
+            "Set as Main Script",
+            Action::SetMainScript(shown.map(std::path::Path::to_path_buf)),
+            in_project,
+        ),
+    }
 }
 
 fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: &mut Vec<Action>) {

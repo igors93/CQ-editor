@@ -1,4 +1,4 @@
-//! The open document: opening, saving, reloading after external changes,
+//! The documents: opening, saving, reloading after external changes,
 //! crash-recovery checkpoints and local history.
 
 use std::path::Path;
@@ -7,26 +7,35 @@ use std::time::Instant;
 use egui::ViewportCommand;
 
 use super::{AppState, StatusKind};
-use crate::dialogs::{ExternalChange, ExternalChangeChoice, HistoryDialog, Intent, UnsavedChoice};
+use crate::dialogs::{
+    ExternalChange, ExternalChangeChoice, HistoryDialog, Intent, RecoverySession, UnsavedChoice,
+};
 use crate::document::{Document, Encoding, is_not_utf8};
 use crate::logging::{self, Level};
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoverySnapshot};
-use crate::scene::Overlay;
-use crate::worker::protocol::DebugAction;
 
 impl AppState {
+    /// Performs `intent`, or asks first when it would close documents with
+    /// unsaved changes.
     pub(super) fn guard_unsaved(&mut self, intent: Intent) {
-        if self.document.is_modified() {
-            self.dialogs.unsaved = Some(intent);
-        } else {
-            self.perform(intent);
+        let unsaved = self.unsaved_of(&intent);
+        match unsaved.first() {
+            None => self.perform(intent),
+            Some(&first) => {
+                // A single file is shown while it is asked about.
+                if unsaved.len() == 1 {
+                    self.activate(first);
+                }
+                self.dialogs.unsaved = Some(intent);
+            }
         }
     }
 
     pub fn resolve_unsaved(&mut self, intent: Intent, choice: UnsavedChoice) {
         match choice {
             UnsavedChoice::Save => {
-                if self.save() {
+                let unsaved = self.unsaved_of(&intent);
+                if self.save_documents(&unsaved) {
                     self.perform(intent);
                 }
             }
@@ -35,22 +44,28 @@ impl AppState {
         }
     }
 
-    pub fn resolve_recovery_session(&mut self, snapshot: RecoverySnapshot, restore: bool) {
+    pub fn resolve_recovery_session(&mut self, session: RecoverySession, restore: bool) {
         if let Err(error) = self.recovery.clear_session() {
             self.dialogs.error(
                 "Cannot update recovery state",
                 format!("Your recovery was kept on disk.\n\n{error}"),
             );
-            self.dialogs.recovery_session = Some(snapshot);
+            self.dialogs.recovery_session = Some(session);
             return;
         }
         if restore {
-            let name = snapshot.display_name();
-            self.set_document(snapshot.into_document(), false);
+            let names: Vec<String> = session
+                .documents
+                .iter()
+                .map(RecoverySnapshot::display_name)
+                .collect();
+            for snapshot in session.documents {
+                self.restore_recovered(snapshot.into_document());
+            }
             self.checkpoint_recovery();
             self.set_status(
                 StatusKind::Success,
-                format!("Recovered unsaved work for {name}"),
+                format!("Recovered unsaved work for {}", names.join(", ")),
             );
         } else {
             self.set_status(
@@ -60,11 +75,23 @@ impl AppState {
         }
     }
 
+    /// Puts a recovered buffer back in the tab of its file, or in a new
+    /// tab.
+    fn restore_recovered(&mut self, document: Document) {
+        match document.path().and_then(|path| self.find_open(path)) {
+            Some(open) => {
+                self.activate(open);
+                self.replace_document(document);
+            }
+            None => self.add_tab(document),
+        }
+    }
+
     pub fn restore_history(&mut self, snapshot: RecoverySnapshot) {
         self.checkpoint_recovery();
         let name = snapshot.display_name();
         // Another version of the same file, like a reload: the model stays.
-        self.set_document(snapshot.into_document(), true);
+        self.replace_document(snapshot.into_document());
         self.checkpoint_recovery();
         self.set_status(
             StatusKind::Success,
@@ -95,25 +122,9 @@ impl AppState {
 
     fn perform(&mut self, intent: Intent) {
         match intent {
-            Intent::New => self.set_document(Document::untitled(""), false),
-            Intent::Open => {
-                let mut dialog = rfd::FileDialog::new().add_filter("Python script", &["py"]);
-                if let Some(dir) = self.document.path().and_then(Path::parent) {
-                    dialog = dialog.set_directory(dir);
-                }
-                if let Some(path) = dialog.pick_file() {
-                    self.open_path(&path);
-                }
-            }
-            Intent::OpenPath(path) => self.open_path(&path),
-            Intent::OpenExample(index) => {
-                if let Some(example) = self.examples.get(index) {
-                    let document = Document::example(&example.title, example.source);
-                    self.set_document(document, false);
-                    self.set_status(
-                        StatusKind::Info,
-                        "Examples are read-only; saving asks for a new location",
-                    );
+            Intent::Close(documents) => {
+                for generation in documents {
+                    self.close_now(generation);
                 }
             }
             Intent::Quit => {
@@ -124,18 +135,68 @@ impl AppState {
         }
     }
 
-    fn open_path(&mut self, path: &Path) {
-        self.open_path_with(path, Encoding::Utf8);
+    pub(super) fn new_file(&mut self) {
+        self.add_tab(Document::untitled(""));
     }
 
-    /// Opens a file that is not UTF-8 after the user agreed to read it as
-    /// `encoding` (and to convert it on save).
+    /// Asks for scripts and opens each in a tab.
+    pub(super) fn choose_files(&mut self) {
+        let mut dialog = rfd::FileDialog::new().add_filter("Python script", &["py"]);
+        let folder = self
+            .document
+            .path()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(|| self.project.as_ref().map(|p| p.root().to_path_buf()));
+        if let Some(folder) = folder {
+            dialog = dialog.set_directory(folder);
+        }
+        for path in dialog.pick_files().unwrap_or_default() {
+            self.open_path(&path);
+        }
+    }
+
+    pub(super) fn open_example(&mut self, index: usize) {
+        if let Some(example) = self.examples.get(index) {
+            let document = Document::example(&example.title, example.source);
+            self.add_tab(document);
+            self.set_status(
+                StatusKind::Info,
+                "Examples are read-only; saving asks for a new location",
+            );
+        }
+    }
+
+    /// Shows the file at `path`: its tab when it is open, else a new one.
+    pub(super) fn open_path(&mut self, path: &Path) {
+        match self.find_open(path) {
+            Some(open) => {
+                self.activate(open);
+            }
+            None => self.open_path_with(path, Encoding::Utf8),
+        }
+    }
+
+    /// Shows the file at `path` with the caret on `line`, from the
+    /// traceback of a module the script imported.
+    pub(super) fn open_path_at(&mut self, path: &Path, line: usize) {
+        self.open_path(path);
+        if self.find_open(path) == Some(self.document_generation) {
+            self.editor.go_to_line(&self.document.text, line);
+        }
+    }
+
+    /// Opens a file in a new tab; one that is not UTF-8 is opened after
+    /// the user agreed to read it as `encoding` (and to convert it on save).
     pub fn open_path_with(&mut self, path: &Path, encoding: Encoding) {
         match Document::open_with(path, encoding) {
             Ok(document) => {
-                self.set_document(document, false);
+                self.add_tab(document);
                 self.settings.add_recent_file(path);
                 self.settings.last_file = Some(path.to_path_buf());
+                if let Some(project) = &mut self.project {
+                    project.reveal(path);
+                }
                 let status = match encoding {
                     Encoding::Utf8 => format!("Opened {}", path.display()),
                     _ => format!(
@@ -155,12 +216,10 @@ impl AppState {
         }
     }
 
-    /// Replaces the document. Unless `keep_scene` (another version of the
-    /// same file), the model, its selection and the variables of the
-    /// previous file are cleared, and a run still going for it is discarded:
-    /// its result would look like the output of the new script.
-    fn set_document(&mut self, document: Document, keep_scene: bool) {
-        self.clear_recovery_session();
+    /// Replaces the shown document with another version of the same file
+    /// (recovered, or from the local history), like a reload: the model
+    /// stays, and the editor starts afresh.
+    fn replace_document(&mut self, document: Document) {
         self.remember_breakpoints();
         self.remember_views();
         self.document = document;
@@ -170,21 +229,9 @@ impl AppState {
         self.editor.reset();
         self.restore_breakpoints();
         self.restore_views();
-        self.traceback = None;
-        if keep_scene {
-            return;
+        if self.traceback_document == Some(self.document_generation) {
+            self.traceback = None;
         }
-        self.document_generation += 1;
-        if self.execution.abandon() {
-            self.debug_command(DebugAction::Stop);
-        }
-        let removed = self.scene.clear();
-        self.release(removed);
-        self.scene.overlay = Overlay::default();
-        self.measurements.clear();
-        self.selector.clear();
-        self.inspector.clear();
-        self.variables.clear();
     }
 
     /// Returns whether the document ended up saved.
@@ -317,7 +364,7 @@ impl AppState {
                     },
                 );
                 self.set_status(StatusKind::Info, message);
-                self.clear_recovery_session();
+                self.checkpoint_recovery();
                 self.rerun_after_external_change(change.rerun_after_resolution);
             }
             Err(error) => self
@@ -326,7 +373,19 @@ impl AppState {
         }
     }
 
+    /// After a conflict was resolved: the next waiting one is asked about,
+    /// with its file shown, or the script renders if a change asked for it.
     fn rerun_after_external_change(&mut self, rerun: bool) {
+        while !self.dialogs.external_queue.is_empty() {
+            let mut next = self.dialogs.external_queue.remove(0);
+            let Some(open) = self.find_open(&next.path) else {
+                continue;
+            };
+            self.activate(open);
+            next.rerun_after_resolution |= rerun;
+            self.dialogs.external_change = Some(next);
+            return;
+        }
         if rerun {
             self.start_run(false);
         }
@@ -372,7 +431,8 @@ impl AppState {
         if let Err(error) = self.recovery.archive(&self.document) {
             log::warn!("Cannot add the saved document to local history: {error}");
         }
-        self.clear_recovery_session();
+        // Other tabs may still have unsaved edits.
+        self.checkpoint_recovery();
         if let Some(path) = self.document.path().map(Path::to_path_buf) {
             self.settings.add_recent_file(&path);
             self.settings.last_file = Some(path.clone());
@@ -402,15 +462,16 @@ impl AppState {
     }
 
     pub(super) fn checkpoint_recovery(&mut self) {
-        // The startup document is a separate clean buffer while the recovered
-        // session awaits a decision. It must never clear that pending session.
+        // The startup documents are separate clean buffers while the
+        // recovered session awaits a decision. They must never clear that
+        // pending session.
         // When quitting was confirmed, the edits were saved or deliberately
         // discarded ("Don't save"); eframe's final `save` must not bring
         // them back as an interrupted session on the next start.
         if self.dialogs.recovery_session.is_some() || self.allow_close {
             return;
         }
-        match self.recovery.checkpoint(&self.document) {
+        match self.checkpoint_documents() {
             Ok(_) => self.recovery_error_reported = false,
             Err(error) => {
                 log::warn!("Cannot create recovery checkpoint: {error}");
@@ -435,7 +496,7 @@ impl AppState {
         if self.dialogs.recovery_session.is_some() {
             return;
         }
-        if !self.document.is_modified() {
+        if !self.any_modified() {
             self.clear_recovery_session();
             self.next_recovery = Instant::now() + CHECKPOINT_INTERVAL;
             return;

@@ -4,7 +4,9 @@
 
 The window has one idea: **the script is the model**. The code editor sits on
 the left and the 3D view in the center. The panels around them help you
-understand what the code produced.
+understand what the code produced. Each open file has a tab in the editor,
+and an open folder is shown in the Project panel, left of the editor (see
+[Projects and multiple files](projects.md)).
 
 ```
 ┌───────────────────────────── menu bar · toolbar ─────────────────────────────┐
@@ -27,7 +29,8 @@ between sessions.
 
 | Panel | Purpose | Details |
 | --- | --- | --- |
-| **Editor** | The script, with highlighting, breakpoints and completion | [Code editor](editor.md) |
+| **Editor** | The script, with highlighting, breakpoints and completion; a tab per open file | [Code editor](editor.md), [tabs](projects.md#tabs) |
+| **Project** | The open folder's files: open, create, rename and delete them, choose the main script | [Projects and multiple files](projects.md#the-project-panel) |
 | **3D View** | The rendered model, navigation cube, axes indicator | [3D view](viewer.md) |
 | **Objects** | Tree of shown objects and helpers (X/Y/Z axes), with visibility toggles and a property sheet (type, visibility, color, opacity, size, triangle count) | [below](#objects-panel) |
 | **Measurements** | Exact OCCT properties for one selected face, edge or vertex, and distance/angle for two | [3D view](viewer.md#exact-measurements) |
@@ -35,7 +38,7 @@ between sessions.
 | **Variables** | Name, type and value of the script's variables after a run, or of the locals while debugging | [Console, variables and logs](console.md#variables) |
 | **CQ Inspector** | The construction stack of the selected workplane | [Debugging and inspection](debugging.md#cq-inspector) |
 | **Console** | Interactive Python sharing the last run's variables | [Console, variables and logs](console.md) |
-| **Traceback** | The last error, frame by frame; click a row to jump to the line | [Console, variables and logs](console.md#traceback) |
+| **Traceback** | The last error, frame by frame; click a row to jump to the line, in the script or in an imported module | [Console, variables and logs](console.md#traceback) |
 | **Log** | `print` output, `log()` messages, warnings from Python and OpenCascade | [Console, variables and logs](console.md#log) |
 
 ### Objects panel
@@ -96,10 +99,10 @@ session is paused) are disabled. Hover a button to see its shortcut.
 
 | Menu | Items |
 | --- | --- |
-| **File** | New · Open… · Open Recent · Save · Save As… · Local History… · Automatic Reload and Preview · Examples · Quit |
+| **File** | New · Open… · Open Folder… · Open Recent · Save · Save As… · Save All · Local History… · Close Tab · Close Folder · Automatic Reload and Preview · Examples · Quit |
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
-| **Run** | Render · Profile · Clear Profile · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
+| **Run** | Render · Set as Main Script / Clear Main Script · Profile · Clear Profile · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
 | **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Download CQ-editor *x.y.z*… (when a newer release is out) · Check for Updates · About |
 
@@ -110,8 +113,9 @@ All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).
 * **Left:** the latest status message with an icon: success (*Rendered 1
   object in 0.09 s*), information, warning or error (*AttributeError: …
   (line 4)*).
-* **Right:** an *Autoreload* indicator when automatic reload is on, the
-  cursor position (*Ln, Col*), the file's line ending (*LF*, *CRLF* or
+* **Right:** the project's main script (▶ *main.py*) while another file of
+  the project is shown, since F5 renders it; an *Autoreload* indicator when
+  automatic reload is on, the cursor position (*Ln, Col*), the file's line ending (*LF*, *CRLF* or
   *CR*), the encoding (*UTF-8*) and the state of Python: *Starting Python…*,
   *Python 3.x · CadQuery 2.x*, *Python not started* or *Python unavailable*.
   Hover the Python state to see the CadQuery and OCP versions and which
@@ -119,7 +123,7 @@ All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).
 
 The window title shows the file name and folder, for example
 *bracket.py — demo — CQ-editor*. An asterisk after the name in the title,
-and a dot on the editor tab, mark unsaved changes. A dot on the Traceback
+and a dot on the editor's tabs, mark unsaved changes. A dot on the Traceback
 tab means the last run failed.
 
 ## Themes and scale

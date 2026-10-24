@@ -35,19 +35,20 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | Module | Responsibility |
 | --- | --- |
 | `main.rs` | Command line, window options, start-up |
-| `app/` | Application state (`AppState`), the frame loop and action dispatch (`mod.rs`); `CqEditorApp` wraps it with the dock layout and implements `eframe::App`. One `impl AppState` module per concern: `documents.rs` (open, save, reload, recovery, history), `runs.rs` (render, debug, stop), `worker_events.rs` (worker lifecycle, message routing), `watching.rs` (automatic reload), `services.rs` (selection, measurement, inspector, export, console, upload). `execution.rs` is the pure state machine of runs and pending requests |
+| `app/` | Application state (`AppState`), the frame loop and action dispatch (`mod.rs`); `CqEditorApp` wraps it with the dock layout and implements `eframe::App`. One `impl AppState` module per concern: `documents.rs` (open, save, reload, recovery, history), `tabs.rs` (the open documents, the session, the script F5 runs), `projects.rs` (the project folder, its main script, file operations), `runs.rs` (render, debug, stop), `worker_events.rs` (worker lifecycle, message routing), `watching.rs` (automatic reload), `services.rs` (selection, measurement, inspector, export, console, upload). `execution.rs` is the pure state machine of runs and pending requests |
 | `commands.rs` | `Action`, everything the user can ask for, and the keyboard shortcut table |
-| `document.rs` | The open script: UTF-8 decoding (Windows-1252 on request, saved back as UTF-8), BOM and line-ending preservation, atomic saves, external change classification |
-| `recovery.rs` | Crash-recovery session and bounded local history |
+| `document.rs` | An open script: UTF-8 decoding (Windows-1252 on request, saved back as UTF-8), BOM and line-ending preservation, atomic saves, external change classification |
+| `recovery.rs` | Crash-recovery session (every tab with unsaved changes) and bounded local history |
+| `project.rs` | The project folder: cached listings of its tree, the main-script guess, checked names, create/rename/delete |
 | `file_watcher.rs` | Polling watcher behind *Automatic reload* |
 | `settings.rs` | Preferences, persisted by eframe |
 | `scene.rs` | What the view shows: nodes, parts, meshes, visibility, colors, selection, topology selection, inspector overlay |
 | `spatial.rs` | Bounding-volume hierarchies for picking: triangles, and generic boxes for scene parts, edge segments and vertices |
 | `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar), `stereo.rs` and `stereo.wgsl` (stereo composition) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent, replace, names, *Go to line*, breakpoint relocation), `history.rs` (the undo history: typing grouped into steps, one step per command or reload) |
-| `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
+| `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, Project, and the default dock layout |
 | `dialogs/` | Preferences, Upload, About, Screenshot, Python environments, unsaved changes, external change, recovery, local history, messages |
-| `ui/` | Menu bar, toolbar, status bar |
+| `ui/` | Menu bar, toolbar, status bar, the editor's tab strip |
 | `worker/` | Child process management and the reason a start failed (`mod.rs`), interpreter discovery and the interpreters offered when it fails (`launch.rs`), protocol types (`protocol.rs`) |
 | `environments.rs` | Creating virtual environments and running `pip install` from the preferences: the commands, package checks, and a cancellable background job that collects their output |
 | `embedded.rs` | Access to the files embedded by `build.rs` |
@@ -77,6 +78,24 @@ the window to be drawn.
 Menus, toolbar buttons, shortcuts and context menus therefore share one code
 path per command, and the shortcut shown in a menu comes from the same table
 that handles the key press.
+
+### Documents and tabs
+
+`AppState::document` and `AppState::editor` are always the **shown** tab's,
+so the code that works on "the document" (editing, completion, search,
+saving, the window title) needs no notion of tabs. The other open documents
+are *parked* in `EditorTabs` (`app/tabs.rs`) with their own `CodeEditor`;
+showing a tab swaps it with the shown one. Each editor has its own egui id,
+so egui keeps the caret and scrolling of every tab, and the editor itself
+keeps its undo history, breakpoints and markers.
+
+Every document has a *generation*, its identity for as long as it is open.
+A run records the generation of the script it executes (`RunScript`), which
+is not always the shown one: in a project, F5 runs the main script
+(`AppState::run_target`). Error and debug lines, profiles, the Parameters
+panel and *Go to Source* use that generation to reach the right editor,
+shown or parked, and completions answered for a tab that is no longer shown
+are dropped.
 
 ### Talking to the worker
 
@@ -292,9 +311,9 @@ and its GPU buffers.
 
 | Data | Where | How |
 | --- | --- | --- |
-| Preferences, layout, window | `app.ron` | eframe persistence (`App::save`) |
+| Preferences, layout, window, open tabs, project folders | `app.ron` | eframe persistence (`App::save`) |
 | Scripts | wherever you save them | `document.rs`: temp file + atomic replace (`ReplaceFileW`/`MoveFileExW` on Windows, `rename` elsewhere), synchronized to disk |
-| Recovery session | `recovery/active-session.json` | Written every 5 s while the buffer is modified |
+| Recovery session | `recovery/active-session.json` | Every tab with unsaved changes, in tab order; written every 5 s while one is modified. The single snapshot of earlier releases is still read |
 | Local history | `recovery/history/<document>/version-<timestamp>-<n>.json` | One folder per document (FNV-1a hash of its path, `untitled` for buffers without a file); file names carry the timestamps, so a checkpoint lists one small folder and reads no JSON. 20 newest versions per document; once per session, versions older than 90 days and the oldest beyond 64 MB in total are removed |
 | Log | `logs/cq-editor.log`, `logs/cq-editor.1.log` | `logging.rs` appends every Log panel line and GUI panics; rotated at 2 MB |
 

@@ -12,6 +12,9 @@
 //! one submodule per concern, each an `impl AppState` block:
 //!
 //! * `documents`: open, save, reload, external changes, recovery, history;
+//! * `tabs`: the open documents, switching and closing tabs, the session
+//!   they are restored from and the script F5 runs;
+//! * `projects`: the project folder, its main script and file operations;
 //! * `runs`: rendering, debugging and stopping scripts;
 //! * `worker_events`: the worker's lifecycle and the routing of its messages;
 //! * `watching`: automatic reload of the script and its imported modules;
@@ -21,10 +24,14 @@
 
 mod documents;
 mod execution;
+mod projects;
 mod runs;
 mod services;
+mod tabs;
 mod watching;
 mod worker_events;
+
+pub use tabs::TabInfo;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -34,8 +41,8 @@ use egui::ViewportCommand;
 use egui_dock::{DockArea, DockState};
 
 use crate::commands::{self, Action};
-use crate::dialogs::{self, Dialogs, Intent};
-use crate::document::{DEFAULT_SCRIPT, Document, is_not_utf8};
+use crate::dialogs::{self, Dialogs, FilePrompt, Intent, RecoverySession};
+use crate::document::{DEFAULT_SCRIPT, Document};
 use crate::editor::{CodeEditor, EditorOptions};
 use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
@@ -44,6 +51,7 @@ use crate::panels::{
     self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, ParametersState,
     SelectorState, SelectorUse, Tab, TabContext,
 };
+use crate::project::Project;
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
 use crate::scene::{Overlay, Rgb, RunScript, Scene};
 use crate::settings::{self, Projection, Settings};
@@ -54,6 +62,8 @@ use crate::worker::protocol::{Request, RequestId, Variable};
 use crate::worker::{self, Worker};
 
 use execution::{Execution, Pending, Phase};
+use tabs::EditorTabs;
+use watching::WatchKey;
 
 const SETTINGS_KEY: &str = "settings";
 /// Meshing shows its progress bar only once it has taken this long.
@@ -91,13 +101,21 @@ pub struct Status {
 
 pub struct AppState {
     pub settings: Settings,
+    /// The document of the shown tab.
     pub document: Document,
+    /// The editor of the shown tab.
     pub editor: CodeEditor,
+    /// The other open tabs.
+    tabs: EditorTabs,
+    /// The folder of the Project panel.
+    pub project: Option<Project>,
     pub scene: Scene,
     pub viewer: Viewer,
     pub worker: Worker,
     pub variables: Vec<Variable>,
     pub traceback: Option<crate::worker::protocol::ScriptError>,
+    /// The document whose run raised the traceback.
+    pub traceback_document: Option<u64>,
     pub inspector: InspectorState,
     pub measurements: MeasurementState,
     /// The CadQuery selector of the topology selection.
@@ -105,8 +123,9 @@ pub struct AppState {
     pub parameters: ParametersState,
     /// When to render after a parameter changed (`ctx` time, seconds).
     parameter_render_at: Option<f64>,
-    /// Counts documents opened or created; a reload of the same file keeps
-    /// the count, so the lines of its objects still apply.
+    /// Identifies the shown document among those opened or created; a
+    /// reload of the same file keeps it, so the lines of its objects still
+    /// apply.
     document_generation: u64,
     /// The script the current run executes, for its objects' lines.
     run_script: Option<(RequestId, Arc<RunScript>)>,
@@ -118,7 +137,9 @@ pub struct AppState {
     execution: Execution,
     actions: Vec<Action>,
     watcher: FileWatcher,
-    watch_key: Option<(bool, bool, Option<PathBuf>)>,
+    watch_key: Option<WatchKey>,
+    /// The local modules the script F5 runs imports, while they are watched.
+    imports: Vec<PathBuf>,
     examples: Vec<Example>,
     palette: Palette,
     cache_dir: PathBuf,
@@ -229,12 +250,10 @@ impl AppState {
     }
 
     fn end_frame(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested())
-            && !self.allow_close
-            && self.document.is_modified()
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.any_modified()
         {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            self.dialogs.unsaved = Some(Intent::Quit);
+            self.guard_unsaved(Intent::Quit);
         }
 
         let marker = if self.document.is_modified() { "*" } else { "" };
@@ -268,6 +287,10 @@ impl AppState {
             completion_min_chars: self.settings.editor.completion_min_chars,
             colors: &colors,
         };
+        let tabs = self.tabs();
+        if tabs.len() > 1 {
+            crate::ui::editor_tabs::ui(ui, &tabs, &mut self.actions);
+        }
         let output = self.editor.ui(ui, &mut self.document, &options);
         if let Some(request) = output.completion_request {
             self.request_completion(request);
@@ -346,16 +369,73 @@ impl AppState {
         let animate = self.settings.viewer.animate;
         let now = self.now();
         match action {
-            Action::NewFile => self.guard_unsaved(Intent::New),
-            Action::OpenFile => self.guard_unsaved(Intent::Open),
-            Action::OpenPath(path) => self.guard_unsaved(Intent::OpenPath(path)),
-            Action::OpenExample(index) => self.guard_unsaved(Intent::OpenExample(index)),
+            Action::NewFile => self.new_file(),
+            Action::OpenFile => self.choose_files(),
+            Action::OpenPath(path) => self.open_path(&path),
+            Action::OpenExample(index) => self.open_example(index),
             Action::Save => {
                 self.save();
             }
             Action::SaveAs => {
                 self.save_as();
             }
+            Action::SaveAll => self.save_all(),
+            Action::CloseTab => self.close_tabs(vec![self.document_generation]),
+            Action::CloseDocument(generation) => self.close_tabs(vec![generation]),
+            Action::CloseOtherTabs(kept) => {
+                let others = self
+                    .tabs()
+                    .into_iter()
+                    .map(|tab| tab.generation)
+                    .filter(|&generation| generation != kept)
+                    .collect();
+                self.activate(kept);
+                self.close_tabs(others);
+            }
+            Action::CloseAllTabs => {
+                let all = self.tabs().into_iter().map(|tab| tab.generation).collect();
+                self.close_tabs(all);
+            }
+            Action::ActivateTab(generation) => {
+                self.activate(generation);
+            }
+            Action::NextTab => self.cycle_tab(true),
+            Action::PreviousTab => self.cycle_tab(false),
+            Action::OpenFolder => self.choose_project_folder(),
+            Action::OpenFolderPath(path) => self.open_project_folder(&path),
+            Action::CloseFolder => self.close_project(),
+            Action::RefreshProject => {
+                if let Some(project) = &mut self.project {
+                    project.refresh();
+                }
+            }
+            Action::NewFileIn(folder) => {
+                self.dialogs.file_prompt = Some(FilePrompt::NewFile {
+                    folder,
+                    name: String::new(),
+                    error: None,
+                });
+            }
+            Action::NewFolderIn(folder) => {
+                self.dialogs.file_prompt = Some(FilePrompt::NewFolder {
+                    folder,
+                    name: String::new(),
+                    error: None,
+                });
+            }
+            Action::RenamePath(path) => {
+                self.dialogs.file_prompt = Some(FilePrompt::rename(&path));
+            }
+            Action::DeletePath(path) => {
+                let unsaved = self.unsaved_below(&path);
+                self.dialogs.file_prompt = Some(FilePrompt::Delete {
+                    path,
+                    unsaved,
+                    error: None,
+                });
+            }
+            Action::SetMainScript(path) => self.set_main_script(path),
+            Action::RevealPath(path) => self.reveal_in_file_manager(&path),
             Action::LocalHistory => self.show_local_history(),
             Action::ToggleAutoreload => {
                 self.settings.editor.autoreload = !self.settings.editor.autoreload
@@ -520,7 +600,22 @@ impl AppState {
                 }
             }
 
-            Action::GoToLine(line) => self.editor.go_to_line(&self.document.text, line),
+            Action::GoToLine(line) => {
+                // A line of the script F5 runs, wherever its tab is.
+                self.activate(self.run_target());
+                self.editor.go_to_line(&self.document.text, line);
+            }
+            Action::GoToScriptLine { document, line } => {
+                if self.activate(document) {
+                    self.editor.go_to_line(&self.document.text, line);
+                } else {
+                    self.set_status(
+                        StatusKind::Info,
+                        "The script of this traceback is no longer open",
+                    );
+                }
+            }
+            Action::OpenFileAt { path, line } => self.open_path_at(&path, line),
             Action::Select {
                 key,
                 topology,
@@ -633,55 +728,35 @@ impl CqEditorApp {
         let recovery = RecoveryStore::new(cache_dir.join("recovery"));
         let mut startup_errors = Vec::new();
         let recovery_session = match recovery.load_session() {
-            Ok(snapshot) => snapshot,
+            Ok(documents) if documents.is_empty() => None,
+            Ok(documents) => Some(RecoverySession {
+                documents,
+                selected: 0,
+            }),
             Err(error) => {
                 log::warn!("Cannot load the recovery session: {error}");
                 startup_errors.push(format!("Cannot load the recovery session:\n{error}"));
                 None
             }
         };
-        let startup_path = options
-            .file
-            .clone()
-            .or_else(|| settings.last_file.clone().filter(|p| p.is_file()));
-        let mut legacy_encoding = None;
-        let document = startup_path
-            .and_then(|path| match Document::open(&path) {
-                Ok(document) => Some(document),
-                Err(error) if is_not_utf8(&error) => {
-                    // Asked once the window is up, like a file opened later.
-                    legacy_encoding = Some(path);
-                    None
-                }
-                Err(error) => {
-                    log::warn!("Cannot open {}: {error}", path.display());
-                    startup_errors.push(format!(
-                        "Cannot open the startup file {}:\n{error}",
-                        path.display()
-                    ));
-                    None
-                }
-            })
-            .unwrap_or_else(|| Document::untitled(DEFAULT_SCRIPT));
-        let mut dialogs = Dialogs {
+        let dialogs = Dialogs {
             recovery_session,
-            legacy_encoding,
             ..Dialogs::default()
         };
-        if !startup_errors.is_empty() {
-            dialogs.error("Startup problem", startup_errors.join("\n\n"));
-        }
 
         let mut state = AppState {
             worker: Worker::new(ctx.clone()),
             ctx,
             settings,
-            document,
+            document: Document::untitled(DEFAULT_SCRIPT),
             editor: CodeEditor::default(),
+            tabs: EditorTabs::new(0),
+            project: None,
             scene: Scene::default(),
             viewer: Viewer::default(),
             variables: Vec::new(),
             traceback: None,
+            traceback_document: None,
             inspector: InspectorState::default(),
             measurements: MeasurementState::default(),
             selector: SelectorState::default(),
@@ -697,6 +772,7 @@ impl CqEditorApp {
             actions: Vec::new(),
             watcher: FileWatcher::default(),
             watch_key: None,
+            imports: Vec::new(),
             examples: embedded::examples(),
             palette: Palette::DARK,
             cache_dir,
@@ -711,14 +787,46 @@ impl CqEditorApp {
             applied_scale: 1.0,
             logo: None,
         };
+        startup_errors.extend(state.restore_session(options.file));
+        if !startup_errors.is_empty() {
+            state
+                .dialogs
+                .error("Startup problem", startup_errors.join("\n\n"));
+        }
         if let Some(path) = state.document.path().map(Path::to_path_buf) {
             state.settings.add_recent_file(&path);
             state.settings.last_file = Some(path);
         }
-        state.restore_breakpoints();
         state.restore_views();
         state.start_worker();
-        Self { dock, state }
+        let mut app = Self { dock, state };
+        if app.state.project.is_some() {
+            app.show_project_panel();
+        }
+        app
+    }
+
+    /// Shows the Project panel, to the left of the editor when it was
+    /// closed.
+    fn show_project_panel(&mut self) {
+        if let Some(path) = self.dock.find_tab(&Tab::Project) {
+            let _ = self.dock.set_active_tab(path);
+            return;
+        }
+        let tree = self.dock.main_surface_mut();
+        match tree.find_tab(&Tab::Editor) {
+            Some((node, _)) => {
+                tree.split_left(node, 0.25, vec![Tab::Project]);
+            }
+            None => self.dock.push_to_focused_leaf(Tab::Project),
+        }
+    }
+
+    /// Brings the editor's panel to the front.
+    fn show_editor_panel(&mut self) {
+        if let Some(path) = self.dock.find_tab(&Tab::Editor) {
+            let _ = self.dock.set_active_tab(path);
+        }
     }
 
     fn execute(&mut self, action: Action) {
@@ -729,13 +837,29 @@ impl CqEditorApp {
                 }
                 None => self.dock.push_to_focused_leaf(tab),
             },
-            Action::ResetLayout => self.dock = panels::default_layout(),
-            Action::GoToSource { .. } | Action::GoToSelectionSource => {
-                // The line is shown in the editor, wherever its tab is.
-                if let Some(path) = self.dock.find_tab(&Tab::Editor) {
-                    let _ = self.dock.set_active_tab(path);
+            Action::ResetLayout => {
+                self.dock = panels::default_layout();
+                if self.state.project.is_some() {
+                    self.show_project_panel();
                 }
+            }
+            Action::GoToSource { .. }
+            | Action::GoToSelectionSource
+            | Action::OpenPath(_)
+            | Action::ActivateTab(_)
+            | Action::GoToLine(_)
+            | Action::GoToScriptLine { .. }
+            | Action::OpenFileAt { .. } => {
+                // The file or line is shown in the editor, wherever its
+                // panel is.
+                self.show_editor_panel();
                 self.state.execute(action);
+            }
+            Action::OpenFolder | Action::OpenFolderPath(_) => {
+                self.state.execute(action);
+                if self.state.project.is_some() {
+                    self.show_project_panel();
+                }
             }
             other => self.state.execute(other),
         }
@@ -818,8 +942,9 @@ impl eframe::App for CqEditorApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.state.checkpoint_recovery();
-        self.state.remember_breakpoints();
+        self.state.remember_all_breakpoints();
         self.state.remember_views();
+        self.state.remember_session();
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
         eframe::set_value(storage, LAYOUT_KEY, &self.dock);
     }

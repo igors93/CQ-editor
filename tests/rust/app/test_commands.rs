@@ -106,3 +106,23 @@ fn profiling_has_its_own_shortcut_next_to_render() {
     let position = |action: &Action| order.iter().position(|a| a == action).unwrap();
     assert!(position(&Action::Profile) < position(&Action::Render));
 }
+
+#[test]
+fn tabs_have_the_usual_shortcuts_and_none_is_bound_twice() {
+    assert_eq!(shortcut(&Action::CloseTab), Some(ctrl(Key::W)));
+    assert_eq!(shortcut(&Action::NextTab), Some(ctrl(Key::Tab)));
+    assert_eq!(shortcut(&Action::PreviousTab), Some(ctrl_shift(Key::Tab)));
+    assert_eq!(shortcut(&Action::OpenFolder), Some(ctrl_shift(Key::O)));
+    let all = shortcuts();
+    let position = |action: &Action| all.iter().position(|(a, _)| a == action).unwrap();
+    assert!(position(&Action::PreviousTab) < position(&Action::NextTab));
+    // Ctrl+PageUp and Ctrl+PageDown switch tabs too.
+    assert!(all.contains(&(Action::NextTab, ctrl(Key::PageDown))));
+    assert!(all.contains(&(Action::PreviousTab, ctrl(Key::PageUp))));
+
+    let mut bindings: Vec<_> = all.iter().map(|(_, binding)| *binding).collect();
+    let count = bindings.len();
+    bindings.sort_by_key(|binding| format!("{binding:?}"));
+    bindings.dedup();
+    assert_eq!(bindings.len(), count, "a key combination is bound twice");
+}

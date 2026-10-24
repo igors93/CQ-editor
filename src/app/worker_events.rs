@@ -77,7 +77,7 @@ impl AppState {
     fn reset_execution_state(&mut self) {
         self.execution.reset();
         self.console.busy = false;
-        self.editor.set_debug_line(None);
+        self.clear_debug_lines();
         self.inspector.loading = false;
         if let Some(upload) = &mut self.dialogs.upload {
             upload.busy = false;
@@ -216,6 +216,9 @@ impl AppState {
                     self.debug_command(DebugAction::Stop);
                     return;
                 }
+                // The paused script is shown, in whichever tab it is.
+                let target = self.run_document(id);
+                self.activate(target);
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
                 let Some(mut nodes) = self.decode_scene_nodes(Some(id), objects) else {
@@ -243,7 +246,12 @@ impl AppState {
                     }
                     // Offered while typing a name: names only, and silence
                     // when there are none.
-                    Some(Pending::Completion { automatic: true }) => {
+                    // Asked for in a tab that is no longer shown.
+                    Some(Pending::Completion { document, .. })
+                        if document != self.document_generation => {}
+                    Some(Pending::Completion {
+                        automatic: true, ..
+                    }) => {
                         if !items.is_empty() {
                             self.editor.show_completions(items, Vec::new());
                         }
@@ -260,7 +268,11 @@ impl AppState {
                 }
             }
             Message::Description { id, documentation } => {
-                if matches!(self.execution.answer(id), Some(Pending::Describe)) {
+                if self.execution.answer(id)
+                    == Some(Pending::Describe {
+                        document: self.document_generation,
+                    })
+                {
                     self.editor.show_documentation(documentation);
                 }
             }
@@ -424,14 +436,14 @@ impl AppState {
                 if self.watched_imports_of().as_deref() != Some(script.as_path()) {
                     return;
                 }
-                // The script and its current imports: modules no longer
-                // imported stop being watched, and none is watched twice.
-                let files: BTreeSet<PathBuf> = paths
+                // Its current imports: modules no longer imported stop
+                // being watched (see `sync_watcher`).
+                let imports: BTreeSet<PathBuf> = paths
                     .into_iter()
                     .map(PathBuf::from)
-                    .chain([script])
+                    .filter(|path| *path != script)
                     .collect();
-                self.watcher.set_files(files.into_iter().collect());
+                self.imports = imports.into_iter().collect();
             }
             Message::Error { id, message } => self.request_failed(id, message),
         }
@@ -485,7 +497,13 @@ impl AppState {
                 );
             }
             // Hovering over a name the worker cannot describe is not news.
-            Some((_, Pending::Describe | Pending::Completion { automatic: true })) => {
+            Some((
+                _,
+                Pending::Describe { .. }
+                | Pending::Completion {
+                    automatic: true, ..
+                },
+            )) => {
                 log::debug!("{message}");
             }
             Some((
