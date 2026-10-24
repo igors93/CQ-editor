@@ -140,13 +140,7 @@ class Server:
 
         self.channel = channel
         self.registry = Registry(f"s{session}-n" if session else "n")
-        self.console = ConsoleSession(
-            Displayer(
-                lambda fields: self.channel.send(
-                    {"id": self.channel.current_id, **fields}
-                )
-            )
-        )
+        self.console = ConsoleSession(Displayer(self.channel.send))
         self.geometry_cache = GeometryCache()
         #: Stack frames of inspected workplanes, by scene key.
         self.inspections: dict[str, list[cq.Workplane]] = {}
@@ -378,7 +372,7 @@ class Server:
         except measurement.MeasurementError as error:
             raise RequestError(str(error)) from None
         self.console.set_selection(lambda: picked.resolve(self.registry))
-        more = self.console.execute(request.get("source", ""))
+        more = self.console.execute(request.get("source", ""), request.get("id"))
         shown = self.console.take_shown()
         if shown:
             self.channel.send(

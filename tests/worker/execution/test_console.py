@@ -1,8 +1,10 @@
 """Persistent console state and its connection to the scene."""
 
 import cadquery as cq
+import pytest
 
 from cq_worker.console import ConsoleSession
+from cq_worker.display import Displayer
 
 
 def test_console_keeps_variables_between_commands():
@@ -10,6 +12,21 @@ def test_console_keeps_variables_between_commands():
     assert console.execute("size = 3") is False
     assert console.execute("volume = size ** 3") is False
     assert console.namespace["volume"] == 27
+
+
+def test_console_deactivates_rich_output_even_when_a_command_exits():
+    sent = []
+    console = ConsoleSession(Displayer(sent.append))
+
+    assert console.execute("display('during')", request_id=21) is False
+    assert sent == [{"id": 21, "type": "display", "text": "'during'", "image": None}]
+    console.namespace["display"]("late")
+    assert len(sent) == 1
+
+    with pytest.raises(SystemExit):
+        console.execute("raise SystemExit", request_id=22)
+    console.namespace["display"]("late after exit")
+    assert len(sent) == 1
 
 
 def test_console_reports_incomplete_multiline_statement():

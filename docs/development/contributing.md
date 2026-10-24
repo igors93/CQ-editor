@@ -14,10 +14,14 @@ the direction can be agreed on before you invest time. The
 4. Run the CI checks locally:
 
    ```sh
-   cargo fmt --check && cargo clippy --all-targets && cargo test
+   cargo fmt --all -- --check
+   cargo clippy --locked --all-targets --all-features -- -D warnings
+   cargo test --locked
    black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
+   ruff check --isolated --select E4,E7,E9,F worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
    python -m unittest discover -s tests/packaging -p "test_*.py"
-   PYTHONPATH=worker python -m pytest tests/worker
+   PYTHONPATH=worker python -m coverage run --branch --source worker/cq_worker -m pytest tests/worker
+   python -m coverage report --show-missing --fail-under=85
    ```
 
 5. Update the documentation in `docs/` if behavior changed, and add a line

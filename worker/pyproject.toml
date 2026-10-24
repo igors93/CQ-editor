@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 # Code completion in the editor and the console.
 completion = ["jedi"]
-test = ["pytest"]
+test = ["pytest", "black", "coverage", "ruff"]
 
 [tool.setuptools.packages.find]
 include = ["cq_worker*"]

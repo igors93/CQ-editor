@@ -633,4 +633,11 @@ fn console_images_that_cannot_be_trusted_become_a_note() {
         assert!(output.text.starts_with("figure\n[image not shown: "));
         assert!(output.text.contains(note), "{}", output.text);
     }
+
+    let without_text =
+        r#"{"type":"display","id":4,"text":"","image":{"format":"svg","data":"PHN2Zy8+"}}"#;
+    let Message::Display(output) = serde_json::from_str(without_text).unwrap() else {
+        panic!("not a display message");
+    };
+    assert_eq!(output.text, "[image not shown: svg is not shown]");
 }

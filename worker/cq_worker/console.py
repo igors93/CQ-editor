@@ -72,20 +72,22 @@ class ConsoleSession:
             if not name.startswith("__")
         )
 
-    def execute(self, source: str) -> bool:
+    def execute(self, source: str, request_id: int | None = None) -> bool:
         """Feed ``source`` line by line; ``True`` if a statement is incomplete."""
 
         more = False
         previous = sys.displayhook
         if self._displayer is not None:
             # Expression results become rich output, images included.
-            self._displayer.start()
+            self._displayer.start(request_id)
             sys.displayhook = self._displayer.displayhook
         try:
             for line in source.split("\n"):
                 more = self._interpreter.push(line)
         finally:
             sys.displayhook = previous
+            if self._displayer is not None:
+                self._displayer.finish()
         return more
 
     def take_shown(self) -> ShownObjects:

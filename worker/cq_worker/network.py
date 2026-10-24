@@ -11,6 +11,11 @@ import uuid
 USER_AGENT = "CQ-editor"
 TIMEOUT = 60
 RELEASES_URL = "https://api.github.com/repos/{org}/{project}/releases"
+#: Enough for an upload service's useful acknowledgement while keeping the
+#: reply comfortably below the control-message limit after JSON escaping.
+MAX_UPLOAD_RESPONSE_BYTES = 256 * 1024
+#: GitHub's release list is small; a larger response is malformed or unsafe.
+MAX_RELEASES_RESPONSE_BYTES = 2 * 1024 * 1024
 #: Where CQ-editor is published.
 EDITOR_ORG, EDITOR_PROJECT = "igors93", "CQ-editor"
 
@@ -38,9 +43,16 @@ def upload(url: str, data: bytes, file_name: str) -> dict:
         },
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        raw = response.read(MAX_UPLOAD_RESPONSE_BYTES + 1)
+        truncated = len(raw) > MAX_UPLOAD_RESPONSE_BYTES
+        body_text = raw[:MAX_UPLOAD_RESPONSE_BYTES].decode("utf-8", errors="replace")
+        if truncated:
+            body_text += (
+                "\n[response truncated after " f"{MAX_UPLOAD_RESPONSE_BYTES} bytes]"
+            )
         return {
             "status": response.status,
-            "body": response.read().decode("utf-8", errors="replace"),
+            "body": body_text,
         }
 
 
@@ -87,7 +99,15 @@ def _releases(org: str, project: str) -> list[dict]:
         headers={"User-Agent": USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return json.load(response)
+        data = response.read(MAX_RELEASES_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RELEASES_RESPONSE_BYTES:
+        raise ValueError(
+            "Release response exceeds " f"{MAX_RELEASES_RESPONSE_BYTES} bytes"
+        )
+    releases = json.loads(data)
+    if not isinstance(releases, list):
+        raise ValueError("Release response must be a JSON list")
+    return releases
 
 
 def _version_key(version: str) -> tuple[int, int, int]:

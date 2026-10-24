@@ -50,6 +50,22 @@ def test_upload_replaces_invalid_response_bytes(monkeypatch):
     }
 
 
+def test_upload_response_is_bounded_before_it_enters_the_protocol(monkeypatch):
+    excess = b"x" * (network.MAX_UPLOAD_RESPONSE_BYTES + 100)
+    monkeypatch.setattr(
+        network.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(excess),
+    )
+
+    result = network.upload("https://example.test", b"x", "x")
+
+    assert result["body"].startswith("x" * network.MAX_UPLOAD_RESPONSE_BYTES)
+    assert result["body"].endswith(
+        f"[response truncated after {network.MAX_UPLOAD_RESPONSE_BYTES} bytes]"
+    )
+
+
 def test_newer_releases_ignores_drafts_and_older_versions(monkeypatch):
     captured = {}
     releases = [
@@ -67,6 +83,29 @@ def test_newer_releases_ignores_drafts_and_older_versions(monkeypatch):
     assert network.newer_releases("2.2", "acme", "modeler") == ["v2.3.0"]
     assert captured["request"].full_url.endswith("/acme/modeler/releases")
     assert captured["timeout"] == network.TIMEOUT
+
+
+def test_release_response_has_a_size_limit(monkeypatch):
+    excess = b"[" + b" " * network.MAX_RELEASES_RESPONSE_BYTES
+    monkeypatch.setattr(
+        network.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(excess),
+    )
+
+    with pytest.raises(ValueError, match="Release response exceeds"):
+        network.newer_releases("2.2")
+
+
+def test_release_response_must_be_a_list(monkeypatch):
+    monkeypatch.setattr(
+        network.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(b'{"tag_name":"v9.0.0"}'),
+    )
+
+    with pytest.raises(ValueError, match="must be a JSON list"):
+        network.newer_releases("2.2")
 
 
 @pytest.mark.parametrize(

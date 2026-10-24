@@ -6,7 +6,7 @@ From the repository root, with CadQuery, pytest (and optionally jedi)
 installed in the active Python environment:
 
 ```sh
-cargo test                                   # Rust tests
+cargo test --locked                          # Rust tests
 PYTHONPATH=worker python -m pytest tests/worker   # worker tests
 ```
 
@@ -63,17 +63,21 @@ requests:
 | Job | Steps |
 | --- | --- |
 | `packaging` (Ubuntu 22.04) | Installer metadata, version and release-workflow contract tests |
-| `rust` (Ubuntu 22.04, Windows, macOS) | `cargo fmt --check` · `cargo clippy --all-targets` · `cargo test` |
-| `worker` released matrix (Ubuntu 22.04) | Python 3.10/CadQuery 2.7/OCP 7.8, Python 3.11/CadQuery 2.8/OCP 7.9 and Python 3.14/CadQuery 2.8/OCP 7.9 · package check · Black · full pytest suite |
-| `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · full pytest suite; early-warning lane, allowed to fail while upstream moves |
+| `rust` (Ubuntu 22.04, Windows, macOS) | `cargo fmt --all -- --check` · `cargo clippy --locked --all-targets --all-features -- -D warnings` · `cargo test --locked` |
+| `worker` released matrix (Ubuntu 22.04) | Python 3.10/CadQuery 2.7/OCP 7.8, Python 3.11/CadQuery 2.8/OCP 7.9 and Python 3.14/CadQuery 2.8/OCP 7.9 · package check · Black · Ruff · full pytest suite with branch coverage at least 85% |
+| `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · Ruff · full pytest suite with branch coverage; early-warning lane, allowed to fail while upstream moves |
 
 Run the same checks locally before opening a pull request:
 
 ```sh
-cargo fmt --check && cargo clippy --all-targets && cargo test
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
 black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
+ruff check --isolated --select E4,E7,E9,F worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
 python -m unittest discover -s tests/packaging -p "test_*.py"
-PYTHONPATH=worker python -m pytest tests/worker
+PYTHONPATH=worker python -m coverage run --branch --source worker/cq_worker -m pytest tests/worker
+python -m coverage report --show-missing --fail-under=85
 ```
 
 The CI run is the authoritative status. Do not hand-maintain test totals here:

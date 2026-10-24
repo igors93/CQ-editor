@@ -16,6 +16,7 @@ import base64
 import binascii
 import io
 import sys
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -97,24 +98,42 @@ class Displayer:
         self._images_left = MAX_IMAGES_PER_REQUEST
         self._results_left = MAX_RESULTS_PER_REQUEST
         self._result_limit_reported = False
+        self._request_id: int | None = None
+        self._owner_thread: int | None = None
+        self._active = False
 
-    def start(self) -> None:
-        """A new command: its own allowance of images."""
+    def start(self, request_id: int | None) -> None:
+        """Begin a command, binding all its results to ``request_id``."""
 
         self._images_left = MAX_IMAGES_PER_REQUEST
         self._results_left = MAX_RESULTS_PER_REQUEST
         self._result_limit_reported = False
+        self._request_id = request_id
+        self._owner_thread = threading.get_ident()
+        self._active = True
+
+    def finish(self) -> None:
+        """End the command so retained/background ``display`` calls are inert."""
+
+        self._active = False
+        self._request_id = None
+        self._owner_thread = None
 
     def display(self, *values: Any) -> None:
         """Shows each value in the console, an image included."""
 
+        # User code may retain ``display`` and call it from a background
+        # thread or after the command ended. Such a result cannot safely be
+        # associated with a request and must not be mislabeled as the next one.
+        if not self._active or threading.get_ident() != self._owner_thread:
+            return
         # What was printed before comes first.
         sys.stdout.flush()
         sys.stderr.flush()
         for value in values:
             if self._results_left <= 0:
                 if not self._result_limit_reported:
-                    self._send(
+                    self._emit(
                         {
                             "type": "display",
                             "text": (
@@ -131,7 +150,10 @@ class Displayer:
             self._results_left -= 1
             if fields["image"] is not None:
                 self._images_left -= 1
-            self._send({"type": "display", **fields})
+            self._emit({"type": "display", **fields})
+
+    def _emit(self, fields: dict[str, Any]) -> None:
+        self._send({"id": self._request_id, **fields})
 
     def displayhook(self, value: Any) -> None:
         """``sys.displayhook`` while a console command runs: the value of

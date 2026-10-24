@@ -2,6 +2,7 @@
 
 import base64
 import builtins
+import threading
 
 import pytest
 
@@ -93,16 +94,23 @@ def test_the_displayer_counts_images_per_command_and_keeps_underscore(monkeypatc
     monkeypatch.setattr(display, "MAX_IMAGES_PER_REQUEST", 2)
     sent = []
     displayer = Displayer(sent.append)
+    displayer.start(7)
     displayer.display(*[Rich(png=lambda: PNG)] * 3)
     assert [m["image"] is not None for m in sent] == [True, True, False]
-    displayer.start()
+    assert {m["id"] for m in sent} == {7}
+    displayer.start(8)
     displayer.display(Rich(png=lambda: PNG))
     assert sent[-1]["image"] is not None, "a new command, a new allowance"
 
     displayer.displayhook(None)
     assert len(sent) == 4, "None is not shown"
     displayer.displayhook(41)
-    assert sent[-1] == {"type": "display", "text": "41", "image": None}
+    assert sent[-1] == {
+        "id": 8,
+        "type": "display",
+        "text": "41",
+        "image": None,
+    }
     assert builtins._ == 41
 
 
@@ -118,6 +126,7 @@ def test_the_displayer_bounds_text_only_results_per_command(monkeypatch):
 
     sent = []
     displayer = Displayer(sent.append)
+    displayer.start(10)
     displayer.display(Counted(), Counted(), Counted())
     displayer.display(Counted())
 
@@ -125,9 +134,27 @@ def test_the_displayer_bounds_text_only_results_per_command(monkeypatch):
     assert len(sent) == 3
     assert "truncated after 2 results" in sent[-1]["text"]
 
-    displayer.start()
+    displayer.start(11)
     displayer.display(Counted())
     assert represented == 3 and sent[-1]["text"] == "value"
+
+
+def test_displayer_rejects_late_and_background_results():
+    sent = []
+    displayer = Displayer(sent.append)
+
+    displayer.display("before")
+    displayer.start(17)
+    background = threading.Thread(target=displayer.display, args=("background",))
+    background.start()
+    background.join()
+    assert sent == [], "another thread cannot impersonate the active command"
+
+    displayer.display("current")
+    assert sent == [{"id": 17, "type": "display", "text": "'current'", "image": None}]
+    displayer.finish()
+    displayer.display("late")
+    assert len(sent) == 1, "a retained display call cannot leak into a later request"
 
 
 def test_matplotlib_figures_are_shown_as_images():

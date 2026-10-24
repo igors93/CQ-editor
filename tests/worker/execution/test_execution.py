@@ -1,8 +1,6 @@
 import sys
 import textwrap
 
-import pytest
-
 from cq_worker.execution import SCRIPT_FILENAME, Execution, RunSettings, rand_color
 
 

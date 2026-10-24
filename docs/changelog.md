@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* Fixed: rich console results are tied to the command that produced them;
+  retained or background `display()` calls can no longer appear as output of
+  a later command
+* Fixed: upload and release-check responses have explicit limits, preventing
+  an oversized HTTP response from consuming unbounded worker memory or
+  exceeding the GUI protocol limit
+* Security: updated Tokio to 1.54.1 to address RUSTSEC-2026-0384, and made CI
+  reject dependency-lock drift and Rust compiler warnings
+* Quality: the worker CI now rejects Python syntax/import errors with Ruff
+  and enforces at least 85% branch-aware test coverage
+
 ## 0.8.0 (2026-10-22)
 
 The interface was rebuilt in Rust (egui + wgpu); CadQuery now runs in a

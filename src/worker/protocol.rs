@@ -402,7 +402,10 @@ impl From<RawDisplay> for DisplayOutput {
             .and_then(|image| match decode_display_image(&image) {
                 Ok(image) => Some(image),
                 Err(problem) => {
-                    text.push_str(&format!("\n[image not shown: {problem}]"));
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&format!("[image not shown: {problem}]"));
                     None
                 }
             });
