@@ -17,7 +17,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, open_panels: &[Tab]) {
         ui.menu_button("Tools", |ui| tools_menu(ui, state, &mut actions));
         ui.menu_button("Run", |ui| run_menu(ui, state, &mut actions));
         ui.menu_button("View", |ui| view_menu(ui, state, open_panels, &mut actions));
-        ui.menu_button("Help", |ui| help_menu(ui, &mut actions));
+        ui.menu_button("Help", |ui| help_menu(ui, state, &mut actions));
     });
     state.queue(actions);
 }
@@ -414,7 +414,7 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
     );
 }
 
-fn help_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+fn help_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     item(
         ui,
         actions,
@@ -437,11 +437,20 @@ fn help_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         Action::CadQueryDocumentation,
     );
     ui.separator();
+    if let Some(release) = crate::updates::available(&state.settings.general) {
+        item(
+            ui,
+            actions,
+            icon::DOWNLOAD_SIMPLE,
+            &format!("Download CQ-editor {}…", release.tag),
+            Action::DownloadUpdate,
+        );
+    }
     item(
         ui,
         actions,
         icon::ARROW_CIRCLE_UP,
-        "Check for CadQuery Updates",
+        "Check for Updates",
         Action::CheckUpdates,
     );
     item(ui, actions, icon::INFO, "About", Action::About);

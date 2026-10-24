@@ -112,6 +112,8 @@ pub enum Action {
     CadQueryDocumentation,
     About,
     CheckUpdates,
+    /// Opens the page of the newer CQ-editor release found.
+    DownloadUpdate,
     // From panels and the view
     GoToLine(usize),
     Select {

@@ -23,6 +23,9 @@ tracked in the compatibility matrix instead of being assumed.
 * New: section view (View > Section View); a plane across X, Y or Z, with a
   position slider and a flip, cuts the model and fills the cut faces of
   solids; picking goes through what the plane removes
+* New: CQ-editor looks for a newer release of itself once a day (Preferences
+  > General) and offers it in the Help menu; Help > Check for Updates now
+  covers CQ-editor and CadQuery
 * New: environments from the preferences: pick a Python found on the
   computer, create a virtual environment with CadQuery and jedi, or install
   packages into the Python in use, with pip's output shown and Cancel

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::worker::protocol::{RunSettings, SceneSettings};
+use crate::worker::protocol::{Release, RunSettings, SceneSettings};
 
 const MAX_RECENT_FILES: usize = 10;
 /// Files whose breakpoints are remembered, most recently used first.
@@ -182,6 +182,12 @@ pub struct General {
     pub python: String,
     /// Scale factor on top of the system's.
     pub ui_scale: f32,
+    /// Look for a newer CQ-editor once a day, when Python starts.
+    pub check_updates: bool,
+    /// When it last looked, in seconds since the Unix epoch.
+    pub last_update_check: u64,
+    /// The newest release it found then (see `updates::available`).
+    pub newer_release: Option<Release>,
 }
 
 impl Default for General {
@@ -190,6 +196,9 @@ impl Default for General {
             theme: Theme::System,
             python: String::new(),
             ui_scale: 1.0,
+            check_updates: true,
+            last_update_check: 0,
+            newer_release: None,
         }
     }
 }

@@ -119,6 +119,10 @@ pub enum Request {
     },
     CheckUpdates {
         id: RequestId,
+        /// The running CQ-editor's version: its newer releases are listed.
+        editor: String,
+        /// Also list newer CadQuery releases.
+        cadquery: bool,
     },
     Imports {
         id: RequestId,
@@ -282,8 +286,11 @@ pub enum Message {
     },
     Updates {
         id: RequestId,
+        /// CadQuery's version, and its newer release tags.
         current: String,
         newer: Vec<String>,
+        #[serde(default)]
+        editor: Option<EditorUpdates>,
     },
     Imports {
         id: RequestId,
@@ -342,6 +349,22 @@ pub struct RunFinished {
     /// Filled in by the reader thread, not sent by the worker.
     #[serde(skip)]
     pub receipt: Receipt,
+}
+
+/// CQ-editor's releases newer than the running one, newest first.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct EditorUpdates {
+    pub current: String,
+    pub newer: Vec<Release>,
+}
+
+/// A published release of CQ-editor; also kept in the preferences.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Release {
+    pub tag: String,
+    pub name: String,
+    /// Its page, with the installers.
+    pub url: String,
 }
 
 /// The time a profiled run spent on each line of the script, with

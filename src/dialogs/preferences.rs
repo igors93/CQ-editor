@@ -141,6 +141,15 @@ fn general(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Action>
     });
     row(
         ui,
+        "Check for updates",
+        "Look for a newer CQ-editor on GitHub once a day, when Python starts; \
+         only the releases list is fetched, nothing is sent about you",
+        |ui| {
+            ui.checkbox(&mut general.check_updates, "");
+        },
+    );
+    row(
+        ui,
         "Interface scale",
         "Zoom of the whole interface (Ctrl + / Ctrl - also work)",
         |ui| {

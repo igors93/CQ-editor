@@ -78,7 +78,7 @@ The worker handles one request at a time, in arrival order.
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
-| `check_updates` | `id` | `updates` |
+| `check_updates` | `id`, `editor` (the GUI's version: list CQ-editor's newer releases), `cadquery` (also list CadQuery's; true when missing) | `updates` |
 | `imports` | `id`, `path` | `imports` (local module files imported by the script) |
 | `cancel` | `target` (the id of a `run`) | None. Read even while the worker is busy; meshing stops at the next part and the run finishes with `cancelled` |
 | `interrupt` | `target` (the id of a `run` or `console` request) | None. Read even while the worker is busy; raises `KeyboardInterrupt` in that request, which then finishes as usual (`interrupted` for a run, a traceback in the console's output) |
@@ -112,7 +112,7 @@ The worker handles one request at a time, in arrival order.
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
 | `upload_finished` | `id`, `status`, `body` | HTTP status and response body |
-| `updates` | `id`, `current`, `newer` | CadQuery release tags newer than `current` |
+| `updates` | `id`, `current`, `newer`, `editor` | CadQuery release tags newer than `current` (empty when not asked); with `editor`, CQ-editor's newer releases (`current`, `newer`: `tag`, `name`, `url`, newest first, drafts and pre-releases left out) |
 | `imports` | `id`, `paths` | |
 | `error` | `id`, `message` | A request failed |
 

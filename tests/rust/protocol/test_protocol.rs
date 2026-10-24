@@ -532,3 +532,20 @@ fn profiles_cross_the_protocol() {
     assert_eq!(profile.operations[0].name, "Workplane.fillet");
     assert!(run_finished("").profile.is_none());
 }
+
+#[test]
+fn update_checks_name_the_running_cq_editor() {
+    assert_eq!(
+        serde_json::to_value(Request::CheckUpdates {
+            id: 3,
+            editor: "0.8.0".into(),
+            cadquery: false,
+        })
+        .unwrap(),
+        serde_json::json!({"cmd": "check_updates", "id": 3, "editor": "0.8.0", "cadquery": false})
+    );
+    // An older worker answers without CQ-editor's releases.
+    let reply: Message =
+        serde_json::from_str(r#"{"type":"updates","id":3,"current":"2.8","newer":[]}"#).unwrap();
+    assert!(matches!(reply, Message::Updates { editor: None, .. }));
+}

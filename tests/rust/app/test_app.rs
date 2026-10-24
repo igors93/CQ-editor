@@ -639,3 +639,60 @@ fn new_environments_go_to_a_free_folder() {
     state.execute(Action::InstallPackages);
     assert!(state.dialogs.environment.is_some());
 }
+
+fn updates_reply(id: u64, editor: &str) -> crate::worker::protocol::Message {
+    serde_json::from_str(&format!(
+        r#"{{"type":"updates","id":{id},"current":"2.8.0","newer":[],"editor":{editor}}}"#
+    ))
+    .unwrap()
+}
+
+#[test]
+fn the_daily_check_only_speaks_when_a_newer_cq_editor_is_out() {
+    let mut state = test_state("");
+    let newer = r#"{"current":"0.8.0","newer":[{"tag":"v99.0.0","name":"99",
+        "url":"https://github.com/igors93/CQ-editor/releases/tag/v99.0.0"}]}"#;
+
+    state
+        .execution
+        .track(1, Pending::Updates { automatic: true });
+    state.handle_message(updates_reply(1, r#"{"current":"0.8.0","newer":[]}"#));
+    assert!(
+        state.status.is_none() && state.dialogs.message.is_none(),
+        "silent"
+    );
+
+    state
+        .execution
+        .track(2, Pending::Updates { automatic: true });
+    state.handle_message(updates_reply(2, newer));
+    assert!(state.dialogs.message.is_none());
+    assert!(state.status.as_ref().unwrap().text.contains("v99.0.0"));
+    assert_eq!(
+        state.settings.general.newer_release.as_ref().unwrap().tag,
+        "v99.0.0"
+    );
+
+    // A failed daily check is only logged.
+    state
+        .execution
+        .track(3, Pending::Updates { automatic: true });
+    state.handle_message(crate::worker::protocol::Message::Error {
+        id: Some(3),
+        message: "offline".into(),
+    });
+    assert!(state.dialogs.message.is_none());
+}
+
+#[test]
+fn checking_by_hand_reports_cq_editor_and_cadquery() {
+    let mut state = test_state("");
+    state
+        .execution
+        .track(4, Pending::Updates { automatic: false });
+    state.handle_message(updates_reply(4, r#"{"current":"0.8.0","newer":[]}"#));
+    let message = state.dialogs.message.as_ref().unwrap();
+    assert_eq!(message.title, "No updates available");
+    assert!(message.text.contains("is the latest version"));
+    assert!(message.text.contains("CadQuery 2.8.0"));
+}

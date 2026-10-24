@@ -338,3 +338,19 @@ def test_measurement_code_waits_for_the_end_of_a_debugging_session(conversation)
     talk.serve()
     (error,) = talk.of_type("error")
     assert error["id"] == 2 and "debugging" in error["message"]
+
+
+def test_update_checks_can_cover_cq_editor_and_skip_cadquery(conversation, monkeypatch):
+    monkeypatch.setattr(network, "newer_releases", lambda _current: ["v99.0.0"])
+    found = [{"tag": "v0.9.0", "name": "0.9", "url": "https://github.com/x"}]
+    monkeypatch.setattr(network, "editor_releases", lambda current: found)
+    talk = conversation(
+        {"cmd": "check_updates", "id": 1, "editor": "0.8.0"},
+        {"cmd": "check_updates", "id": 2, "editor": "0.8.0", "cadquery": False},
+    )
+    talk.serve()
+    both, editor_only = talk.of_type("updates")
+    assert both["newer"] == ["v99.0.0"]
+    assert both["editor"] == {"current": "0.8.0", "newer": found}
+    # The daily check of CQ-editor leaves CadQuery's releases alone.
+    assert editor_only["newer"] == [] and editor_only["editor"]["newer"] == found

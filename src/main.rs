@@ -23,6 +23,7 @@ mod settings;
 mod spatial;
 mod theme;
 mod ui;
+mod updates;
 mod viewer;
 mod worker;
 

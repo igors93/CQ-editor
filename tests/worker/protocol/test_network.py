@@ -80,3 +80,36 @@ def test_newer_releases_ignores_drafts_and_older_versions(monkeypatch):
 )
 def test_version_key_orders_numeric_components(version, expected):
     assert network._version_key(version) == expected
+
+
+def test_editor_releases_are_newer_published_ones_newest_first(monkeypatch):
+    captured = {}
+    releases = [
+        {
+            "tag_name": "v0.9.0",
+            "name": "CQ-editor 0.9",
+            "html_url": "https://github.com/igors93/CQ-editor/releases/tag/v0.9.0",
+        },
+        {"tag_name": "v0.10.0-rc1", "prerelease": True},
+        {"tag_name": "v0.11.0", "draft": True},
+        {"tag_name": "v0.10.1"},
+        {"tag_name": "v0.8.0"},
+        {"tag_name": "v0.7.5"},
+    ]
+
+    def urlopen(request, timeout):
+        captured.update(request=request)
+        return Response(json.dumps(releases).encode())
+
+    monkeypatch.setattr(network.urllib.request, "urlopen", urlopen)
+    newer = network.editor_releases("0.8.0")
+    assert captured["request"].full_url.endswith("/igors93/CQ-editor/releases")
+    assert [release["tag"] for release in newer] == ["v0.10.1", "v0.9.0"]
+    assert newer[1] == {
+        "tag": "v0.9.0",
+        "name": "CQ-editor 0.9",
+        "url": "https://github.com/igors93/CQ-editor/releases/tag/v0.9.0",
+    }
+    # Without a name or a page, the tag and the usual page stand in.
+    assert newer[0]["name"] == "v0.10.1"
+    assert newer[0]["url"].endswith("/igors93/CQ-editor/releases/tag/v0.10.1")

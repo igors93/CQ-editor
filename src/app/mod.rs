@@ -48,6 +48,7 @@ use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
 use crate::scene::{Overlay, Rgb, RunScript, Scene};
 use crate::settings::{self, Projection, Settings};
 use crate::theme::{self, Palette};
+use crate::updates;
 use crate::viewer::{ViewInput, Viewer, ViewerEvent};
 use crate::worker::protocol::{Request, RequestId, Variable};
 use crate::worker::{self, Worker};
@@ -502,8 +503,19 @@ impl AppState {
             Action::InstallationGuide => open_url(INSTALLATION_URL),
             Action::CadQueryDocumentation => open_url("https://cadquery.readthedocs.io/en/latest/"),
             Action::About => self.dialogs.about = true,
+            Action::DownloadUpdate => {
+                if let Some(release) = updates::available(&self.settings.general) {
+                    open_url(&release.url);
+                }
+            }
             Action::CheckUpdates => {
-                if self.send_tracked(Pending::Updates, |id| Request::CheckUpdates { id }) {
+                if self.send_tracked(Pending::Updates { automatic: false }, |id| {
+                    Request::CheckUpdates {
+                        id,
+                        editor: updates::VERSION.to_owned(),
+                        cadquery: true,
+                    }
+                }) {
                     self.set_status(StatusKind::Info, "Checking for CadQuery updates…");
                 }
             }

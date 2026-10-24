@@ -11,10 +11,32 @@ use crate::embedded;
 use crate::logging::{self, Level};
 use crate::panels::EntryKind;
 use crate::scene::{Grid, Mesh, NodeKey, Overlay};
+use crate::updates;
 use crate::worker::protocol::{DebugAction, Message, OutputStream, Request, RequestId};
 use crate::worker::{self, Event, LaunchConfig, launch};
 
 impl AppState {
+    /// Asks for CQ-editor's newer releases once a day, without a word
+    /// unless one is out (Preferences > General turns it off).
+    fn check_updates_daily(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+        if !updates::check_due(&self.settings.general, now) || !self.worker.is_ready() {
+            return;
+        }
+        let sent = self.send_tracked(Pending::Updates { automatic: true }, |id| {
+            Request::CheckUpdates {
+                id,
+                editor: updates::VERSION.to_owned(),
+                cadquery: false,
+            }
+        });
+        if sent {
+            self.settings.general.last_update_check = now;
+        }
+    }
+
     /// The interpreter Python is (or will be) started with: the command
     /// line's, else the preferences', else the one detected.
     pub(super) fn python_in_use(&self) -> std::path::PathBuf {
@@ -137,6 +159,7 @@ impl AppState {
                     log::info!("Install jedi in the Python environment for code completion");
                 }
                 self.worker_was_ready = true;
+                self.check_updates_daily();
                 self.set_status(
                     StatusKind::Success,
                     format!("CadQuery {} ready", info.cadquery),
@@ -334,25 +357,58 @@ impl AppState {
                     upload.finished(status, &body);
                 }
             }
-            Message::Updates { id, current, newer } => {
-                self.execution.answer(id);
-                self.status = None;
-                if newer.is_empty() {
-                    self.dialogs.info(
-                        "No updates available",
-                        format!(
-                            "You are already using the latest version of CadQuery ({current})."
-                        ),
-                    );
-                } else {
-                    self.dialogs.info(
-                        "Updates available",
-                        format!(
-                            "There are newer versions of CadQuery available on GitHub:\n\n{}",
-                            newer.join("\n")
-                        ),
-                    );
+            Message::Updates {
+                id,
+                current,
+                newer,
+                editor,
+            } => {
+                let automatic = matches!(
+                    self.execution.answer(id),
+                    Some(Pending::Updates { automatic: true })
+                );
+                if let Some(editor) = &editor {
+                    self.settings.general.newer_release = editor.newer.first().cloned();
                 }
+                let available = updates::available(&self.settings.general).cloned();
+                if automatic {
+                    if let Some(release) = available {
+                        self.set_status(
+                            StatusKind::Info,
+                            format!(
+                                "CQ-editor {} is available: Help > Download CQ-editor {}",
+                                release.tag, release.tag
+                            ),
+                        );
+                    }
+                    return;
+                }
+                self.status = None;
+                let editor_text = match &available {
+                    Some(release) => format!(
+                        "CQ-editor {} is available (you have {}): Help > Download \
+                         CQ-editor {} opens its page.",
+                        release.tag,
+                        updates::VERSION,
+                        release.tag
+                    ),
+                    None => format!("CQ-editor {} is the latest version.", updates::VERSION),
+                };
+                let cadquery_text = if newer.is_empty() {
+                    format!("CadQuery {current} is the latest version.")
+                } else {
+                    format!(
+                        "Newer CadQuery releases ({current} installed):\n{}",
+                        newer.join("\n")
+                    )
+                };
+                let title = if available.is_some() || !newer.is_empty() {
+                    "Updates available"
+                } else {
+                    "No updates available"
+                };
+                self.dialogs
+                    .info(title, format!("{editor_text}\n\n{cadquery_text}"));
             }
             Message::Imports { id, paths } => {
                 let Some(Pending::Imports(script)) = self.execution.answer(id) else {
@@ -389,7 +445,11 @@ impl AppState {
                     upload.failed(&message);
                 }
             }
-            Some((_, Pending::Updates)) => {
+            Some((_, Pending::Updates { automatic: true })) => {
+                // Offline, rate-limited…: tried again tomorrow, silently.
+                log::info!("Cannot check for CQ-editor updates: {message}");
+            }
+            Some((_, Pending::Updates { automatic: false })) => {
                 self.status = None;
                 self.dialogs.error("Cannot check for updates", message);
             }

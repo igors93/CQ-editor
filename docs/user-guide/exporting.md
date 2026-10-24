@@ -72,10 +72,13 @@ is shown.
 
 ## Network access
 
-CQ-editor works offline. It only contacts the network when you ask it to:
+CQ-editor works offline. It contacts the network only when you ask it to,
+and once a day to look for a newer CQ-editor, which you can turn off:
 
 | Action | Contacts |
 | --- | --- |
 | Tools > Upload Model… | The URL you enter |
-| Help > Check for CadQuery Updates | `api.github.com`, to list CadQuery releases newer than the installed one |
+| Help > Check for Updates | `api.github.com`, to list CQ-editor and CadQuery releases newer than the ones you have |
+| The daily check (*Preferences > General > Check for updates*, on by default) | `api.github.com`, once a day when Python starts, to list CQ-editor's releases; nothing about you or your files is sent, and a failure (offline) is only logged |
+| Preferences > General > Create Environment… / Install Packages… | The Python package index, through pip, for the packages you name |
 | Help > Documentation / CadQuery Documentation | Opens your web browser |

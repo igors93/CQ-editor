@@ -57,7 +57,11 @@ pub enum Pending {
     Console,
     Export,
     Upload,
-    Updates,
+    /// `automatic` checks, once a day, stay silent unless a newer
+    /// CQ-editor is out.
+    Updates {
+        automatic: bool,
+    },
     /// The local modules imported by the script at this path.
     Imports(PathBuf),
     Measure,

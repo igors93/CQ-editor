@@ -524,11 +524,19 @@ class Server:
         return {"type": "upload_finished", **result}
 
     def check_updates(self, request: Message) -> Message:
-        return {
-            "type": "updates",
-            "current": cq.__version__,
-            "newer": network.newer_releases(cq.__version__),
-        }
+        """Newer CadQuery releases (unless ``cadquery`` is false) and, given
+        the running CQ-editor's version as ``editor``, newer CQ-editors."""
+
+        reply = {"type": "updates", "current": cq.__version__, "newer": []}
+        if request.get("cadquery", True):
+            reply["newer"] = network.newer_releases(cq.__version__)
+        editor = request.get("editor")
+        if editor:
+            reply["editor"] = {
+                "current": editor,
+                "newer": network.editor_releases(editor),
+            }
+        return reply
 
     # -- helpers -----------------------------------------------------------
 

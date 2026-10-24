@@ -67,7 +67,7 @@ it does not turn the open gap into a supported feature.
 | `objects.assemblies` | Assemblies can remain hierarchical or be merged, retaining per-part transforms and colors. | Verified | `tests/worker/geometry/test_scene.py::test_builder_explodes_assemblies` |
 | `export.step-stl` | Selected objects still export to STEP and STL; BREP was added. | Enhanced | `tests/worker/protocol/test_server.py::test_export` |
 | `tools.upload` | Python or exported model bytes can still be uploaded to the configured service. | Verified | `tests/worker/protocol/test_server_commands.py::test_step_upload_sends_actual_model_bytes` |
-| `tools.update` | CadQuery release checks remain available. | Verified | `tests/worker/protocol/test_server_commands.py::test_update_check_returns_current_and_newer_versions` |
+| `tools.update` | CadQuery release checks remain available; CQ-editor's own releases are checked too, by hand and once a day. | Enhanced | `tests/worker/protocol/test_server_commands.py::test_update_checks_can_cover_cq_editor_and_skip_cadquery` |
 | `viewer.standard-views` | Fit, isometric, top, bottom, front, back, left and right camera results remain. | Verified | `tests/rust/viewer/test_camera.rs::standard_views_look_where_expected` |
 | `viewer.display-modes` | Shaded and wireframe keep their commands and shortcuts; X-ray and hidden-line modes and per-object edge visibility were added. Each mode is rendered offscreen and its pixels are checked. | Enhanced | `tests/rust/viewer/test_renderer.rs::display_modes_render_faces_edges_and_fills_as_documented` |
 | `viewer.projection` | Orthographic and perspective cameras remain and produce consistent pick rays. | Verified | `tests/rust/viewer/test_camera.rs::projection_round_trips_through_rays` |
