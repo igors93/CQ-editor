@@ -12,6 +12,7 @@ mod dialogs;
 mod document;
 mod editor;
 mod embedded;
+mod environments;
 mod file_watcher;
 mod logging;
 mod panels;

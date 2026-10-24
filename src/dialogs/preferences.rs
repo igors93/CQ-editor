@@ -171,15 +171,51 @@ fn general(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Action>
                         general.python = path.display().to_string();
                     }
                 });
-                if ui
-                    .button(format!(
-                        "{} Restart Python with this interpreter",
-                        icon::ARROW_CLOCKWISE
-                    ))
-                    .clicked()
-                {
-                    actions.push(Action::RestartPython);
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!(
+                            "{} Restart Python with this interpreter",
+                            icon::ARROW_CLOCKWISE
+                        ))
+                        .clicked()
+                    {
+                        actions.push(Action::RestartPython);
+                    }
+                    ui.menu_button(format!("{} Detected", icon::LIST_BULLETS), |ui| {
+                        let candidates = crate::worker::launch::candidates();
+                        if candidates.is_empty() {
+                            ui.weak("No Python found");
+                        }
+                        for candidate in candidates {
+                            let text = candidate.display().to_string();
+                            if ui.button(&text).clicked() {
+                                general.python = text;
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Pythons found on this computer");
+                });
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!("{} Create Environment…", icon::PLUS_CIRCLE))
+                        .on_hover_text(
+                            "A new virtual environment with CadQuery and jedi, \
+                             to use with CQ-editor",
+                        )
+                        .clicked()
+                    {
+                        actions.push(Action::CreateEnvironment);
+                    }
+                    if ui
+                        .button(format!("{} Install Packages…", icon::PACKAGE))
+                        .on_hover_text("pip install into the Python in use")
+                        .clicked()
+                    {
+                        actions.push(Action::InstallPackages);
+                    }
+                });
             });
         },
     );

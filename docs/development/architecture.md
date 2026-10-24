@@ -46,9 +46,10 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar), `stereo.rs` and `stereo.wgsl` (stereo composition) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent, replace, names, *Go to line*, breakpoint relocation), `history.rs` (the undo history: typing grouped into steps, one step per command or reload) |
 | `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
-| `dialogs/` | Preferences, Upload, About, unsaved changes, external change, recovery, local history, messages |
+| `dialogs/` | Preferences, Upload, About, Screenshot, Python environments, unsaved changes, external change, recovery, local history, messages |
 | `ui/` | Menu bar, toolbar, status bar |
 | `worker/` | Child process management and the reason a start failed (`mod.rs`), interpreter discovery and the interpreters offered when it fails (`launch.rs`), protocol types (`protocol.rs`) |
+| `environments.rs` | Creating virtual environments and running `pip install` from the preferences: the commands, package checks, and a cancellable background job that collects their output |
 | `embedded.rs` | Access to the files embedded by `build.rs` |
 | `logging.rs` | The bounded, application-wide log behind the Log panel |
 | `theme.rs` | Light/dark visuals, fonts, editor and viewer colors |

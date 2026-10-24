@@ -620,3 +620,22 @@ fn a_profiled_run_puts_its_times_in_the_gutter_of_the_edited_script() {
     state.execute(Action::ClearProfile);
     assert!(state.editor.line_profile.is_empty());
 }
+
+#[test]
+fn new_environments_go_to_a_free_folder() {
+    let root = std::env::temp_dir().join(format!("cq-editor-free-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let preferred = root.join("cadquery");
+    assert_eq!(unused_folder(&preferred), preferred, "missing: free");
+    std::fs::create_dir_all(&preferred).unwrap();
+    assert_eq!(unused_folder(&preferred), preferred, "empty: free");
+    std::fs::write(preferred.join("pyvenv.cfg"), "").unwrap();
+    assert_eq!(unused_folder(&preferred), root.join("cadquery-2"));
+    std::fs::create_dir_all(root.join("cadquery-2/bin")).unwrap();
+    assert_eq!(unused_folder(&preferred), root.join("cadquery-3"));
+    let _ = std::fs::remove_dir_all(&root);
+
+    let mut state = test_state("");
+    state.execute(Action::InstallPackages);
+    assert!(state.dialogs.environment.is_some());
+}

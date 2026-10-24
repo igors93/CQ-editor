@@ -61,6 +61,10 @@ pub enum Action {
     /// Restarts Python with this interpreter and keeps it in the
     /// preferences.
     UsePython(PathBuf),
+    /// Opens the dialog creating a Python environment with CadQuery.
+    CreateEnvironment,
+    /// Opens the dialog installing packages into the Python in use.
+    InstallPackages,
     // View
     Fit,
     FitSelection,

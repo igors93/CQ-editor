@@ -404,6 +404,22 @@ impl AppState {
             Action::ClearConsole => self.console.clear(),
             Action::ClearLog => logging::clear(),
             Action::RestartPython => self.start_worker(),
+            Action::CreateEnvironment => {
+                let folder = unused_folder(&self.cache_dir.join("environments").join("cadquery"));
+                let base = self.python_in_use();
+                self.dialogs.environment = Some(dialogs::environment::EnvironmentDialog::create(
+                    folder,
+                    base,
+                    worker::launch::candidates(),
+                ));
+            }
+            Action::InstallPackages => {
+                let python = self.python_in_use();
+                self.dialogs.environment = Some(dialogs::environment::EnvironmentDialog::install(
+                    python,
+                    worker::launch::candidates(),
+                ));
+            }
             Action::UsePython(path) => {
                 self.settings.general.python = path.display().to_string();
                 // A --python from the command line would win otherwise.
@@ -804,3 +820,19 @@ impl eframe::App for CqEditorApp {
 #[cfg(test)]
 #[path = "../../tests/rust/app/test_app.rs"]
 mod tests;
+
+/// `preferred`, or `preferred-2`, `-3`… when it exists and is not empty.
+fn unused_folder(preferred: &Path) -> PathBuf {
+    let free =
+        |path: &Path| std::fs::read_dir(path).map_or(true, |mut entries| entries.next().is_none());
+    if free(preferred) {
+        return preferred.to_path_buf();
+    }
+    let name = preferred
+        .file_name()
+        .map_or_else(|| "environment".into(), |name| name.to_string_lossy());
+    (2..)
+        .map(|n| preferred.with_file_name(format!("{name}-{n}")))
+        .find(|path| free(path))
+        .expect("a free folder")
+}

@@ -105,6 +105,27 @@ development or source builds.
 The exact tested combinations are in the
 [CadQuery/OCP compatibility matrix](../development/dependency-compatibility.md).
 
+**From CQ-editor.** *Preferences > General > Python interpreter* manages
+environments without a terminal:
+
+* **Detected** lists the Pythons found on this computer (the active and
+  conda/mamba environments, `.venv` folders, python.org installs and `PATH`);
+  pick one, then **Restart Python with this interpreter**.
+* **Create Environment…** makes a virtual environment (`python -m venv`) in a
+  folder of your choice, by default `environments/cadquery` in the folder
+  below, with the Python of your choice (3.10 or newer, the one in use by
+  default), and installs CadQuery and jedi into it. Add other packages to the
+  list as for `pip install`. Downloading CadQuery takes a few minutes; the
+  window shows pip's output and can cancel it. **Use this environment**
+  switches to it and restarts Python.
+* **Install Packages…** runs `pip install` for the packages you name in the
+  Python in use (or another one), for example `trimesh numpy-stl`; then
+  restart Python to import them.
+
+Package names are passed to pip as they are, with versions or extras
+(`ocp-vscode>=2`, `trimesh[easy]`) or a local `.whl` file, but pip options
+are refused. No command goes through a shell.
+
 **pip and a virtual environment**
 
 ```sh
@@ -179,6 +200,7 @@ Settings and recovery data live in one per-user folder:
 | `recovery/` | Crash-recovery session and local history |
 | `logs/` | Current and previous application logs |
 | `worker-<hash>/` | Extracted embedded worker; obsolete versions are removed automatically |
+| `environments/` | Default place of the environments created from the preferences |
 
 Deleting `app.ron` while the editor is closed restores all defaults.
 

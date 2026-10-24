@@ -15,12 +15,18 @@ use crate::worker::protocol::{DebugAction, Message, OutputStream, Request, Reque
 use crate::worker::{self, Event, LaunchConfig, launch};
 
 impl AppState {
-    pub(super) fn start_worker(&mut self) {
+    /// The interpreter Python is (or will be) started with: the command
+    /// line's, else the preferences', else the one detected.
+    pub(super) fn python_in_use(&self) -> std::path::PathBuf {
         let explicit = self
             .python_override
             .clone()
             .unwrap_or_else(|| self.settings.general.python.clone());
-        let python = launch::find_python(Some(&explicit));
+        launch::find_python(Some(&explicit))
+    }
+
+    pub(super) fn start_worker(&mut self) {
+        let python = self.python_in_use();
         let worker_dir = match embedded::worker_dir(&self.cache_dir) {
             Ok(dir) => dir,
             Err(err) => {

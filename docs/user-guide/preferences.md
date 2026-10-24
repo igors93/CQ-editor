@@ -16,7 +16,7 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | --- | --- | --- |
 | Theme | System | `System` follows the operating system, or force `Light` / `Dark` |
 | Interface scale | 1.00 | 0.75–2.0, on top of the system scale. Ctrl + plus / Ctrl + minus also work |
-| Python interpreter | *(empty: auto-detect)* | Path to the `python` executable with CadQuery. The folder button browses. **Restart Python with this interpreter** applies it. See [how Python is found](../getting-started/installation.md#how-cq-editor-finds-python) |
+| Python interpreter | *(empty: auto-detect)* | Path to the `python` executable with CadQuery. The folder button browses. **Restart Python with this interpreter** applies it. **Detected** lists the Pythons found on this computer; **Create Environment…** makes a new environment with CadQuery and jedi, and **Install Packages…** runs `pip install` in the Python in use (see [Use another Python environment](../getting-started/installation.md#use-another-python-environment)). See [how Python is found](../getting-started/installation.md#how-cq-editor-finds-python) |
 
 ## 3D View
 

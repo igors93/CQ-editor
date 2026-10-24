@@ -2,6 +2,7 @@
 //! and messages.
 
 pub mod capture;
+pub mod environment;
 pub mod preferences;
 pub mod upload;
 
@@ -83,6 +84,7 @@ pub struct Dialogs {
     pub about: bool,
     pub upload: Option<upload::UploadDialog>,
     pub capture: capture::CaptureDialog,
+    pub environment: Option<environment::EnvironmentDialog>,
     pub unsaved: Option<Intent>,
     pub external_change: Option<ExternalChange>,
     pub recovery_session: Option<RecoverySnapshot>,
@@ -131,6 +133,12 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         && !upload.window(ctx, &mut actions)
     {
         state.dialogs.upload = None;
+    }
+
+    if let Some(dialog) = &mut state.dialogs.environment
+        && !dialog.window(ctx, &mut actions)
+    {
+        state.dialogs.environment = None;
     }
 
     if state.dialogs.capture.open {

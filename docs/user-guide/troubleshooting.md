@@ -34,7 +34,11 @@ seconds to import. The status bar shows *Starting Python…*. A run requested
 meanwhile starts automatically when Python is ready.
 
 **Completion does nothing.** Install `jedi` in the environment that runs
-CadQuery (`python -m pip install jedi`) and use **Run > Restart Python**.
+CadQuery (*Preferences > General > Install Packages…*, or
+`python -m pip install jedi`) and use **Run > Restart Python**.
+
+**CadQuery is not installed in any Python I have.** *Preferences > General >
+Create Environment…* makes one with CadQuery and jedi, and switches to it.
 
 **A package I just installed is not found.** Use **Run > Restart Python**:
 modules already imported stay loaded in the running process.

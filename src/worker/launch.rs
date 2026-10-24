@@ -73,6 +73,13 @@ pub fn find_python(explicit: Option<&str>) -> PathBuf {
     PathBuf::from(PATH_PYTHON)
 }
 
+/// The interpreter of the virtual environment in `folder`.
+pub fn venv_python(folder: &Path) -> PathBuf {
+    VENV_PYTHON
+        .iter()
+        .fold(folder.to_path_buf(), |path, part| path.join(part))
+}
+
 /// Interpreters on this computer, for the user to choose from when the
 /// detected one has no CadQuery: the places [`find_python`] looks at, conda
 /// and mamba environments in the usual folders, Python installs from
