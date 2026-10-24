@@ -16,7 +16,6 @@ const BUTTON_SIZE: Vec2 = Vec2::new(28.0, 26.0);
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     let mut actions = Vec::new();
     let paused = state.is_paused();
-    let busy = state.is_busy();
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
@@ -143,7 +142,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             paused,
             false,
         );
-        tool(ui, actions, icon::STOP, "Stop", Action::Stop, busy, false);
+        tool(
+            ui,
+            actions,
+            icon::STOP,
+            "Stop",
+            Action::Stop,
+            state.can_stop(),
+            false,
+        );
         separator(ui);
 
         tool(

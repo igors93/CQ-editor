@@ -137,8 +137,10 @@ scale. Ctrl + plus and Ctrl + minus do the same while you work.
 Scripts run in a separate Python process, so the window always stays
 responsive:
 
-* **Run > Stop** (Ctrl+Shift+F5) aborts a script that takes too long by
-  restarting Python.
+* **Run > Stop** (Ctrl+Shift+F5) interrupts a script or console command that
+  takes too long, keeping Python, its console and its caches; Python is
+  restarted only if the script does not stop within 3 seconds, or when Stop
+  is pressed again (see [Debugging](debugging.md#stopping-a-runaway-script)).
 * If Python crashes (for example inside OpenCascade), the status bar says so
   and a fresh Python process starts on its own.
 * **Run > Restart Python** starts a fresh process on demand, for example

@@ -466,7 +466,7 @@ Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
 
 | Status | Id | Feature |
 | :---: | --- | --- |
-| | FEAT-E1 ⚪ | **Gentle stop**: interrupt pure-Python loops with `KeyboardInterrupt` first, so the console and the cache survive. Restart the process only if the script does not respond |
+| ✅ | FEAT-E1 ⚪ | **Gentle stop**: interrupt pure-Python loops with `KeyboardInterrupt` first, so the console and the cache survive. Restart the process only if the script does not respond | Done: Stop sends `interrupt`; a watcher thread in the worker raises SIGINT in the main thread, which also wakes `time.sleep` on Windows. The run ends as *Stopped at line N* and keeps Python, the console namespace and the mesh cache; Stop also reaches console commands. Python is restarted after 3 s without an answer or on a second Stop. Tests: `test_stop_interrupts_a_running_worker_which_keeps_its_session`, `test_stop_interrupts_a_running_script_and_the_worker_carries_on`, `stop_interrupts_first_and_restarts_python_only_when_pressed_again` |
 | | FEAT-E2 🔵 | **Per-line profiling**: time spent per line and per CadQuery operation, shown in the gutter |
 | | FEAT-E3 🟢 | **Environment manager**: create or choose a virtual environment and install CadQuery, jedi and add-on packages from Preferences |
 | ✅ | FEAT-E4 🟢 | **Self-contained installers:** Windows `.exe`, macOS `.pkg` for Apple Silicon and Intel, and Linux `.sh` bundle the pinned Python/CadQuery runtime. CI installs and smoke-tests each artifact; native launchers are created on all systems and Windows/Linux register "Open with CQ-editor" for `.py` files |

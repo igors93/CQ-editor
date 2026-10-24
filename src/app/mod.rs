@@ -165,6 +165,11 @@ impl AppState {
         self.execution.is_busy()
     }
 
+    /// Something Stop can stop: a script, or a console command.
+    pub fn can_stop(&self) -> bool {
+        self.execution.is_busy() || self.console.busy
+    }
+
     /// The CadQuery logo, loaded on first use.
     pub fn logo(&mut self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         if self.logo.is_none() {
@@ -198,6 +203,7 @@ impl AppState {
     /// message; the watcher and recovery timers schedule theirs).
     fn logic(&mut self, ctx: &egui::Context) {
         self.process_worker_events();
+        self.poll_stop(ctx);
         self.poll_parameter_render(ctx);
         self.sync_watcher();
         self.poll_watcher(ctx);
@@ -277,6 +283,11 @@ impl AppState {
             (Phase::Running { debug: true, .. }, _) => Some("Debugging…"),
             (Phase::Idle, worker::Status::Starting) => Some("Starting Python…"),
             _ => None,
+        };
+        let busy = if self.execution.is_stopping() {
+            Some("Stopping…")
+        } else {
+            busy
         };
         let hint = self.worker.is_ready().then(|| self.empty_view_hint());
         let events = self.viewer.ui(

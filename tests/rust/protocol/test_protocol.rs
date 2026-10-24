@@ -488,3 +488,26 @@ fn meshing_progress_and_cancellation_cross_the_protocol() {
     assert!(run_finished(r#","cancelled":true"#).cancelled);
     assert!(!run_finished("").cancelled, "older workers never cancel");
 }
+
+#[test]
+fn stop_interrupts_cross_the_protocol() {
+    assert_eq!(
+        serde_json::to_value(Request::Interrupt { target: 4 }).unwrap(),
+        serde_json::json!({"cmd": "interrupt", "target": 4})
+    );
+    assert!(run_finished(r#","interrupted":true"#).interrupted);
+    assert!(
+        !run_finished("").interrupted,
+        "older workers never interrupt"
+    );
+}
+
+#[test]
+fn the_worker_declares_the_same_protocol_version() {
+    let worker = include_str!("../../../worker/cq_worker/protocol.py");
+    let declared = worker
+        .lines()
+        .find_map(|line| line.strip_prefix("PROTOCOL_VERSION = "))
+        .expect("protocol.py declares PROTOCOL_VERSION");
+    assert_eq!(declared.trim().parse::<u32>().unwrap(), PROTOCOL_VERSION);
+}

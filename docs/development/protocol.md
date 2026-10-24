@@ -1,4 +1,4 @@
-# Worker protocol (version 5)
+# Worker protocol (version 6)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":5,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":6,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -81,6 +81,7 @@ The worker handles one request at a time, in arrival order.
 | `check_updates` | `id` | `updates` |
 | `imports` | `id`, `path` | `imports` (local module files imported by the script) |
 | `cancel` | `target` (the id of a `run`) | None. Read even while the worker is busy; meshing stops at the next part and the run finishes with `cancelled` |
+| `interrupt` | `target` (the id of a `run` or `console` request) | None. Read even while the worker is busy; raises `KeyboardInterrupt` in that request, which then finishes as usual (`interrupted` for a run, a traceback in the console's output) |
 | `shutdown` | | The worker exits |
 
 **RunSettings:** `reload_cq`, `add_script_dir_to_path`, `change_working_dir`,
@@ -97,7 +98,7 @@ The worker handles one request at a time, in arrival order.
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed or cancelled run should keep the current scene. `timings` is described below |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below |
 | `progress` | `id`, `stage` (`meshing`), `done`, `total` | How many of the run's parts (one per shape of an assembly) are meshed: first `0`, at most every 0.1 s, and `total` at the end |
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
@@ -257,7 +258,20 @@ for later. A thread blocked reading stdin is not used: on Windows, loading a
 DLL (an `import` of a native module) would wait for that read. The parts
 meshed so far are dropped and their registry entries released.
 
-Python cannot interrupt arbitrary C++ code safely, so there is no way to
-cancel the script itself or the meshing of one huge shape. **Stop** kills the
-worker process and starts a new one. Events from the old process are
-discarded by their generation number.
+**Stop** interrupts first. While a `run` or `console` request is handled, a
+watcher thread polls the same way every 50 ms; on an `interrupt` for that
+request it sends SIGINT to the main thread (`signal.raise_signal` on
+Windows, `pthread_kill` elsewhere), so Python raises `KeyboardInterrupt`
+there and waits such as `time.sleep` wake up. `_thread.interrupt_main` is
+not enough on Windows: it does not wake those waits. The run reports
+`interrupted`, the console prints the traceback, and the process keeps its
+console namespace and caches. An interrupt that lands after its request
+ended is absorbed, so it never reaches the next one, and the worker sets
+the default SIGINT handler at start-up, since an inherited "ignore" would
+disable all this.
+
+Python cannot interrupt C++ code: an interrupt is only raised when it
+returns to Python. If the request has not answered 3 seconds after the
+interrupt, or Stop is pressed again, the GUI kills the worker process and
+starts a new one. Events from the old process are discarded by their
+generation number.

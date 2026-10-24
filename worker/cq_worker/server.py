@@ -61,6 +61,9 @@ log = logging.getLogger(__name__)
 #: Seconds between two progress messages of one request.
 PROGRESS_INTERVAL = 0.1
 
+#: Requests the GUI can interrupt (``KeyboardInterrupt``) while they run.
+_INTERRUPTIBLE = {"run", "console"}
+
 #: Requests that are safe to serve while a debugging session is paused.
 _ALLOWED_WHILE_PAUSED = {
     "complete",
@@ -175,7 +178,12 @@ class Server:
             }
         )
         while True:
-            request = self.channel.receive()
+            try:
+                request = self.channel.receive()
+            except KeyboardInterrupt:
+                # A Ctrl+C sent to the whole process group of a terminal;
+                # only Stop decides what the worker interrupts.
+                continue
             if request is None or request.get("cmd") == "shutdown":
                 return
             self.dispatch(request)
@@ -187,9 +195,16 @@ class Server:
             handler = self._handlers.get(request.get("cmd"))
             if handler is None:
                 raise RequestError(f"Unknown command {request.get('cmd')!r}")
-            reply = handler(request)
+            if request.get("cmd") in _INTERRUPTIBLE:
+                with self.channel.interruptible(request_id):
+                    reply = handler(request)
+            else:
+                reply = handler(request)
             if reply is not None:
                 self.channel.send({"id": request_id, **reply})
+        except KeyboardInterrupt:
+            # Stopped outside the script itself (handlers catch it there).
+            self.channel.send({"type": "error", "id": request_id, "message": "Stopped"})
         except RequestError as error:
             self.channel.send(
                 {"type": "error", "id": request_id, "message": str(error)}
@@ -246,7 +261,7 @@ class Server:
             builder.cancelled = lambda: self.channel.cancel_requested(request_id)
             try:
                 objects = builder.build(shown)
-            except BuildCancelled:
+            except (BuildCancelled, KeyboardInterrupt):
                 # Like a failed run: the previous model stays on screen.
                 cancelled = True
             finally:
@@ -257,6 +272,7 @@ class Server:
             "debug": debug,
             "stopped": execution.stopped,
             "cancelled": cancelled,
+            "interrupted": execution.interrupted,
             "objects": objects,
             "variables": variables,
             "error": execution.error,

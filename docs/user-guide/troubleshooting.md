@@ -41,8 +41,10 @@ modules already imported stay loaded in the running process.
 
 ## Scripts
 
-**The script runs forever.** Press **Run > Stop** (Ctrl+Shift+F5). Python is
-restarted and the editor stays responsive.
+**The script runs forever.** Press **Run > Stop** (Ctrl+Shift+F5). The script
+is interrupted where it is, and the status bar says at which line. If it is
+stuck inside OpenCascade and does not stop within 3 seconds, Python is
+restarted; the editor stays responsive either way.
 
 **The status bar says *Python crashed while running the script; it was
 restarted*.** A native error (usually inside OpenCascade) killed the Python

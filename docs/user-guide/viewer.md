@@ -343,7 +343,7 @@ bottom left of the view counts the parts meshed (one per shape of an
 assembly); ✕ cancels the meshing. The model shown before stays, and the
 script's variables are still updated. To stop a script that runs too long,
 or the meshing of one huge shape, use **Run > Stop** (Ctrl+Shift+F5), which
-restarts Python.
+interrupts it and, if that is not enough, restarts Python.
 
 ## Mesh quality
 

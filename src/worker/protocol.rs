@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 pub type RequestId = u64;
 
@@ -125,6 +125,11 @@ pub enum Request {
     /// Stops the meshing of the run `target` (the worker reads it while
     /// busy); the run then finishes as `cancelled`.
     Cancel {
+        target: RequestId,
+    },
+    /// Raises `KeyboardInterrupt` in the run or console command `target`
+    /// (the worker reads it while busy), as Ctrl+C would.
+    Interrupt {
         target: RequestId,
     },
     Shutdown,
@@ -319,6 +324,9 @@ pub struct RunFinished {
     /// Meshing was cancelled; the current scene stays.
     #[serde(default)]
     pub cancelled: bool,
+    /// Stop interrupted the script; `error` says where.
+    #[serde(default)]
+    pub interrupted: bool,
     /// `None` when a failed run should keep the current scene.
     pub objects: Option<Vec<SceneNode>>,
     pub variables: Option<Vec<Variable>>,

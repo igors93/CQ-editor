@@ -289,7 +289,7 @@ fn run_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         icon::STOP,
         "Stop",
         Action::Stop,
-        state.is_busy(),
+        state.can_stop(),
     );
     ui.separator();
     item(

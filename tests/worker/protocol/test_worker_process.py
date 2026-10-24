@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
+import time
 
 from cq_worker.protocol import OUTPUT_CAPTURE_CHARS
 
@@ -150,3 +152,61 @@ def test_a_running_worker_stops_meshing_when_cancelled():
     assert finished["objects"] is None
     assert progress[0]["total"] == 400
     assert progress[-1]["done"] < 400, "stopped before the end"
+
+
+def test_stop_interrupts_a_running_worker_which_keeps_its_session():
+    """Interrupts arrive while the worker is busy, in a sleep and in a pure
+    Python loop; the process, its console namespace and cache survive."""
+
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(PROJECT_ROOT / "worker")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "cq_worker"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        cwd=PROJECT_ROOT,
+        env=environment,
+    )
+
+    def send(request):
+        process.stdin.write(json.dumps(request) + "\n")
+        process.stdin.flush()
+
+    def until(kind, request_id):
+        for line in process.stdout:
+            message = json.loads(line)
+            if message.get("type") == kind and message.get("id") == request_id:
+                return message
+            if message.get("type") == "output" and message.get("id") == request_id:
+                outputs.append(message["text"])
+        raise AssertionError(f"no {kind} for {request_id}")
+
+    outputs = []
+    timer = threading.Timer(60, process.kill)
+    timer.start()
+    try:
+        send({"cmd": "run", "id": 1, "script": "answer = 41 + 1"})
+        assert until("run_finished", 1)["ok"]
+        for request_id, script in [
+            (2, "import time\ntime.sleep(120)"),
+            (3, "while True:\n    pass"),
+        ]:
+            send({"cmd": "run", "id": request_id, "script": script})
+            time.sleep(1.0)
+            started = time.monotonic()
+            send({"cmd": "interrupt", "target": request_id})
+            finished = until("run_finished", request_id)
+            assert finished["interrupted"] is True, script
+            assert time.monotonic() - started < 10
+        send({"cmd": "console", "id": 4, "source": "print(answer)"})
+        until("console_result", 4)
+        assert outputs == ["42\n"]
+        send({"cmd": "shutdown"})
+        assert process.wait(timeout=30) == 0
+    finally:
+        timer.cancel()
+        if process.poll() is None:
+            process.kill()

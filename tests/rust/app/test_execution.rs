@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::*;
 
 use WorkerAvailability::{Ready, Starting, Unavailable};
@@ -257,4 +259,35 @@ fn meshing_progress_is_kept_for_the_running_render_only() {
         None,
         "a restarted worker answers nothing"
     );
+}
+
+#[test]
+fn stop_interrupts_first_and_restarts_python_only_when_pressed_again() {
+    let now = Instant::now();
+    let mut execution = rendering(5);
+    assert_eq!(execution.stop(now), StopPlan::Interrupt(5));
+    assert!(execution.is_stopping());
+    assert_eq!(execution.stop_deadline(), Some(now + STOP_GRACE));
+    assert_eq!(execution.stop(now), StopPlan::Restart, "pressed again");
+
+    // Stopped in time: nothing more to do.
+    let mut execution = rendering(6);
+    execution.stop(now);
+    execution.ended(6);
+    assert!(!execution.is_stopping() && execution.stop_deadline().is_none());
+    assert_eq!(execution.stop(now), StopPlan::Nothing);
+
+    // Without a script, a console command is what Stop stops.
+    let mut execution = Execution::default();
+    execution.track(9, Pending::Completion { automatic: false });
+    execution.track(8, Pending::Console);
+    assert_eq!(execution.stop(now), StopPlan::Interrupt(8));
+    execution.answer(8);
+    assert!(!execution.is_stopping());
+
+    // A restarted worker answers nothing more.
+    let mut execution = rendering(10);
+    execution.stop(now);
+    execution.reset();
+    assert!(!execution.is_stopping());
 }

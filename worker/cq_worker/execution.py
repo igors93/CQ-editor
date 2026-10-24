@@ -330,6 +330,9 @@ class Execution:
         self.error: dict | None = None
         #: Set when a debugging session was ended by the user.
         self.stopped = False
+        #: Set when Stop interrupted the script (``KeyboardInterrupt``);
+        #: :attr:`error` then says where.
+        self.interrupted = False
 
     @property
     def namespace(self) -> dict[str, Any]:
@@ -365,6 +368,10 @@ class Execution:
             self.stopped = True
         except SystemExit:
             pass  # a script calling sys.exit() simply ends early
+        except KeyboardInterrupt as error:
+            self.interrupted = True
+            self.error = describe_exception(error)
+            return False
         except Exception as error:
             # Lets the console's %debug-style post mortem tools find it.
             sys.last_traceback = error.__traceback__

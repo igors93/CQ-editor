@@ -460,3 +460,42 @@ def test_a_cancelled_run_keeps_the_previous_scene(conversation):
     # Only that request was cancelled.
     assert finished["cancelled"] is False
     assert [o["name"] for o in finished["objects"]] == ["result"]
+
+
+def test_stop_interrupts_a_running_script_and_the_worker_carries_on(conversation):
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": BOX_SCRIPT},
+        # Stop, read before the script starts in this scripted conversation.
+        {"cmd": "interrupt", "target": 2},
+        {"cmd": "run", "id": 2, "script": "count = 0\nwhile True:\n    count += 1\n"},
+        {"cmd": "console", "id": 3, "source": "print(type(result).__name__)"},
+        {"cmd": "run", "id": 4, "script": BOX_SCRIPT},
+    )
+    talk.serve()
+
+    first, stopped, again = talk.of_type("run_finished")
+    assert stopped["id"] == 2 and stopped["interrupted"] is True
+    assert stopped["ok"] is False and stopped["objects"] is None
+    assert stopped["error"]["type_name"] == "KeyboardInterrupt"
+    assert stopped["error"]["line"] in (2, 3), "where it was stopped"
+    assert first["interrupted"] is False and again["interrupted"] is False
+
+    # The same process goes on: the console kept its namespace, and the
+    # mesh cache its meshes.
+    assert talk.output(3) == "Workplane\n"
+    assert again["timings"]["cached"] == 1 and again["timings"]["meshed"] == 0
+
+
+def test_stop_interrupts_a_console_command_and_keeps_the_namespace(conversation):
+    talk = conversation(
+        {"cmd": "console", "id": 1, "source": "kept = 41"},
+        {"cmd": "interrupt", "target": 2},
+        # A compound statement ends with a blank line, as typed.
+        {"cmd": "console", "id": 2, "source": "while True: kept += 0\n"},
+        {"cmd": "console", "id": 3, "source": "print(kept + 1)"},
+    )
+    talk.serve()
+
+    assert "KeyboardInterrupt" in talk.output(2)
+    assert [result["id"] for result in talk.of_type("console_result")] == [1, 2, 3]
+    assert talk.output(3) == "42\n"

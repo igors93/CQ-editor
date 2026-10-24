@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import time
 
 import pytest
 
@@ -173,3 +174,35 @@ def test_cancellations_are_recorded_between_requests_too():
     channel = Channel(io.BytesIO(payload), io.BytesIO())
     assert channel.receive() == {"cmd": "run", "id": 9}
     assert channel.cancel_requested(9)
+
+
+def test_an_interrupt_stops_the_request_it_names_and_no_other():
+    channel = Channel(io.BytesIO(b'{"cmd":"interrupt","target":3}\n'), io.BytesIO())
+    assert channel.receive() is None, "recorded, not handed out"
+
+    with channel.interruptible(4):
+        time.sleep(0.3)  # not this request
+    with pytest.raises(KeyboardInterrupt):
+        with channel.interruptible(3):
+            while True:
+                pass
+    assert not channel.interrupt_requested(3), "forgotten once handled"
+
+
+def test_an_interrupt_arriving_during_a_request_raises_in_it():
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, "rb", buffering=0) as reader:
+        channel = Channel(reader, io.BytesIO())
+        with pytest.raises(KeyboardInterrupt):
+            with channel.interruptible(5):
+                os.write(
+                    write_fd,
+                    b'{"cmd":"inspect","id":6}\n{"cmd":"interrupt","target":5}\n',
+                )
+                while True:
+                    pass
+        # What arrived with it is kept for later, in order.
+        os.write(write_fd, b'{"cmd":"shutdown"}\n')
+        os.close(write_fd)
+        assert channel.receive() == {"cmd": "inspect", "id": 6}
+        assert channel.receive() == {"cmd": "shutdown"}

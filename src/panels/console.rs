@@ -137,7 +137,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                         .id(input_id)
                         .font(egui::TextStyle::Monospace)
                         .desired_rows(1)
-                        .desired_width(ui.available_width() - 62.0)
+                        // Room for the buttons, Stop included while busy.
+                        .desired_width(
+                            ui.available_width() - if console.busy { 92.0 } else { 62.0 },
+                        )
                         .hint_text(if worker_ready {
                             "Python — Enter to run"
                         } else {
@@ -146,6 +149,16 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 );
                 if std::mem::take(&mut console.focus_input) {
                     response.request_focus();
+                }
+                if console.busy
+                    && ui
+                        .button(icon::STOP)
+                        .on_hover_text(
+                            "Stop the running command (Ctrl+Shift+F5); its variables stay",
+                        )
+                        .clicked()
+                {
+                    actions.push(Action::Stop);
                 }
                 if ui
                     .button(icon::BROOM)

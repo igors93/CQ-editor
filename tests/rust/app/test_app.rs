@@ -556,3 +556,28 @@ fn the_ground_grid_and_scale_bar_are_toggled_from_the_view_menu() {
     state.execute(Action::ToggleScaleBar);
     assert!(state.settings.viewer.ground_grid && !state.settings.viewer.scale_bar);
 }
+
+#[test]
+fn an_interrupted_run_is_reported_as_stopped_not_as_an_error() {
+    let mut state = test_state("while True:\n    pass\n");
+    state.execution.started(4, false);
+    let message: crate::worker::protocol::Message = serde_json::from_str(
+        r#"{"type":"run_finished","id":4,"ok":false,"debug":false,"stopped":false,
+            "cancelled":false,"interrupted":true,"objects":null,"variables":null,
+            "error":{"type_name":"KeyboardInterrupt","message":"","frames":[],"line":2,
+                "text":"Traceback (most recent call last):\nKeyboardInterrupt\n"},
+            "duration":1.0}"#,
+    )
+    .unwrap();
+    state.handle_message(message);
+
+    let status = state.status.as_ref().unwrap();
+    assert_eq!(status.kind, StatusKind::Info);
+    assert_eq!(status.text, "Stopped at line 2");
+    assert_eq!(state.editor.error_line, None, "no error marker");
+    assert!(
+        state.traceback.is_none(),
+        "the view does not offer it as an error"
+    );
+    assert!(!state.is_busy());
+}

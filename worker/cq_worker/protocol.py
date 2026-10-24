@@ -4,10 +4,13 @@ Requests arrive on stdin, one JSON object per line. Replies and events leave
 through a private duplicate of the original stdout descriptor, also one JSON
 object per line.
 
-The worker handles one request at a time, but a ``cancel`` request must reach
-it while it is busy: :meth:`Channel.cancel_requested` reads, without waiting,
-whatever the GUI sent meanwhile, records cancellations and keeps the other
-requests, in order, for :meth:`Channel.receive`.
+The worker handles one request at a time, but ``cancel`` and ``interrupt``
+requests must reach it while it is busy: :meth:`Channel.cancel_requested` and
+the watcher of :meth:`Channel.interruptible` read, without waiting, whatever
+the GUI sent meanwhile, record cancellations and interruptions and keep the
+other requests, in order, for :meth:`Channel.receive`. Nothing ever blocks
+reading stdin besides :meth:`Channel.receive` itself: on Windows, a thread
+blocked there would also block DLL loading.
 
 User scripts and native libraries are free to print: descriptor 1 is pointed
 at stderr (which the GUI shows in its log), and the Python-level
@@ -19,17 +22,24 @@ produced them.
 from __future__ import annotations
 
 import collections
+import contextlib
 import io
 import json
 import os
+import signal
 import sys
 import threading
+import time
+from collections.abc import Iterator
 from typing import Any, BinaryIO
 
 Message = dict[str, Any]
 
 #: Bumped whenever the message format changes incompatibly.
-PROTOCOL_VERSION = 5
+PROTOCOL_VERSION = 6
+
+#: How often an interruptible request looks for an ``interrupt`` request.
+INTERRUPT_POLL_SECONDS = 0.05
 
 #: Captured output is sent regularly even when a script never writes ``\n``.
 OUTPUT_CHUNK_CHARS = 64 * 1024
@@ -60,13 +70,19 @@ class Channel:
         self._lock = threading.Lock()
         #: Id of the request being handled; attached to output and log messages.
         self.current_id: int | None = None
-        #: Requests the GUI asked to cancel.
+        #: Requests the GUI asked to cancel, or to interrupt.
         self._cancelled: set[Any] = set()
-        #: Requests (or the errors parsing them) read ahead while polling
-        #: for cancellations, in arrival order.
+        self._interrupted: set[Any] = set()
+        #: Requests (or the errors parsing them) read ahead while polling,
+        #: in arrival order.
         self._pending: collections.deque[Message | Exception] = collections.deque()
         self._partial = b""
         self._ended = False
+        #: Guards the reading state: an interruptible request's watcher
+        #: polls from its own thread.
+        self._read_lock = threading.Lock()
+        #: The main thread is blocked reading; nobody else may read then.
+        self._receiving = False
         # Streams with a descriptor are read with os.read, so that what was
         # read is never hidden in a buffered reader's buffer; others (tests)
         # are read line by line and never polled.
@@ -99,21 +115,31 @@ class Channel:
         """Block until the next request arrives; ``None`` once the GUI is gone."""
 
         while True:
-            if self._pending:
-                message = self._pending.popleft()
-                if isinstance(message, Exception):
-                    raise message
-                return message
-            if self._ended:
-                return None
-            if self._fd is None:
-                line = self._reader.readline()
-                if line:
-                    self._take_line(line)
+            with self._read_lock:
+                if self._pending:
+                    message = self._pending.popleft()
+                    if isinstance(message, Exception):
+                        raise message
+                    return message
+                if self._ended:
+                    return None
+                self._receiving = True
+            data = b""
+            try:
+                if self._fd is None:
+                    data = self._reader.readline()
                 else:
-                    self._ended = True
-            else:
-                self._take(os.read(self._fd, 65536))
+                    data = os.read(self._fd, 65536)
+            finally:
+                with self._read_lock:
+                    self._receiving = False
+                    if self._fd is None:
+                        if data:
+                            self._take_line(data)
+                        else:
+                            self._ended = True
+                    else:
+                        self._take(data)
 
     def cancel_requested(self, request_id: Any) -> bool:
         """Whether the GUI cancelled ``request_id``, reading without waiting
@@ -125,12 +151,54 @@ class Channel:
     def forget_cancel(self, request_id: Any) -> None:
         self._cancelled.discard(request_id)
 
+    def interrupt_requested(self, request_id: Any) -> bool:
+        """Whether the GUI asked to interrupt ``request_id``, reading without
+        waiting whatever it has sent meanwhile."""
+
+        self._poll()
+        return request_id in self._interrupted
+
+    @contextlib.contextmanager
+    def interruptible(self, request_id: Any) -> Iterator[None]:
+        """While handling ``request_id``, an ``interrupt`` request raises
+        ``KeyboardInterrupt`` in the main thread, as Ctrl+C would: pure
+        Python code stops at once, native code when it returns to Python.
+
+        A thread polls for it every :data:`INTERRUPT_POLL_SECONDS`. An
+        interrupt raised after the request ended is absorbed here, so it
+        can never land in the next one."""
+
+        stop = threading.Event()
+
+        def watch() -> None:
+            while not stop.wait(INTERRUPT_POLL_SECONDS):
+                if self.interrupt_requested(request_id):
+                    _interrupt_main_thread()
+                    return
+
+        watcher = threading.Thread(target=watch, name="interrupts", daemon=True)
+        watcher.start()
+        try:
+            yield
+        finally:
+            while True:
+                try:
+                    stop.set()
+                    watcher.join()
+                    # Raises an interrupt the watcher sent too late.
+                    time.sleep(0)
+                    break
+                except KeyboardInterrupt:
+                    continue
+            self._interrupted.discard(request_id)
+
     def _poll(self) -> None:
-        while not self._ended and self._fd is not None:
-            available = _bytes_available(self._fd)
-            if available == 0:
-                return
-            self._take(os.read(self._fd, max(available, 1)))
+        with self._read_lock:
+            while not self._ended and not self._receiving and self._fd is not None:
+                available = _bytes_available(self._fd)
+                if available == 0:
+                    return
+                self._take(os.read(self._fd, max(available, 1)))
 
     def _take(self, data: bytes) -> None:
         if not data:
@@ -144,7 +212,8 @@ class Channel:
             self._take_line(line)
 
     def _take_line(self, line: bytes) -> None:
-        """Records a cancellation at once; queues anything else."""
+        """Records a cancellation or an interruption at once; queues
+        anything else."""
 
         line = line.strip()
         if not line:
@@ -154,10 +223,28 @@ class Channel:
         except ValueError as error:
             self._pending.append(error)
             return
-        if isinstance(message, dict) and message.get("cmd") == "cancel":
+        command = message.get("cmd") if isinstance(message, dict) else None
+        if command == "cancel":
             self._cancelled.add(message.get("target"))
+        elif command == "interrupt":
+            self._interrupted.add(message.get("target"))
         else:
             self._pending.append(message)
+
+
+def _interrupt_main_thread() -> None:
+    """Sends SIGINT to the main thread, as Ctrl+C would: Python raises
+    ``KeyboardInterrupt`` there, and waits such as ``time.sleep`` wake up.
+
+    ``_thread.interrupt_main`` is not enough: on Windows it does not set the
+    event those waits watch, which only the C signal handler does."""
+
+    if os.name == "nt":
+        # Runs the handler in this thread; Python acts on it in the main one.
+        signal.raise_signal(signal.SIGINT)
+    else:
+        # The main thread itself, so its blocking calls return with EINTR.
+        signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
 
 
 def _bytes_available(fd: int) -> int:

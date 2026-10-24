@@ -54,9 +54,11 @@ An incomplete statement (an open `for:` block, for example) waits for more
 input, as in the standard Python prompt.
 
 The buttons next to the input clear the console (**Run > Clear Console**
-does the same) and restart it with a fresh namespace. **Run > Stop** and
-**Run > Restart Python** also reset the console, since they start a new
-Python process.
+does the same) and restart it with a fresh namespace. While a command runs,
+a Stop button appears there too: like **Run > Stop**, it interrupts the
+command (`KeyboardInterrupt`) and keeps the namespace, unless the command does
+not stop within 3 seconds and Python has to be restarted. **Run > Restart
+Python** always resets the console, since it starts a new Python process.
 
 ## Variables
 

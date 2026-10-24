@@ -50,10 +50,17 @@ stopped.
 
 ### Stopping a runaway script
 
-**Run > Stop** (Ctrl+Shift+F5) aborts any run, debug or not, by restarting
-Python. Use it for infinite loops or very slow operations. The console's
-variables are lost. The objects on screen stay; render again before
-exporting or inspecting them.
+**Run > Stop** (Ctrl+Shift+F5) first asks the script to stop, as Ctrl+C
+would in a terminal: Python raises `KeyboardInterrupt` where the script is,
+so a loop or a `time.sleep` stops at once, and the status bar says at which
+line. Python keeps running, with the console's variables and the meshes it
+has cached. Native code (a long OpenCascade operation) only notices when it
+returns to Python; if the script has not stopped after 3 seconds, or if you
+press Stop again, Python is restarted instead. A paused debugging session is ended
+by the debugger, as with *Stop Debugging*.
+
+After a restart the console's variables are lost. The objects on screen
+stay; render again before exporting or inspecting them.
 
 ## CQ Inspector
 

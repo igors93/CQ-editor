@@ -2,6 +2,7 @@
 
 import logging
 import os
+import signal
 import sys
 import traceback
 
@@ -9,6 +10,9 @@ from .protocol import Channel, redirect_std_streams
 
 
 def main() -> int:
+    # Stop interrupts scripts like Ctrl+C would (``_thread.interrupt_main``),
+    # which does nothing if SIGINT was inherited as ignored.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     channel = Channel.from_std_streams()
     redirect_std_streams(channel)
 

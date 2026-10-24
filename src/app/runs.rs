@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::execution::{RunEnd, RunRequest};
+use super::execution::{RunEnd, RunRequest, StopPlan};
 use super::{AppState, StatusKind};
 use crate::editor::text_ops::{self, Located};
 use crate::logging::{self, Level};
@@ -140,6 +140,16 @@ impl AppState {
         }
 
         match &result.error {
+            Some(error) if result.interrupted => {
+                // Not an error: the user asked for it.
+                self.editor.error_line = None;
+                let location = error
+                    .line
+                    .map(|line| format!(" at line {line}"))
+                    .unwrap_or_default();
+                self.set_status(StatusKind::Info, format!("Stopped{location}"));
+                logging::push(Level::Info, "script", &error.text);
+            }
             Some(error) => {
                 self.editor.error_line = error.line;
                 let location = error
@@ -155,7 +165,7 @@ impl AppState {
             None => self.editor.error_line = None,
         }
         let ok = result.ok;
-        self.traceback = result.error;
+        self.traceback = result.error.filter(|_| !result.interrupted);
 
         if let Some(objects) = result.objects {
             let preserved = self
@@ -256,12 +266,46 @@ impl AppState {
     }
 
     /// Aborts a running script by restarting the worker.
+    /// Stops the running script or console command gently: Python raises
+    /// `KeyboardInterrupt` in it, so the console and the caches survive.
+    /// Python is restarted when Stop is pressed again, or when the script
+    /// does not stop within `STOP_GRACE` (native code that never returns
+    /// to Python). A paused debugging session ends through the debugger.
     pub(super) fn stop(&mut self) {
-        if !self.is_busy() {
+        if self.is_paused() {
+            self.debug_command(DebugAction::Stop);
             return;
         }
+        match self.execution.stop(Instant::now()) {
+            StopPlan::Nothing => {}
+            StopPlan::Interrupt(target) => {
+                if self.worker.send(&Request::Interrupt { target }) {
+                    self.set_status(StatusKind::Info, "Stopping… (Stop again to restart Python)");
+                } else {
+                    self.restart_to_stop("Execution stopped; Python was restarted");
+                }
+            }
+            StopPlan::Restart => self.restart_to_stop("Execution stopped; Python was restarted"),
+        }
+    }
+
+    /// Restarts Python once an interrupted script has had `STOP_GRACE` to
+    /// stop, and wakes the UI for that moment.
+    pub(super) fn poll_stop(&mut self, ctx: &egui::Context) {
+        let Some(deadline) = self.execution.stop_deadline() else {
+            return;
+        };
+        let now = Instant::now();
+        if now >= deadline {
+            self.restart_to_stop("The script did not stop; Python was restarted");
+        } else {
+            ctx.request_repaint_after(deadline - now);
+        }
+    }
+
+    fn restart_to_stop(&mut self, message: &str) {
         self.start_worker();
-        self.set_status(StatusKind::Warning, "Execution stopped");
+        self.set_status(StatusKind::Warning, message);
     }
 
     /// Gives the nodes of a run the script text their lines refer to.

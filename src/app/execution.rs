@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::scene::NodeKey;
 use crate::worker::{self, protocol::RequestId};
@@ -121,6 +121,22 @@ pub struct Execution {
     run_when_ready: Option<bool>,
     pending: HashMap<RequestId, Pending>,
     meshing: Option<Meshing>,
+    /// Stop interrupted this request and waits for it to answer.
+    stopping: Option<(RequestId, Instant)>,
+}
+
+/// How long Stop waits for an interrupted script before restarting Python.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// What Stop does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopPlan {
+    /// Nothing is running.
+    Nothing,
+    /// Interrupt the request (`KeyboardInterrupt`) and wait for it.
+    Interrupt(RequestId),
+    /// Restart Python: Stop was pressed again while waiting.
+    Restart,
 }
 
 /// How far the worker is in meshing the running run's objects.
@@ -169,7 +185,51 @@ impl Execution {
 
     /// The request `id` was answered: what it was for, once.
     pub fn answer(&mut self, id: RequestId) -> Option<Pending> {
+        self.forget_stop(id);
         self.pending.remove(&id)
+    }
+
+    // -- stopping -----------------------------------------------------------------
+
+    /// What Stop does now: interrupt the running script, else a console
+    /// command, and restart Python if Stop is pressed again before it
+    /// answers. A paused debugging session is stopped by the debugger.
+    pub fn stop(&mut self, now: Instant) -> StopPlan {
+        if let Some((target, _)) = self.stopping.take()
+            && self.pending.contains_key(&target)
+        {
+            return StopPlan::Restart;
+        }
+        let console = || {
+            self.pending
+                .iter()
+                .filter(|(_, kind)| **kind == Pending::Console)
+                .map(|(id, _)| *id)
+                .min()
+        };
+        match self.phase.running_id().or_else(console) {
+            Some(target) => {
+                self.stopping = Some((target, now));
+                StopPlan::Interrupt(target)
+            }
+            None => StopPlan::Nothing,
+        }
+    }
+
+    /// When Python is restarted if the interrupted request has not
+    /// answered.
+    pub fn stop_deadline(&self) -> Option<Instant> {
+        self.stopping.map(|(_, since)| since + STOP_GRACE)
+    }
+
+    pub fn is_stopping(&self) -> bool {
+        self.stopping.is_some()
+    }
+
+    fn forget_stop(&mut self, id: RequestId) {
+        if self.stopping.is_some_and(|(target, _)| target == id) {
+            self.stopping = None;
+        }
     }
 
     // -- runs ---------------------------------------------------------------------
@@ -233,6 +293,7 @@ impl Execution {
 
     /// The run `id` finished or failed.
     pub fn ended(&mut self, id: RequestId) -> RunEnd {
+        self.forget_stop(id);
         self.pending.remove(&id);
         self.phase = Phase::Idle;
         self.meshing = None;
@@ -274,6 +335,7 @@ impl Execution {
         self.stale_run = None;
         self.pending.clear();
         self.meshing = None;
+        self.stopping = None;
     }
 }
 

@@ -333,7 +333,7 @@ class SceneBuilder:
         registered = set(self.registry.keys())
         try:
             return self._build(objects)
-        except BuildCancelled:
+        except (BuildCancelled, KeyboardInterrupt):
             self.registry.release(set(self.registry.keys()) - registered)
             raise
 

@@ -32,7 +32,7 @@ On macOS, **Ctrl** means **Cmd**.
 | --- | --- |
 | Render | F5 |
 | Debug / Stop Debugging | Ctrl+F5 |
-| Stop (abort any run) | Ctrl+Shift+F5 |
+| Stop (interrupt the script or console command; again to restart Python) | Ctrl+Shift+F5 |
 | Step | Ctrl+F10 |
 | Step In | Ctrl+F11 |
 | Step Out | Ctrl+Shift+F11 |
