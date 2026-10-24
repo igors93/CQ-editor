@@ -258,6 +258,36 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
     color_row(ui, "Edge color", &mut viewer.edge_color);
     row(
         ui,
+        "Ground grid",
+        "A grid on the XY plane (View > Ground Grid)",
+        |ui| {
+            ui.checkbox(&mut viewer.ground_grid, "");
+        },
+    );
+    row(
+        ui,
+        "Scale bar",
+        "A round length at the bottom right of the view",
+        |ui| {
+            ui.checkbox(&mut viewer.scale_bar, "");
+        },
+    );
+    row(
+        ui,
+        "Units",
+        "What a model unit is called in the scale bar; CadQuery itself has no units",
+        |ui| {
+            egui::ComboBox::from_id_salt("units")
+                .selected_text(viewer.units.label())
+                .show_ui(ui, |ui| {
+                    for units in crate::settings::Units::ALL {
+                        ui.selectable_value(&mut viewer.units, units, units.label());
+                    }
+                });
+        },
+    );
+    row(
+        ui,
         "Large models",
         "Draw parts that are small on screen with a simplified mesh: automatically from 2 million triangles shown, always, or never",
         |ui| {

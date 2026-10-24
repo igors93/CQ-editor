@@ -66,6 +66,8 @@ pub enum Action {
     ToggleProjection,
     /// Turns the section plane on or off.
     ToggleSection,
+    ToggleGroundGrid,
+    ToggleScaleBar,
     /// Spreads the parts of the model apart and shows the controls of the
     /// exploded view, or assembles the parts again.
     ToggleExplode,

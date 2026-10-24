@@ -383,3 +383,53 @@ fn large_models_draw_small_parts_simplified_but_never_the_selection() {
     scene.select_only("plate");
     assert_eq!(drawn(&mut viewer, &scene, true), (mesh.id, true));
 }
+
+#[test]
+fn the_ground_grid_follows_its_setting_and_the_zoom() {
+    let mut viewer = Viewer::default();
+    let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+    viewer.update_ground(false, rect);
+    assert!(viewer.ground.is_none());
+
+    viewer.update_ground(true, rect);
+    let (grid, minor, _) = viewer.ground.clone().unwrap();
+    viewer.update_ground(true, rect);
+    let kept = viewer.ground.as_ref().unwrap();
+    assert!(Arc::ptr_eq(&kept.1, &minor), "same lines, same meshes");
+
+    // Ten times closer, ten times finer.
+    viewer.camera.extent /= 10.0;
+    viewer.update_ground(true, rect);
+    let finer = viewer.ground.as_ref().unwrap().0;
+    assert!((finer.minor * 10.0 - grid.minor).abs() < grid.minor * 1e-4);
+
+    // The clipping planes enclose it, and it is drawn as two sets of lines.
+    let scene = Scene::default();
+    viewer.update_scene_extent(&scene, Aabb::EMPTY);
+    for corner in finer.corners() {
+        let distance = (corner - viewer.camera.scene_center).length();
+        assert!(distance <= viewer.camera.scene_radius + 1e-3);
+    }
+    let settings = crate::settings::Viewer::default();
+    let colors = crate::theme::Palette::DARK.viewer();
+    let input = ViewInput {
+        scene: &scene,
+        settings: &settings,
+        colors: &colors,
+        busy: None,
+        empty_hint: None,
+        meshing: None,
+    };
+    let (_, minor, major) = viewer.ground.clone().unwrap();
+    let items = viewer.draw_items(&input, false);
+    let grid_items: Vec<_> = items
+        .iter()
+        .filter(|item| item.mesh.id == minor.id || item.mesh.id == major.id)
+        .collect();
+    assert_eq!(grid_items.len(), 2);
+    assert!(
+        grid_items
+            .iter()
+            .all(|item| !item.style.clipped && !item.style.faces)
+    );
+}

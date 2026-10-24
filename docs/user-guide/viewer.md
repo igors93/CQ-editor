@@ -122,7 +122,8 @@ and a bar at the bottom left of the view controls it:
 
 What the plane removes cannot be selected: clicks go through to what is
 behind the plane, so faces and edges inside the model can be picked. The
-axes, the grid and the CQ Inspector overlay are not cut.
+axes, the ground grid and the CQ Inspector overlay (with its plane grid) are
+not cut.
 
 The cut faces are filled wherever the cut goes through material, which
 assumes closed solids. An open shell or a face shows no fill, and so do
@@ -256,6 +257,26 @@ script, the code says `obj` and the status bar explains it. The code needs
 the variables of the last run, so it is not available while debugging.
 
 Hovering an object highlights it before you click.
+
+## Ground grid and scale bar
+
+**View > Ground Grid** draws a grid on the XY plane (z = 0), the plane most
+CadQuery models start from. Its lines are a power of ten apart (0.1, 1, 10,
+100… units), at least 12 points apart on screen, with a stronger line every
+ten; zooming in or out switches to the next power of ten, and the finer
+lines fade in as they spread. The grid follows the point the camera looks
+at, so it always fills the view.
+
+The **scale bar** at the bottom right of the view (**View > Scale Bar**, on
+by default) shows a round length (1, 2 or 5 × a power of ten) at the depth
+of the point the camera looks at; in perspective, nearer things look larger
+than the bar says. With the grid shown it also gives the grid's spacing,
+for example *50 mm · grid 10 mm*.
+
+CadQuery has no units; *Units* in *Preferences > 3D View* only names them
+(millimeters by default, as most tools read STEP and STL files; centimeters,
+meters, inches, or plain numbers). The grid and the scale bar appear in
+screenshots and animations too.
 
 ## Appearance
 

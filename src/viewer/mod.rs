@@ -9,6 +9,7 @@
 pub mod camera;
 pub mod capture;
 mod culling;
+mod ground;
 mod overlays;
 mod picking;
 mod renderer;
@@ -28,6 +29,7 @@ use crate::settings::{self, NamedView, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 use capture::{CaptureOptions, TurntableExport, TurntableOptions};
 use culling::Detail;
+use ground::{GroundGrid, ScaleBar};
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
@@ -296,6 +298,8 @@ pub struct Viewer {
     simplifying: bool,
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
+    /// The ground grid of this frame, with its minor and major lines.
+    ground: Option<(GroundGrid, Arc<Mesh>, Arc<Mesh>)>,
     pick_index: picking::SceneIndex,
 }
 
@@ -325,6 +329,7 @@ impl Default for Viewer {
             simplifying: false,
             axis_meshes: None,
             grid_mesh: None,
+            ground: None,
             pick_index: picking::SceneIndex::default(),
         }
     }
@@ -453,6 +458,7 @@ impl Viewer {
         self.aspect = (rect.width() / rect.height().max(1.0)).max(1e-3);
 
         self.apply_settings(input.settings);
+        self.update_ground(input.settings.ground_grid, rect);
         let bounds = input.scene.visible_bounds();
         self.update_scene_extent(input.scene, bounds);
         let zoom_controls = zoom_controls_rect(rect);
@@ -632,6 +638,29 @@ impl Viewer {
         }
     }
 
+    /// The ground grid for the camera as it is now, its lines rebuilt only
+    /// when they change.
+    fn update_ground(&mut self, shown: bool, rect: Rect) {
+        if !shown {
+            self.ground = None;
+            return;
+        }
+        let grid = GroundGrid::for_view(&self.camera, GVec2::new(rect.width(), rect.height()));
+        let same_lines = |old: &GroundGrid| {
+            GroundGrid {
+                minor_opacity: grid.minor_opacity,
+                ..*old
+            } == grid
+        };
+        match &mut self.ground {
+            Some((old, _, _)) if same_lines(old) => *old = grid,
+            _ => {
+                let (minor, major) = grid.meshes();
+                self.ground = Some((grid, Arc::new(minor), Arc::new(major)));
+            }
+        }
+    }
+
     /// Keeps the clipping planes around everything that can be drawn.
     fn update_scene_extent(&mut self, scene: &Scene, bounds: Aabb) {
         let mut radius = if bounds.is_empty() {
@@ -652,6 +681,14 @@ impl Viewer {
         }
         if let Some(grid) = &scene.overlay.grid {
             radius = radius.max(grid.size * 1.5 + (grid.origin - center).length());
+        }
+        if let Some((ground, _, _)) = &self.ground {
+            let reach = ground
+                .corners()
+                .iter()
+                .map(|corner| (*corner - center).length())
+                .fold(0.0, f32::max);
+            radius = radius.max(reach);
         }
         self.camera.scene_center = center;
         self.camera.scene_radius = radius.max(1e-3);
@@ -1143,6 +1180,17 @@ impl Viewer {
             }
         }
 
+        if let Some((ground, minor, major)) = &self.ground {
+            let color = |alpha| linear_color(colors.grid, alpha);
+            items.push(line_item(
+                minor.clone(),
+                color(0.35 * ground.minor_opacity),
+                1.0,
+                Layer::Scene,
+            ));
+            items.push(line_item(major.clone(), color(0.7), 1.0, Layer::Scene));
+        }
+
         if let Some(grid) = &scene.overlay.grid {
             let key = grid_key(grid);
             if self.grid_mesh.as_ref().is_none_or(|(k, _)| *k != key) {
@@ -1201,9 +1249,37 @@ impl Viewer {
             );
         }
 
+        let mut bottom = rect.bottom() - 10.0;
+        if input.settings.scale_bar {
+            let units_per_point = ground::units_per_point(&self.camera, rect.height());
+            let bar = ScaleBar::new(units_per_point, input.settings.units);
+            let mut label = bar.label.clone();
+            if let Some((grid, _, _)) = &self.ground {
+                label += &format!(
+                    " · grid {}",
+                    ground::format_length(grid.minor, input.settings.units)
+                );
+            }
+            let right = rect.right() - 14.0;
+            let y = bottom - 4.0;
+            let stroke = egui::Stroke::new(1.5, colors.overlay_text);
+            let left = right - bar.width;
+            painter.line_segment([Pos2::new(left, y), Pos2::new(right, y)], stroke);
+            for x in [left, right] {
+                painter.line_segment([Pos2::new(x, y - 5.0), Pos2::new(x, y)], stroke);
+            }
+            painter.text(
+                Pos2::new(right, y - 7.0),
+                egui::Align2::RIGHT_BOTTOM,
+                label,
+                egui::FontId::proportional(11.0),
+                colors.overlay_text,
+            );
+            bottom = y - 24.0;
+        }
         if self.simplifying {
             painter.text(
-                rect.right_bottom() + Vec2::new(-10.0, -8.0),
+                Pos2::new(rect.right() - 10.0, bottom),
                 egui::Align2::RIGHT_BOTTOM,
                 "Large model: small parts simplified",
                 egui::FontId::proportional(11.0),

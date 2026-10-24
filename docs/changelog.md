@@ -23,6 +23,9 @@ tracked in the compatibility matrix instead of being assumed.
 * New: section view (View > Section View); a plane across X, Y or Z, with a
   position slider and a flip, cuts the model and fills the cut faces of
   solids; picking goes through what the plane removes
+* New: ground grid on the XY plane (View > Ground Grid) whose spacing follows
+  the zoom, and a scale bar (View > Scale Bar) in the units chosen in the
+  preferences
 * New: large models; parts outside the view are not drawn, parts small on
   screen use a simplified mesh (Preferences > 3D View > Large models), and
   meshing shows its progress in the view and can be cancelled while the

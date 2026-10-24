@@ -547,3 +547,12 @@ fn named_views_follow_their_file() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_ground_grid_and_scale_bar_are_toggled_from_the_view_menu() {
+    let mut state = test_state("");
+    assert!(!state.settings.viewer.ground_grid && state.settings.viewer.scale_bar);
+    state.execute(Action::ToggleGroundGrid);
+    state.execute(Action::ToggleScaleBar);
+    assert!(state.settings.viewer.ground_grid && !state.settings.viewer.scale_bar);
+}

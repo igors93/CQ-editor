@@ -404,6 +404,12 @@ impl AppState {
             Action::Display(mode) => self.viewer.display_mode = mode,
             Action::SelectionMode(mode) => self.viewer.selection_mode = mode,
             Action::ToggleSection => self.viewer.toggle_section(&self.scene),
+            Action::ToggleGroundGrid => {
+                self.settings.viewer.ground_grid = !self.settings.viewer.ground_grid;
+            }
+            Action::ToggleScaleBar => {
+                self.settings.viewer.scale_bar = !self.settings.viewer.scale_bar;
+            }
             Action::ToggleExplode => self.viewer.toggle_explode(&mut self.scene),
             Action::SetExplode(factor) => self.scene.set_explode(factor),
             Action::ToggleIsolate => {

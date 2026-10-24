@@ -260,6 +260,54 @@ pub struct Viewer {
     pub animate: bool,
     /// When parts drawn small are simplified.
     pub large_models: LargeModels,
+    /// The grid on the XY plane.
+    pub ground_grid: bool,
+    pub scale_bar: bool,
+    /// What a model unit is called in the scale bar.
+    pub units: Units,
+}
+
+/// What a model unit is: CadQuery has no units, but STEP and STL exports
+/// are read as millimeters by most tools.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Units {
+    #[default]
+    Millimeters,
+    Centimeters,
+    Meters,
+    Inches,
+    /// Plain numbers.
+    None,
+}
+
+impl Units {
+    pub const ALL: [Units; 5] = [
+        Units::Millimeters,
+        Units::Centimeters,
+        Units::Meters,
+        Units::Inches,
+        Units::None,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Units::Millimeters => "Millimeters",
+            Units::Centimeters => "Centimeters",
+            Units::Meters => "Meters",
+            Units::Inches => "Inches",
+            Units::None => "None",
+        }
+    }
+
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Units::Millimeters => "mm",
+            Units::Centimeters => "cm",
+            Units::Meters => "m",
+            Units::Inches => "in",
+            Units::None => "",
+        }
+    }
 }
 
 /// When the view simplifies the parts it draws small (large-model mode).
@@ -308,6 +356,9 @@ impl Default for Viewer {
             orbit_method: OrbitMethod::Turntable,
             animate: true,
             large_models: LargeModels::Automatic,
+            ground_grid: false,
+            scale_bar: true,
+            units: Units::Millimeters,
         }
     }
 }

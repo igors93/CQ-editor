@@ -356,6 +356,20 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
         "Exploded View",
         Action::ToggleExplode,
     );
+    check_item(
+        ui,
+        actions,
+        state.settings.viewer.ground_grid,
+        "Ground Grid",
+        Action::ToggleGroundGrid,
+    );
+    check_item(
+        ui,
+        actions,
+        state.settings.viewer.scale_bar,
+        "Scale Bar",
+        Action::ToggleScaleBar,
+    );
     ui.separator();
     let isolating = state.scene.is_isolating();
     item_enabled(

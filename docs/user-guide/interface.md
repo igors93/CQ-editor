@@ -100,7 +100,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
+| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Check for CadQuery Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).
