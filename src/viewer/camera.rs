@@ -7,7 +7,7 @@
 //! perspective projection.
 
 use glam::camera::rh::{proj::directx, view};
-use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
 use crate::scene::Aabb;
 use crate::settings::Projection;
@@ -18,6 +18,20 @@ const MIN_EXTENT: f32 = 1e-4;
 const MAX_EXTENT: f32 = 1e7;
 /// Empty space left around the model by "fit".
 const FIT_MARGIN: f32 = 1.08;
+/// Distance between the eyes of the stereo pair, relative to the distance
+/// to the target (the default of OpenCASCADE's camera, used by the original
+/// editor).
+pub const STEREO_SEPARATION: f32 = 0.05;
+
+/// Where a view is seen from: the camera itself, or one eye of the stereo
+/// pair.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Eye {
+    #[default]
+    Center,
+    Left,
+    Right,
+}
 
 /// The fixed views of the View menu and toolbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,7 +166,53 @@ impl Camera {
     }
 
     pub fn is_perspective(&self) -> bool {
-        self.projection == Projection::Perspective
+        self.projection.is_perspective()
+    }
+
+    /// The eye a mono-eye projection draws from; the centre otherwise
+    /// (stereo draws both eyes, but picks from the centre).
+    pub fn mono_eye(&self) -> Eye {
+        match self.projection {
+            Projection::MonoLeftEye => Eye::Left,
+            Projection::MonoRightEye => Eye::Right,
+            _ => Eye::Center,
+        }
+    }
+
+    /// How far `eye` is to the right of the camera.
+    fn eye_shift(&self, eye: Eye) -> f32 {
+        let half = STEREO_SEPARATION * self.distance() / 2.0;
+        match eye {
+            Eye::Center => 0.0,
+            Eye::Left => -half,
+            Eye::Right => half,
+        }
+    }
+
+    pub fn eye_position(&self, eye: Eye) -> Vec3 {
+        self.eye() + self.right() * self.eye_shift(eye)
+    }
+
+    /// What `eye` sees: moved sideways, with its frustum shifted back so
+    /// that both eyes see the target's plane in the same place (zero
+    /// parallax there; nearer things stand out of the screen).
+    pub fn eye_view_projection(&self, aspect: f32, eye: Eye) -> Mat4 {
+        let projection = self.projection_matrix(aspect);
+        let shift = self.eye_shift(eye);
+        if shift == 0.0 {
+            return projection * self.view_matrix();
+        }
+        let view = view::look_to_mat4(self.eye_position(eye), self.forward(), self.up());
+        // x_clip += converge · w_clip, so the target plane lands where the
+        // centre eye sees it.
+        let converge = shift * projection.x_axis.x / self.distance();
+        Mat4::from_cols(
+            Vec4::X,
+            Vec4::Y,
+            Vec4::Z,
+            Vec4::new(converge, 0.0, 0.0, 1.0),
+        ) * projection
+            * view
     }
 
     /// Distance from the eye to the target; for orthographic projection it
@@ -173,16 +233,17 @@ impl Camera {
         let (near, far) = self.clip_planes();
         match self.projection {
             // WebGPU clip space: depth in 0..1, y up.
-            Projection::Perspective => directx::perspective(self.fov_y, aspect, near, far),
             Projection::Orthographic => {
                 let (h, w) = (self.extent, self.extent * aspect);
                 directx::orthographic(-w, w, -h, h, near, far)
             }
+            _ => directx::perspective(self.fov_y, aspect, near, far),
         }
     }
 
+    /// What the view shows: from the mono eye of a mono-eye projection.
     pub fn view_projection(&self, aspect: f32) -> Mat4 {
-        self.projection_matrix(aspect) * self.view_matrix()
+        self.eye_view_projection(aspect, self.mono_eye())
     }
 
     /// Near and far planes enclosing the scene's bounding sphere.
@@ -190,19 +251,16 @@ impl Camera {
         let distance = self.distance();
         let center_depth = (self.scene_center - self.eye()).dot(self.forward());
         let radius = self.scene_radius.max(self.extent).max(1e-3) * 1.5;
-        match self.projection {
-            Projection::Perspective => {
-                let near = (center_depth - radius).max(distance * 1e-3);
-                let far = (center_depth + radius).max(near * 2.0);
-                (near, far)
-            }
-            Projection::Orthographic => {
-                // Negative near planes are fine for orthographic projection
-                // and keep geometry behind the eye position visible.
-                let near = center_depth.min(distance) - radius;
-                let far = center_depth.max(distance) + radius;
-                (near, far)
-            }
+        if self.is_perspective() {
+            let near = (center_depth - radius).max(distance * 1e-3);
+            let far = (center_depth + radius).max(near * 2.0);
+            (near, far)
+        } else {
+            // Negative near planes are fine for orthographic projection
+            // and keep geometry behind the eye position visible.
+            let near = center_depth.min(distance) - radius;
+            let far = center_depth.max(distance) + radius;
+            (near, far)
         }
     }
 
@@ -210,19 +268,19 @@ impl Camera {
     /// coordinates (x right, y up, both in -1..1).
     pub fn ray(&self, ndc: Vec2, aspect: f32) -> (Vec3, Vec3) {
         let (right, up, forward) = (self.right(), self.up(), self.forward());
-        match self.projection {
-            Projection::Perspective => {
-                let tan = (self.fov_y * 0.5).tan();
-                let dir = forward + right * (ndc.x * tan * aspect) + up * (ndc.y * tan);
-                (self.eye(), dir.normalize())
-            }
-            Projection::Orthographic => {
-                let on_target = self.target
-                    + right * (ndc.x * self.extent * aspect)
-                    + up * (ndc.y * self.extent);
-                let back_off = self.distance() + 2.0 * self.scene_radius + self.extent;
-                (on_target - forward * back_off, forward)
-            }
+        if self.is_perspective() {
+            let tan = (self.fov_y * 0.5).tan();
+            let dir = forward + right * (ndc.x * tan * aspect) + up * (ndc.y * tan);
+            // From the mono eye, through the point of the target's plane the
+            // centre eye sees there (both eyes agree on that plane).
+            let eye = self.eye_position(self.mono_eye());
+            let on_target_plane = self.eye() + dir * self.distance();
+            (eye, (on_target_plane - eye).normalize())
+        } else {
+            let on_target =
+                self.target + right * (ndc.x * self.extent * aspect) + up * (ndc.y * self.extent);
+            let back_off = self.distance() + 2.0 * self.scene_radius + self.extent;
+            (on_target - forward * back_off, forward)
         }
     }
 

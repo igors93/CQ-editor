@@ -99,3 +99,77 @@ fn animation_reaches_its_target() {
     let (end, done) = animation.sample(1.0);
     assert!(done && close(end.target, Vec3::ONE));
 }
+
+fn stereo_camera(projection: Projection) -> Camera {
+    let mut camera = Camera {
+        projection,
+        ..Camera::default()
+    };
+    camera.set_pose(Pose {
+        target: Vec3::new(1.0, 2.0, 3.0),
+        rotation: StandardView::Iso.rotation(),
+        extent: 10.0,
+    });
+    camera
+}
+
+#[test]
+fn the_eyes_of_the_stereo_pair_agree_on_the_target_plane() {
+    let camera = stereo_camera(Projection::Stereo);
+    let (left, right) = (
+        camera.eye_position(Eye::Left),
+        camera.eye_position(Eye::Right),
+    );
+    assert!(((left - right).length() - STEREO_SEPARATION * camera.distance()).abs() < 1e-3);
+    assert!(close((left + right) / 2.0, camera.eye()));
+    assert!((right - left).normalize().dot(camera.right()) > 0.999);
+
+    let x = |eye: Eye, point: Vec3| {
+        project_with(camera.eye_view_projection(1.5, eye), point)
+            .unwrap()
+            .x
+    };
+    // No parallax at the target, or anywhere on its plane.
+    let on_plane = camera.target + camera.right() * 4.0 + camera.up() * 2.0;
+    for point in [camera.target, on_plane] {
+        assert!((x(Eye::Left, point) - x(Eye::Right, point)).abs() < 1e-4);
+        assert!((x(Eye::Left, point) - x(Eye::Center, point)).abs() < 1e-4);
+    }
+    // Nearer points stand out of the screen (crossed disparity: the left
+    // eye sees them further right), farther ones sink behind it.
+    let near = camera.target - camera.forward() * camera.distance() * 0.5;
+    let far = camera.target + camera.forward() * camera.distance();
+    assert!(x(Eye::Left, near) > x(Eye::Right, near) + 1e-3);
+    assert!(x(Eye::Left, far) < x(Eye::Right, far) - 1e-3);
+    // Stereo picks and culls from the centre.
+    assert_eq!(camera.mono_eye(), Eye::Center);
+    assert!(camera.is_perspective());
+}
+
+#[test]
+fn mono_eye_projections_draw_and_pick_from_one_eye() {
+    for (projection, eye) in [
+        (Projection::MonoLeftEye, Eye::Left),
+        (Projection::MonoRightEye, Eye::Right),
+    ] {
+        let camera = stereo_camera(projection);
+        assert_eq!(camera.mono_eye(), eye);
+        assert_eq!(
+            camera.view_projection(1.5),
+            camera.eye_view_projection(1.5, eye)
+        );
+        // A pick ray leaves the eye and meets what the eye draws there.
+        let ndc = Vec2::new(0.3, -0.2);
+        let (origin, direction) = camera.ray(ndc, 1.5);
+        assert!(close(origin, camera.eye_position(eye)));
+        let point = origin + direction * camera.distance() * 1.7;
+        let projected = project_with(camera.view_projection(1.5), point).unwrap();
+        assert!(
+            (projected.truncate() - ndc).length() < 1e-4,
+            "{projected:?}"
+        );
+    }
+    let orthographic = stereo_camera(Projection::Orthographic);
+    assert_eq!(orthographic.mono_eye(), Eye::Center);
+    assert!(!orthographic.is_perspective());
+}

@@ -106,6 +106,32 @@ The default projection is **orthographic**, the usual choice for CAD because
 parallel lines stay parallel. The menu toggle and *Preferences > 3D View >
 Projection* change the same setting, which is remembered.
 
+### Stereo
+
+*Preferences > 3D View > Projection* also offers the original editor's
+stereo projections:
+
+| Projection | What it shows |
+| --- | --- |
+| Stereo | Two perspective views, one per eye, combined as *Stereo mode* says |
+| Mono Left Eye · Mono Right Eye | The perspective view of one eye only; clicks pick from that eye |
+
+The eyes are 5% of the distance to the target apart. Both see the target's
+plane in the same place, so what is nearer stands out of the screen and what
+is farther sinks behind it. *Stereo mode* chooses how the two views are
+combined:
+
+| Stereo mode | For |
+| --- | --- |
+| Anaglyph (red-cyan), the default | Red-cyan glasses; red is taken from the left eye's green and blue, which avoids flicker on red objects |
+| Row Interlaced · Column Interlaced · Chess Board | Passive 3D displays: even rows, columns or squares for the left eye |
+| Side by Side · Over Under | Each eye in its half of the view (left or top for the left eye), for free viewing or displays that take that layout |
+| Quad Buffer | Hardware stereo, which this renderer cannot drive: the view shows the anaglyph and says so |
+
+Screenshots and turntable animations are composed the same way. Picking in
+the Stereo projection uses the point between the eyes. The View menu's
+*Perspective Projection* toggle goes back to orthographic from any of them.
+
 ## Section view
 
 **View > Section View** (toolbar scissors icon) cuts the model with a plane

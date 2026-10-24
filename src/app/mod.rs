@@ -448,7 +448,7 @@ impl AppState {
             Action::ToggleProjection => {
                 self.settings.viewer.projection = match self.settings.viewer.projection {
                     Projection::Orthographic => Projection::Perspective,
-                    Projection::Perspective => Projection::Orthographic,
+                    _ => Projection::Orthographic,
                 };
             }
             // Layout changes are handled by the app, which owns the dock.

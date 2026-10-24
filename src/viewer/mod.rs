@@ -14,6 +14,7 @@ mod overlays;
 mod picking;
 mod renderer;
 mod section;
+mod stereo;
 mod views;
 
 use std::path::PathBuf;
@@ -535,10 +536,22 @@ impl Viewer {
                     items: &items,
                     section: self.section.renderer_plane(bounds),
                     pixel_scale: 1.0,
+                    eye: self.camera.mono_eye(),
                 };
+                let stereo = (settings.projection == settings::Projection::Stereo)
+                    .then_some(settings.stereo_mode);
                 let texture = {
                     let mut egui_renderer = render_state.renderer.write();
-                    renderer.render(&mut egui_renderer, &frame_input)
+                    match stereo {
+                        Some(mode) => {
+                            renderer.render_stereo(&mut egui_renderer, &frame_input, mode)
+                        }
+                        None => renderer.render(&mut egui_renderer, &frame_input),
+                    }
+                };
+                let mut render_pixels = |frame: &FrameInput<'_>| match stereo {
+                    Some(mode) => renderer.render_stereo_pixels(frame, mode),
+                    None => renderer.render_pixels(frame),
                 };
                 painter.image(
                     texture,
@@ -557,8 +570,7 @@ impl Viewer {
                             pixel_scale: options.pixel_scale(size),
                             ..capture_input(capture_frame, options.transparent)
                         };
-                        let saved = renderer
-                            .render_pixels(&image)
+                        let saved = render_pixels(&image)
                             .ok_or_else(|| "the GPU did not return the image".to_owned())
                             .and_then(|(size, pixels)| {
                                 capture::save_png(&path, size, pixels, options.transparent)
@@ -575,8 +587,7 @@ impl Viewer {
                             pixel_scale: export.pixel_scale(),
                             ..capture_input(capture_frame, export.transparent())
                         };
-                        let written = renderer
-                            .render_pixels(&frame)
+                        let written = render_pixels(&frame)
                             .ok_or_else(|| "the GPU did not return the image".to_owned())
                             .and_then(|(_, pixels)| export.write_frame(pixels));
                         match written {
@@ -1245,6 +1256,18 @@ impl Viewer {
                     Color32::from_rgb(90, 200, 60),
                     Color32::from_rgb(70, 120, 240),
                 ],
+                colors.overlay_text,
+            );
+        }
+
+        if input.settings.projection == settings::Projection::Stereo
+            && input.settings.stereo_mode.shown() != input.settings.stereo_mode
+        {
+            painter.text(
+                Pos2::new(rect.center().x, rect.top() + 54.0),
+                egui::Align2::CENTER_TOP,
+                "Quad-buffered stereo cannot be shown here: showing a red-cyan anaglyph",
+                egui::FontId::proportional(12.0),
                 colors.overlay_text,
             );
         }

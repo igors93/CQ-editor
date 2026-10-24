@@ -210,15 +210,37 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
     row(ui, "Animate view changes", "", |ui| {
         ui.checkbox(&mut viewer.animate, "");
     });
-    row(ui, "Projection", "", |ui| {
-        egui::ComboBox::from_id_salt("projection")
-            .selected_text(viewer.projection.label())
-            .show_ui(ui, |ui| {
-                for projection in Projection::ALL {
-                    ui.selectable_value(&mut viewer.projection, projection, projection.label());
-                }
+    row(
+        ui,
+        "Projection",
+        "Stereo shows two eyes as the stereo mode says; the mono eyes show one of them",
+        |ui| {
+            egui::ComboBox::from_id_salt("projection")
+                .selected_text(viewer.projection.label())
+                .show_ui(ui, |ui| {
+                    for projection in Projection::ALL {
+                        ui.selectable_value(&mut viewer.projection, projection, projection.label());
+                    }
+                });
+        },
+    );
+    row(
+        ui,
+        "Stereo mode",
+        "How the Stereo projection shows its two images. Quad Buffer needs a stereo \
+         display this renderer cannot drive, so it shows the red-cyan anaglyph",
+        |ui| {
+            ui.add_enabled_ui(viewer.projection == Projection::Stereo, |ui| {
+                egui::ComboBox::from_id_salt("stereo_mode")
+                    .selected_text(viewer.stereo_mode.label())
+                    .show_ui(ui, |ui| {
+                        for mode in crate::settings::StereoMode::ALL {
+                            ui.selectable_value(&mut viewer.stereo_mode, mode, mode.label());
+                        }
+                    });
             });
-    });
+        },
+    );
     row(
         ui,
         "Orbit method",

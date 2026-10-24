@@ -194,20 +194,95 @@ impl Default for General {
     }
 }
 
+/// The original editor's projection types, under the same names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Projection {
     #[default]
     Orthographic,
     Perspective,
+    /// Perspective seen by two eyes, composed as [`Viewer::stereo_mode`]
+    /// says.
+    Stereo,
+    /// Perspective from the left eye of the stereo pair alone.
+    MonoLeftEye,
+    MonoRightEye,
 }
 
 impl Projection {
-    pub const ALL: [Projection; 2] = [Projection::Orthographic, Projection::Perspective];
+    pub const ALL: [Projection; 5] = [
+        Projection::Orthographic,
+        Projection::Perspective,
+        Projection::Stereo,
+        Projection::MonoLeftEye,
+        Projection::MonoRightEye,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Projection::Orthographic => "Orthographic",
             Projection::Perspective => "Perspective",
+            Projection::Stereo => "Stereo",
+            Projection::MonoLeftEye => "Mono Left Eye",
+            Projection::MonoRightEye => "Mono Right Eye",
+        }
+    }
+
+    /// All but orthographic projection have a vanishing point.
+    pub fn is_perspective(self) -> bool {
+        self != Projection::Orthographic
+    }
+}
+
+/// How the two images of the stereo projection are combined, under the
+/// original editor's names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum StereoMode {
+    /// Hardware stereo (one buffer per eye), which this renderer cannot
+    /// present: shown as [`StereoMode::Anaglyph`] instead.
+    QuadBuffer,
+    /// Red-cyan glasses.
+    #[default]
+    Anaglyph,
+    /// Even rows for the left eye, odd ones for the right (passive 3D
+    /// displays).
+    RowInterlaced,
+    ColumnInterlaced,
+    ChessBoard,
+    /// The left eye's image on the left half, the right eye's on the right.
+    SideBySide,
+    /// The left eye's image on the top half.
+    OverUnder,
+}
+
+impl StereoMode {
+    pub const ALL: [StereoMode; 7] = [
+        StereoMode::QuadBuffer,
+        StereoMode::Anaglyph,
+        StereoMode::RowInterlaced,
+        StereoMode::ColumnInterlaced,
+        StereoMode::ChessBoard,
+        StereoMode::SideBySide,
+        StereoMode::OverUnder,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StereoMode::QuadBuffer => "Quad Buffer",
+            StereoMode::Anaglyph => "Anaglyph (red-cyan)",
+            StereoMode::RowInterlaced => "Row Interlaced",
+            StereoMode::ColumnInterlaced => "Column Interlaced",
+            StereoMode::ChessBoard => "Chess Board",
+            StereoMode::SideBySide => "Side by Side",
+            StereoMode::OverUnder => "Over Under",
+        }
+    }
+
+    /// The mode actually shown: quad-buffered stereo needs a stereo
+    /// swap chain, which wgpu does not offer on any platform.
+    pub fn shown(self) -> StereoMode {
+        match self {
+            StereoMode::QuadBuffer => StereoMode::Anaglyph,
+            mode => mode,
         }
     }
 }
@@ -265,6 +340,8 @@ pub struct Viewer {
     pub scale_bar: bool,
     /// What a model unit is called in the scale bar.
     pub units: Units,
+    /// How the stereo projection shows its two images.
+    pub stereo_mode: StereoMode,
 }
 
 /// What a model unit is: CadQuery has no units, but STEP and STL exports
@@ -359,6 +436,7 @@ impl Default for Viewer {
             ground_grid: false,
             scale_bar: true,
             units: Units::Millimeters,
+            stereo_mode: StereoMode::Anaglyph,
         }
     }
 }

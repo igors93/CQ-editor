@@ -19,9 +19,11 @@ use eframe::egui_wgpu::{self, wgpu};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::util::DeviceExt as _;
 
-use super::camera::Camera;
+use super::camera::{Camera, Eye};
 use super::culling::Frustum;
+use super::stereo;
 use crate::scene::Mesh;
+use crate::settings::StereoMode;
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Same texels as `COLOR_FORMAT`, read without sRGB decoding (for egui).
@@ -122,6 +124,25 @@ pub struct FrameInput<'a> {
     /// Multiplies edge widths and point sizes, so that a capture larger
     /// than the view looks like the view.
     pub pixel_scale: f32,
+    /// Seen from the camera, or from one eye of the stereo pair.
+    pub eye: Eye,
+}
+
+/// Mode and eye size of the stereo composition (`stereo.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ComposeUniform {
+    mode: u32,
+    eye_width: u32,
+    eye_height: u32,
+    padding: u32,
+}
+
+/// What composes the two eyes of the stereo projection.
+struct Compose {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    uniform: wgpu::Buffer,
 }
 
 /// The part of an image one pass draws: `size` pixels at `offset` in an
@@ -218,6 +239,9 @@ pub struct SceneRenderer {
     /// Largest side of one pass of `render_pixels`.
     tile_side: u32,
     stats: std::cell::Cell<RenderStats>,
+    compose: Compose,
+    /// What the eyes of the stereo projection are drawn into.
+    eye_targets: Option<[Target; 2]>,
 }
 
 /// Items of the last pass drawn, and skipped as out of view.
@@ -304,6 +328,7 @@ impl SceneRenderer {
             immediate_size: 0,
         });
         let pipelines = Pipelines::new(&device, &layout, &shader, samples);
+        let compose = Compose::new(&device);
 
         Self {
             device,
@@ -322,6 +347,8 @@ impl SceneRenderer {
             texture_id: None,
             tile_side: TILE_SIDE,
             stats: Default::default(),
+            compose,
+            eye_targets: None,
         }
     }
 
@@ -379,6 +406,143 @@ impl SceneRenderer {
             }
         }
         Some(([width, height], image))
+    }
+
+    /// Draws both eyes of the stereo projection, composes them on the GPU
+    /// as `mode` says (`StereoMode::shown`) and returns the egui texture.
+    pub fn render_stereo(
+        &mut self,
+        egui_renderer: &mut egui_wgpu::Renderer,
+        input: &FrameInput<'_>,
+        mode: StereoMode,
+    ) -> egui::TextureId {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let texture_id = self.ensure_target(egui_renderer, size);
+        self.draw_eyes(input, mode);
+        let target = self.target.as_ref().expect("target created above");
+        self.compose_eyes(mode, &target.resolved_view);
+        texture_id
+    }
+
+    /// The stereo image as [`SceneRenderer::render_pixels`] reads a plain
+    /// one: each eye drawn by itself (in tiles when large), then composed
+    /// by `stereo::compose`.
+    pub fn render_stereo_pixels(
+        &mut self,
+        input: &FrameInput<'_>,
+        mode: StereoMode,
+    ) -> Option<([u32; 2], Vec<u8>)> {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let eye_size = stereo::eye_size(mode, size);
+        let mut eye = |eye| {
+            self.render_pixels(&FrameInput {
+                size: eye_size,
+                eye,
+                ..*input
+            })
+            .map(|(_, pixels)| pixels)
+        };
+        let (left, right) = (eye(Eye::Left)?, eye(Eye::Right)?);
+        Some((size, stereo::compose(mode, size, &left, &right)))
+    }
+
+    /// The live view's GPU composition, read back (for the tests).
+    #[cfg(test)]
+    fn render_stereo_gpu_pixels(
+        &mut self,
+        input: &FrameInput<'_>,
+        mode: StereoMode,
+    ) -> Option<([u32; 2], Vec<u8>)> {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let output = create_target(&self.device, size, self.samples);
+        self.draw_eyes(input, mode);
+        self.compose_eyes(mode, &output.resolved_view);
+        self.read_target(&output)
+    }
+
+    /// Draws the left and the right eye into `eye_targets`.
+    fn draw_eyes(&mut self, input: &FrameInput<'_>, mode: StereoMode) {
+        let size = [input.size[0].max(1), input.size[1].max(1)];
+        let eye_size = stereo::eye_size(mode, size);
+        if self
+            .eye_targets
+            .as_ref()
+            .is_none_or(|targets| targets[0].size != eye_size)
+        {
+            let target = || create_target(&self.device, eye_size, self.samples);
+            self.eye_targets = Some([target(), target()]);
+        }
+        self.upload_meshes(input);
+        self.write_objects(input.items, input.pixel_scale);
+        let targets = self.eye_targets.as_ref().expect("created above");
+        for (eye, target) in [Eye::Left, Eye::Right].into_iter().zip(targets) {
+            let input = FrameInput {
+                size: eye_size,
+                eye,
+                ..*input
+            };
+            let view_projection = self.write_camera(&input, Tile::whole(eye_size));
+            self.draw(target, &input, view_projection);
+        }
+    }
+
+    /// Composes the eyes drawn by `draw_eyes` into `output`.
+    fn compose_eyes(&self, mode: StereoMode, output: &wgpu::TextureView) {
+        let targets = self.eye_targets.as_ref().expect("eyes drawn first");
+        let [eye_width, eye_height] = targets[0].size;
+        let uniform = ComposeUniform {
+            mode: stereo::shader_mode(mode),
+            eye_width,
+            eye_height,
+            padding: 0,
+        };
+        self.queue
+            .write_buffer(&self.compose.uniform, 0, bytemuck::bytes_of(&uniform));
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("stereo"),
+            layout: &self.compose.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&targets[0].resolved_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&targets[1].resolved_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.compose.uniform.as_entire_binding(),
+                },
+            ],
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("stereo"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("stereo"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: output,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.compose.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.queue.submit([encoder.finish()]);
     }
 
     fn upload_meshes(&mut self, input: &FrameInput<'_>) {
@@ -614,14 +778,14 @@ impl SceneRenderer {
         let vec4 = |v: Vec3, w: f32| [v.x, v.y, v.z, w];
         let section = input.section;
         let view_projection =
-            tile.projection() * camera.view_projection(image_width / image_height);
+            tile.projection() * camera.eye_view_projection(image_width / image_height, input.eye);
         let uniform = CameraUniform {
             clip_plane: section.map_or([0.0; 4], |s| vec4(s.normal, s.offset)),
             section: [f32::from(u8::from(section.is_some())), 0.0, 0.0, 0.0],
             cap_corners: section.map_or([[0.0; 4]; 4], |s| s.cap_corners.map(|c| vec4(c, 1.0))),
             view_proj: view_projection.to_cols_array_2d(),
             eye: vec4(
-                camera.eye(),
+                camera.eye_position(input.eye),
                 if camera.is_perspective() { 1.0 } else { 0.0 },
             ),
             forward: vec4(camera.forward(), 0.0),
@@ -944,6 +1108,80 @@ fn upload(device: &wgpu::Device, mesh: &Arc<Mesh>) -> GpuMesh {
             wgpu::BufferUsages::VERTEX,
         ),
         point_count: mesh.points.len() as u32,
+    }
+}
+
+impl Compose {
+    fn new(device: &wgpu::Device) -> Self {
+        let shader = device.create_shader_module(wgpu::include_wgsl!("stereo.wgsl"));
+        let texture = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("stereo"),
+            entries: &[
+                texture(0),
+                texture(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("stereo"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("stereo"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_compose"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_compose"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("stereo"),
+            size: std::mem::size_of::<ComposeUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Self {
+            pipeline,
+            layout,
+            uniform,
+        }
     }
 }
 

@@ -154,3 +154,33 @@ fn named_views_are_remembered_per_file_and_bounded() {
         serde_json::from_str(r#"{"views": [{"path": "c.py", "views": [{"name": "x"}]}]}"#).unwrap();
     assert_eq!(partial.views_of(Path::new("c.py"))[0].name, "x");
 }
+
+#[test]
+fn the_original_projection_and_stereo_names_are_kept() {
+    let settings: Settings = serde_json::from_str(
+        r#"{"viewer": {"projection": "MonoLeftEye", "stereo_mode": "OverUnder"}}"#,
+    )
+    .unwrap();
+    assert_eq!(settings.viewer.projection, Projection::MonoLeftEye);
+    assert_eq!(settings.viewer.stereo_mode, StereoMode::OverUnder);
+    for (projection, name) in Projection::ALL.into_iter().zip([
+        "Orthographic",
+        "Perspective",
+        "Stereo",
+        "MonoLeftEye",
+        "MonoRightEye",
+    ]) {
+        assert_eq!(serde_json::to_value(projection).unwrap(), name);
+    }
+    for (mode, name) in StereoMode::ALL.into_iter().zip([
+        "QuadBuffer",
+        "Anaglyph",
+        "RowInterlaced",
+        "ColumnInterlaced",
+        "ChessBoard",
+        "SideBySide",
+        "OverUnder",
+    ]) {
+        assert_eq!(serde_json::to_value(mode).unwrap(), name);
+    }
+}

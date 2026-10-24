@@ -43,7 +43,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `settings.rs` | Preferences, persisted by eframe |
 | `scene.rs` | What the view shows: nodes, parts, meshes, visibility, colors, selection, topology selection, inspector overlay |
 | `spatial.rs` | Bounding-volume hierarchies for picking: triangles, and generic boxes for scene parts, edge segments and vertices |
-| `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar) |
+| `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar), `stereo.rs` and `stereo.wgsl` (stereo composition) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent, replace, names, *Go to line*, breakpoint relocation), `history.rs` (the undo history: typing grouped into steps, one step per command or reload) |
 | `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, and the default dock layout |
 | `dialogs/` | Preferences, Upload, About, unsaved changes, external change, recovery, local history, messages |
@@ -135,6 +135,13 @@ capture), widened by the widest edge or point, which are expanded on
 screen. In large-model mode `Viewer::draw_items` swaps the mesh of a part
 that is small on screen for `Mesh::simplified`, a vertex-clustered copy made
 once per mesh, and drops the edges of specks; picking keeps the full mesh.
+
+Stereo projections (`viewer/stereo.rs`) draw the scene once per eye
+(`Camera::eye_view_projection`: the eye moved sideways, its clip space
+shifted so both eyes agree on the target's plane) into textures of their
+own, then `stereo.wgsl` composes them into the view's texture, reading
+texels without filtering. Captures draw each eye with `render_pixels` and
+compose on the CPU with the same rules; a test compares the two.
 
 Display modes are styles, not separate renderers (`DisplayMode::style`):
 X-ray lowers the face opacity, so faces take the transparent path and

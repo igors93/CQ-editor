@@ -40,7 +40,7 @@ The first column is a stable contract id. `compatibility_matrix_is_complete_and_
 checks that no row disappears, every Verified/Enhanced row points to a real
 test, and every Changed/Gap/Unverified row points to an explicit decision or
 follow-up. A passing matrix test therefore proves the inventory is maintained;
-it does not turn the two open gaps into supported features.
+it does not turn the open gap into a supported feature.
 
 | Contract id | Original capability and current result | State | Evidence or decision |
 | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ it does not turn the two open gaps into supported features.
 | `viewer.navigation-cube` | Face/edge/corner views and 45-degree roll remain, with native hover feedback and animation. | Enhanced | `tests/rust/viewer/test_overlays.rs::arrows_are_hit_on_both_sides` |
 | `viewer.selection` | Object selection remains and now resolves stable OCCT face, edge and vertex identities. | Enhanced | `tests/rust/viewer/test_picking.rs::prioritizes_vertices_then_edges_then_faces` |
 | `viewer.screenshot` | Tools > Screenshot still saves the view as PNG; larger sizes (drawn in tiles), a transparent background and turntable animations were added. Capture, tiling, transparency and PNG writing are tested; only the native save dialog is not. | Enhanced | `tests/rust/viewer/test_renderer.rs::captures_leave_out_a_transparent_background_and_scale_edges` |
-| `viewer.stereo` | Stereo, mono-eye and OCCT stereo-composition modes are not implemented by the wgpu renderer. | Gap | Decision: [Stereo projection](#stereo-projection) |
+| `viewer.stereo` | The Stereo, MonoLeftEye and MonoRightEye projections and the Anaglyph, RowInterlaced, ColumnInterlaced, ChessBoard, SideBySide and OverUnder modes are rendered and tested; QuadBuffer cannot be presented by wgpu and visibly falls back to the anaglyph. | Changed | Decision: [Stereo projection](#stereo-projection) |
 | `panels.docking` | All legacy panels are dockable and resizable, but full drag/detach/layout equivalence has no automated UI test. | Unverified | Follow-up: [GUI-only validation](#gui-only-validation) |
 | `preferences.persistence` | Supported preferences and the dock layout persist across sessions. | Verified | `tests/rust/app/test_settings.rs::preferences_round_trip_through_json` |
 | `preferences.defaults` | Configurable font and tessellation settings remain, but three numeric defaults differ from the PyQt values. | Changed | Decision: [Preference defaults](#preference-defaults) |
@@ -118,8 +118,8 @@ platform command modifier where appropriate.
 | General | Light/Dark Theme | System/Light/Dark application theme; see the decision below |
 | Viewer | Fit automatically, navigation cube, gradient and two background colors | Preserved |
 | Viewer | Deviation and angular deviation | Preserved as tessellation tolerances; the defaults changed as documented below |
-| Viewer | Projection Type | Orthographic and Perspective preserved; stereo variants are an open gap |
-| Viewer | Stereo Mode | Not applicable until stereo composition exists |
+| Viewer | Projection Type | Orthographic, Perspective, Stereo, MonoLeftEye and MonoRightEye preserved, under the same setting names |
+| Viewer | Stereo Mode | Anaglyph, RowInterlaced, ColumnInterlaced, ChessBoard, SideBySide and OverUnder preserved; QuadBuffer falls back to the anaglyph, see the decision below |
 | Viewer | Orbit Method | Turntable and Trackball preserved |
 | Editor | Font size, autoreload, reload delay, imported-file watch, line wrap and maximum line length | Preserved; the font-size default changed as documented below |
 | Editor | Color scheme | Merged into the application theme |
@@ -134,11 +134,34 @@ angular tolerance are additions rather than legacy settings.
 ### Stereo projection
 
 The legacy modes were thin bindings to OCCT's `Graphic3d_Camera` and
-`Graphic3d_StereoMode`. The Rust viewer is a custom wgpu renderer, so adding
-the old preference labels without two camera passes and a real composition
-pipeline would create false compatibility. The modes remain an explicit gap
-(`FEAT-C8`) until each supported mode has a render test and platform fallback.
-Orthographic and perspective must not regress while that work is pending.
+`Graphic3d_StereoMode`. The wgpu renderer now draws them itself (`FEAT-C8`):
+the two eyes are perspective cameras 5% of the target distance apart (OCCT's
+default relative interocular distance), with off-axis frustums that converge
+on the target's plane, and a composition pass combines them.
+
+* **Stereo**, **MonoLeftEye** and **MonoRightEye** keep their meaning; mono
+  eyes also pick from their eye.
+  `tests/rust/viewer/test_camera.rs::the_eyes_of_the_stereo_pair_agree_on_the_target_plane`
+  and `mono_eye_projections_draw_and_pick_from_one_eye` check zero parallax
+  at the target, crossed disparity in front of it and consistent pick rays.
+* **Anaglyph** (OCCT's default optimized red-cyan filter), **RowInterlaced**,
+  **ColumnInterlaced**, **ChessBoard**, **SideBySide** and **OverUnder** are
+  composed on the GPU for the view and on the CPU for screenshots;
+  `tests/rust/viewer/test_stereo.rs` checks each mode's layout, and
+  `tests/rust/viewer/test_renderer.rs::stereo_modes_compose_on_the_gpu_as_the_reference_does`
+  checks that the GPU composition gives the same pixels as the CPU one
+  (exactly, or within one level for the anaglyph's mixing), on the software
+  adapter in CI.
+* **QuadBuffer** needs a stereo swap chain (one back buffer per eye) and
+  stereo glasses synchronized by the driver. wgpu exposes no such surface on
+  any backend, and most current drivers dropped it, so this mode is
+  **Changed**: it is still offered, under its name, and the view shows the
+  red-cyan anaglyph with a note saying so, instead of silently showing
+  something else.
+
+Side-by-side and over-under draw each eye at half the width or height
+without stretching it (for free viewing and for displays that take that
+layout), where OCCT could also stretch them for 3D televisions.
 
 ### Rich console
 

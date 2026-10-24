@@ -1,8 +1,7 @@
 use super::*;
 
-/// The scene shaders, parsed and validated by wgpu's own front end.
-fn scene_module() -> naga::Module {
-    let source = include_str!("../../../src/viewer/shaders.wgsl");
+/// WGSL source parsed and validated by wgpu's own front end.
+fn validated(source: &str) -> naga::Module {
     let module = naga::front::wgsl::parse_str(source)
         .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
     naga::valid::Validator::new(
@@ -12,6 +11,11 @@ fn scene_module() -> naga::Module {
     .validate(&module)
     .unwrap_or_else(|error| panic!("invalid WGSL: {error:?}"));
     module
+}
+
+/// The scene shaders.
+fn scene_module() -> naga::Module {
+    validated(include_str!("../../../src/viewer/shaders.wgsl"))
 }
 
 /// The size WGSL lays out for the uniform variable `name`.
@@ -65,11 +69,26 @@ fn uniform_blocks_match_their_wgsl_layout() {
     );
 }
 
+#[test]
+fn the_stereo_shader_is_valid_wgsl_matching_its_uniform() {
+    let module = validated(include_str!("../../../src/viewer/stereo.wgsl"));
+    let entry_points: Vec<&str> = module
+        .entry_points
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(entry_points, ["vs_compose", "fs_compose"]);
+    assert_eq!(
+        uniform_size(&module, "compose") as usize,
+        std::mem::size_of::<ComposeUniform>()
+    );
+}
+
 // -- on a GPU ------------------------------------------------------------------
 
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use crate::viewer::camera::{Pose, StandardView};
+use crate::viewer::camera::{Eye, Pose, StandardView};
 use crate::viewer::section::{Section, SectionAxis};
 use crate::viewer::{DisplayMode, PartLook};
 
@@ -255,6 +274,7 @@ fn draw_sized(
             items: &items,
             section: section.and_then(|section| section.renderer_plane(bounds)),
             pixel_scale,
+            eye: Eye::Center,
         })
         .expect("the frame is read back");
     assert_eq!(size, [side, side]);
@@ -537,6 +557,7 @@ fn parts_out_of_view_are_not_drawn() {
                     items,
                     section: None,
                     pixel_scale: 1.0,
+                    eye: Eye::Center,
                 })
                 .unwrap()
                 .1;
@@ -564,5 +585,75 @@ fn parts_out_of_view_are_not_drawn() {
             }
         );
         assert!(alone == with_far, "skipping them changes nothing on screen");
+    });
+}
+
+#[test]
+fn stereo_modes_compose_on_the_gpu_as_the_reference_does() {
+    with_gpu(|renderer| {
+        let mesh = Arc::new(cube(1.0));
+        let mut camera = Camera {
+            projection: crate::settings::Projection::Stereo,
+            scene_radius: 2.0,
+            ..Camera::default()
+        };
+        camera.set_pose(Pose {
+            target: Vec3::ZERO,
+            rotation: StandardView::Iso.rotation(),
+            extent: 2.0,
+        });
+        let items = [DrawItem {
+            mesh,
+            transform: Mat4::IDENTITY,
+            style: in_mode(DisplayMode::Shaded),
+            layer: Layer::Scene,
+        }];
+        // An odd width, so that the halves of side by side differ.
+        let input = FrameInput {
+            camera: &camera,
+            size: [SIZE + 1, SIZE],
+            background_top: BACKGROUND,
+            background_bottom: BACKGROUND,
+            items: &items,
+            section: None,
+            pixel_scale: 1.0,
+            eye: Eye::Center,
+        };
+
+        // The eyes see the cube from places 5% of the distance apart.
+        let eye = |renderer: &mut SceneRenderer, eye| {
+            renderer
+                .render_pixels(&FrameInput { eye, ..input })
+                .unwrap()
+                .1
+        };
+        let (left, right) = (eye(renderer, Eye::Left), eye(renderer, Eye::Right));
+        let differing = left
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(right.as_chunks::<4>().0)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert!(differing > 50, "{differing} pixels differ between the eyes");
+
+        for mode in crate::settings::StereoMode::ALL {
+            let (size, gpu) = renderer.render_stereo_gpu_pixels(&input, mode).unwrap();
+            let (reference_size, reference) = renderer.render_stereo_pixels(&input, mode).unwrap();
+            assert_eq!(size, reference_size);
+            let worst = gpu
+                .iter()
+                .zip(&reference)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            // Choosing texels is exact; mixing (the anaglyph) rounds.
+            let tolerance = if mode.shown() == crate::settings::StereoMode::Anaglyph {
+                1
+            } else {
+                0
+            };
+            assert!(worst <= tolerance, "{mode:?}: off by {worst}");
+        }
     });
 }

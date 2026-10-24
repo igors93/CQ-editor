@@ -26,7 +26,8 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Show navigation cube | on | |
 | Show axes indicator | on | |
 | Animate view changes | on | Standard views, navigation cube and fit |
-| Projection | Orthographic | Or Perspective. Also toggled from the View menu |
+| Projection | Orthographic | Or Perspective, Stereo, Mono Left Eye, Mono Right Eye (see [Stereo](viewer.md#stereo)). Also toggled from the View menu |
+| Stereo mode | Anaglyph | How the Stereo projection combines the eyes: Anaglyph, Row/Column Interlaced, Chess Board, Side by Side, Over Under, or Quad Buffer (shown as the anaglyph) |
 | Orbit method | Turntable | Turntable keeps Z up; Trackball rotates freely |
 | Background color | (95, 95, 95) | |
 | Use gradient | off | Blend to the second color at the bottom |
