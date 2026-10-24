@@ -54,12 +54,22 @@ console. Your code stays the single source of truth.
   <tr>
     <td width="33%"><img alt="Debugger paused at a breakpoint" src="docs/images/debugger.png"></td>
     <td width="33%"><img alt="CQ Inspector overlaying a construction step" src="docs/images/inspector.png"></td>
-    <td width="33%"><img alt="A selected face and its id in the status bar" src="docs/images/topology-selection.png"></td>
+    <td width="33%"><img alt="A picked face with its exact measurements and CadQuery selector" src="docs/images/topology-selection.png"></td>
   </tr>
   <tr>
     <td align="center"><sub>Step through a script</sub></td>
     <td align="center"><sub>Inspect how a model was built</sub></td>
-    <td align="center"><sub>Select faces, edges and vertices</sub></td>
+    <td align="center"><sub>Select, measure and get the selector</sub></td>
+  </tr>
+  <tr>
+    <td width="33%"><img alt="A ball valve cut by the section plane" src="docs/images/section-view.png"></td>
+    <td width="33%"><img alt="A quadcopter assembly in the exploded view" src="docs/images/exploded-view.png"></td>
+    <td width="33%"><img alt="The Parameters panel editing a twisted vase" src="docs/images/parameters.png"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Cut the model with a section plane</sub></td>
+    <td align="center"><sub>Explode assemblies</sub></td>
+    <td align="center"><sub>Tune parameters with sliders</sub></td>
   </tr>
 </table>
 

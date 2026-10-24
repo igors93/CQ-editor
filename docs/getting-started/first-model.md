@@ -39,7 +39,7 @@ Press **F5** (or the ▷ button). The model appears in the 3D view, the
 **Objects** panel lists `bracket`, and the status bar reports something like
 *Rendered 1 object in 0.09 s*.
 
-![The bracket rendered](../images/inspector.png)
+![The bracket rendered](../images/first-model-render.png)
 
 `show_object` is how a script tells the editor what to draw. It also accepts
 a color:
@@ -81,7 +81,7 @@ Click a face of the bracket. The face is highlighted, the status bar reads
 the object's name. Edges and vertices can be picked the same way; the pointer
 only needs to be within a few pixels of them.
 
-![A selected face](../images/topology-selection.png)
+![A selected face](../images/first-model-selection.png)
 
 The numbers are stable topological ids: the same face keeps its number as
 long as the geometry does not change.
@@ -108,7 +108,7 @@ Now choose **Run > Debug** (Ctrl+F5):
 * the 3D view shows the CadQuery objects that exist at that point (`base`);
 * the **Variables** panel lists the local variables.
 
-![Paused at a breakpoint](../images/debugger.png)
+![Paused at a breakpoint](../images/first-model-debugger.png)
 
 Press **Step** (Ctrl+F10) to run one line and watch `pocket` appear, or
 **Continue** (Ctrl+F12) to run to the next breakpoint or to the end. **Run >

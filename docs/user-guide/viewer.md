@@ -134,6 +134,8 @@ the Stereo projection uses the point between the eyes. The View menu's
 
 ## Section view
 
+![A ball valve cut along Y, with the cut faces filled](../images/section-view.png)
+
 **View > Section View** (toolbar scissors icon) cuts the model with a plane
 to show its inside. The plane starts in the middle of the visible objects,
 and a bar at the bottom left of the view controls it:
@@ -165,6 +167,8 @@ can be seen and picked one by one. Each part moves along the line from the
 center to its own center. The bar at the bottom left of the view sets how
 far, from 0% (assembled) to 200% (three times as far from the center as
 assembled); the view opens at 50%, and ✕ assembles the parts again.
+
+![A quadcopter assembly in the exploded view](../images/exploded-view.png)
 
 Parts are what an assembly is made of: each `add`ed shape (with *Merge
 assemblies* too) or each object shown with `show_object`. The solids of a

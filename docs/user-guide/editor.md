@@ -144,6 +144,8 @@ the value stops changing for a moment, so the script stays the source of
 truth: the change is an ordinary edit (a whole drag is one Undo step), and
 saving keeps it. Click a name to go to its line.
 
+![The Parameters panel next to a twisted vase](../images/parameters.png)
+
 Integers stay integers, and floats keep the decimals they are written with
 (`2.50` moves by 0.01). A comment after the value sets the slider's range,
 optionally with a step, and bounds the value:
