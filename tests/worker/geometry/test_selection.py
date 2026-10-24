@@ -4,7 +4,6 @@ import cadquery as cq
 import pytest
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_VERTEX
 from OCP.TopExp import TopExp
-from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from cq_worker import selection
 from cq_worker.measurement import MeasurementError
@@ -17,7 +16,7 @@ from cq_worker.selection import (
     selector_candidates,
 )
 from cq_worker.scene import Registry, SceneBuilder, ShownObject, to_compound
-from cq_worker.tessellation import Tolerance
+from cq_worker.tessellation import ShapeMap, Tolerance
 
 _KINDS = {"face": TopAbs_FACE, "edge": TopAbs_EDGE, "vertex": TopAbs_VERTEX}
 _LISTS = {"face": "Faces", "edge": "Edges", "vertex": "Vertices"}
@@ -33,7 +32,8 @@ def show(objects, merge_assemblies=False):
 def topology_ids(obj, kind, shapes):
     """The 1-based ids the GUI picks for ``shapes`` of ``obj``."""
 
-    index = TopTools_IndexedMapOfShape()
+    # The worker's map type: OCP 8 dropped the TopTools_IndexedMapOfShape alias.
+    index = ShapeMap()
     TopExp.MapShapes_s(to_compound(obj).wrapped, _KINDS[kind], index)
     return [index.FindIndex(shape.wrapped) for shape in shapes]
 

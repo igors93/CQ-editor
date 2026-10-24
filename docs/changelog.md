@@ -123,6 +123,9 @@ tracked in the compatibility matrix instead of being assumed.
 * Fixed: the 3D view failed on systems where wgpu falls back to OpenGL
   (no Vulkan, or software rendering), which cannot view the scene's sRGB
   texture in another format; it now gets a plain copy encoded by a small pass
+* Fixed: with OCP 8, bounding boxes in the Measurements panel and in the
+  code copied from it failed (`Bnd_Box.Get()` returns a type OCP 8 cannot
+  convert); the box corners are read instead
 * Fixed: `rand_color()` defaulted to a fully transparent color
 * Fixed: after Stop, Restart Python or a worker crash, the first run could
   free its own objects, so the CQ Inspector, export and upload failed; scene

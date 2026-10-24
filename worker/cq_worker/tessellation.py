@@ -48,17 +48,19 @@ from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
+# ``ShapeMap`` is the indexed map of shapes that ``TopExp.MapShapes_s`` fills:
+# its 1-based indices are the topology ids the GUI picks. Tests use it too.
 try:
     # OCP 7.x exposes generated collection aliases in their OCCT package.
     from OCP.TColStd import TColStd_IndexedDataMapOfStringString as _StringMap
-    from OCP.TopTools import TopTools_IndexedMapOfShape as _ShapeMap
+    from OCP.TopTools import TopTools_IndexedMapOfShape as ShapeMap
 except ImportError:
     # OCP 8 generates all collection specializations in one module.
     from OCP.collections import (
         IndexedDataMap_TCollection_AsciiString_TCollection_AsciiString as _StringMap,
     )
     from OCP.collections import (
-        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _ShapeMap,
+        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as ShapeMap,
     )
 
 from .environment import ocp_version
@@ -294,7 +296,7 @@ class TopologyIndex:
     @classmethod
     def build(cls, shape: TopoDS_Shape) -> TopologyIndex:
         def mapped(kind) -> tuple[TopoDS_Shape, ...]:
-            index = _ShapeMap()
+            index = ShapeMap()
             TopExp.MapShapes_s(shape, kind, index)
             return tuple(index.FindKey(i) for i in range(1, index.Extent() + 1))
 
@@ -578,7 +580,7 @@ def _display_triangle_faces(
     ):
         return None
 
-    index = _ShapeMap()
+    index = ShapeMap()
     TopExp.MapShapes_s(shape, TopAbs_FACE, index)
     identifiers, counts = [], []
     offset = 0

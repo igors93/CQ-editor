@@ -34,7 +34,8 @@ def exact_bounds(shape):
     screen are meshed, and BoundingBox() would include the mesh."""
     box = Bnd_Box()
     BRepBndLib.AddOptimal_s(shape.wrapped, box, False, False)
-    return box.Get()
+    low, high = box.CornerMin(), box.CornerMax()
+    return (low.X(), low.Y(), low.Z(), high.X(), high.Y(), high.Z())
 '''
 
 

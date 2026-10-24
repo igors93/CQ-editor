@@ -182,7 +182,10 @@ def exact_bounds(shape: cq.Shape) -> tuple[float, float, float, float, float, fl
 
     box = Bnd_Box()
     BRepBndLib.AddOptimal_s(shape.wrapped, box, False, False)
-    return tuple(float(value) for value in box.Get())
+    # Bnd_Box.Get() returns a struct OCP 8 cannot convert; the corners are
+    # the same values in every version.
+    low, high = box.CornerMin(), box.CornerMax()
+    return (low.X(), low.Y(), low.Z(), high.X(), high.Y(), high.Z())
 
 
 def _bounds(*shapes: cq.Shape) -> dict[str, list[float]] | None:
