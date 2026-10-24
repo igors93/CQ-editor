@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn tab_content_cannot_paint_outside_its_assigned_body() {
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 400.0));
+    let body = egui::Rect::from_min_size(egui::pos2(300.0, 40.0), egui::vec2(180.0, 130.0));
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        ..Default::default()
+    };
+    let mut clipped = egui::Rect::NOTHING;
+
+    let mut output = ctx.run_ui(input, |_root| {
+        // Reproduce the fresh UI used for an egui_dock tab: its layout is
+        // bounded by `body`, while its paint clip initially covers the screen.
+        let mut tab = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::new("tab_clip_regression"),
+            egui::UiBuilder::new().max_rect(body),
+        );
+        tab.set_clip_rect(screen);
+        constrain_to_tab(&mut tab);
+        clipped = tab.clip_rect();
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(clipped, body);
+}
+
+#[test]
 fn empty_state_rows_are_centered_with_natural_spacing() {
     let ctx = egui::Context::default();
     // A first pass loads the fonts.

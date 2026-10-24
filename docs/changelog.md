@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Fixed: text and partially visible rows in docked panels are clipped to their
+  own tab body instead of painting over split separators or neighbouring tabs
 * Fixed: rich console results are tied to the command that produced them;
   retained or background `display()` calls can no longer appear as output of
   a later command

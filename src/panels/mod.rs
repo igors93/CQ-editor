@@ -132,6 +132,7 @@ impl TabViewer for TabContext<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        constrain_to_tab(ui);
         match tab {
             Tab::Editor => self.state.editor_ui(ui),
             Tab::Viewer => self.state.viewer_ui(ui, self.frame),
@@ -154,6 +155,16 @@ impl TabViewer for TabContext<'_> {
         // Every panel scrolls its own content.
         [false, false]
     }
+}
+
+/// Keep every panel's paint inside the body assigned by `egui_dock`.
+///
+/// The dock creates tab bodies as fresh [`egui::Ui`]s. Their maximum rectangle
+/// is the tab body, but their inherited clip rectangle can be as large as the
+/// whole dock area. Most containers narrow it again; widgets that do not can
+/// otherwise paint text over a split separator or a neighbouring tab bar.
+fn constrain_to_tab(ui: &mut egui::Ui) {
+    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
 }
 
 /// Centered, dimmed text for empty panels.
