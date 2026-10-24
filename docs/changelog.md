@@ -23,6 +23,8 @@ tracked in the compatibility matrix instead of being assumed.
 * New: section view (View > Section View); a plane across X, Y or Z, with a
   position slider and a flip, cuts the model and fills the cut faces of
   solids; picking goes through what the plane removes
+* New: Run > Profile (Alt+F5) shows in the gutter the time each line took,
+  with what it called, and in a tooltip its CadQuery operations by time
 * New: Stop interrupts the script or console command first, keeping Python,
   the console's variables and the mesh cache, and reports the line it
   stopped at; Python is restarted only if the script does not stop within

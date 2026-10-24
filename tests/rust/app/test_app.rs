@@ -581,3 +581,42 @@ fn an_interrupted_run_is_reported_as_stopped_not_as_an_error() {
     );
     assert!(!state.is_busy());
 }
+
+#[test]
+fn a_profiled_run_puts_its_times_in_the_gutter_of_the_edited_script() {
+    let run_text = "import time\ntime.sleep(1)\nx = 1\n";
+    let mut state = test_state(run_text);
+    state.execution.started(4, false);
+    state.run_script = Some((
+        4,
+        std::sync::Arc::new(crate::scene::RunScript {
+            document: 0,
+            text: run_text.to_owned(),
+        }),
+    ));
+    state.editor.sync_markers(run_text);
+    // A line was added while it ran.
+    state.document.text = format!("# timing\n{run_text}");
+    let message: crate::worker::protocol::Message = serde_json::from_str(
+        r#"{"type":"run_finished","id":4,"ok":true,"debug":false,"stopped":false,
+            "objects":[],"variables":[],"error":null,"duration":1.0,
+            "profile":{"lines":[{"line":1,"seconds":0.002,"hits":1},
+                {"line":2,"seconds":1.001,"hits":1},{"line":3,"seconds":0.0001,"hits":1}],
+                "operations":[]}}"#,
+    )
+    .unwrap();
+    state.handle_message(message);
+
+    let lines: Vec<_> = state.editor.line_profile.keys().copied().collect();
+    assert_eq!(lines, [2, 3, 4]);
+    assert_eq!(state.editor.line_profile[&3].seconds, 1.001);
+    let status = state.status.as_ref().unwrap();
+    assert!(
+        status.text.contains("slowest line is 3 (1.0 s)"),
+        "{}",
+        status.text
+    );
+
+    state.execute(Action::ClearProfile);
+    assert!(state.editor.line_profile.is_empty());
+}

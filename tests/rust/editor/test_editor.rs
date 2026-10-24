@@ -306,3 +306,115 @@ fn adjusting_a_literal_keeps_the_caret_on_its_text_and_the_focus() {
     assert_eq!(doc.text, "width = 40\nbox(width)\n");
     assert!(!editor.can_undo());
 }
+
+fn timing(seconds: f64) -> LineTiming {
+    LineTiming {
+        seconds,
+        hits: 1,
+        operations: Vec::new(),
+    }
+}
+
+#[test]
+fn profile_times_are_written_for_the_gutter() {
+    assert_eq!(format_seconds(0.0004), "<1 ms");
+    assert_eq!(format_seconds(0.0123), "12 ms");
+    assert_eq!(format_seconds(0.9994), "999 ms");
+    assert_eq!(format_seconds(0.9996), "1.0 s");
+    assert_eq!(format_seconds(2.345), "2.3 s");
+    assert_eq!(format_seconds(73.2), "73 s");
+}
+
+#[test]
+fn profile_times_land_on_the_edited_text_and_follow_later_edits() {
+    let run_text = "a = 1\nb = slow()\nc = 3\n";
+    let mut editor = CodeEditor::default();
+    editor.sync_markers(run_text);
+    // Edited while it ran: a line was added on top.
+    let now = "import x\na = 1\nb = slow()\nc = 3\n";
+    let profile = [(1, timing(0.001)), (2, timing(2.5)), (3, timing(0.002))];
+    editor.set_line_profile(profile.into_iter().collect(), run_text, now);
+    assert_eq!(
+        editor.line_profile.keys().copied().collect::<Vec<_>>(),
+        [2, 3, 4]
+    );
+    assert_eq!(editor.line_profile[&3].seconds, 2.5);
+
+    // Like breakpoints: they move with the lines, and go with them.
+    editor.sync_markers("import x\n\na = 1\nb = slow()\nc = 3\n");
+    assert_eq!(
+        editor.line_profile.keys().copied().collect::<Vec<_>>(),
+        [3, 4, 5]
+    );
+    editor.sync_markers("import x\n\na = 1\nc = 3\n");
+    assert_eq!(
+        editor.line_profile.keys().copied().collect::<Vec<_>>(),
+        [3, 4]
+    );
+    editor.reset();
+    assert!(editor.line_profile.is_empty());
+}
+
+/// The texts an editor paints for `document`.
+fn painted_texts(editor: &mut CodeEditor, document: &mut Document) -> Vec<String> {
+    let ctx = egui::Context::default();
+    let colors = crate::theme::Palette::DARK.editor();
+    let options = EditorOptions {
+        font_size: 13.0,
+        line_wrap: false,
+        ruler: 0,
+        highlight_current_line: true,
+        auto_indent: true,
+        completion_min_chars: 3,
+        colors: &colors,
+    };
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(800.0, 400.0),
+        )),
+        ..Default::default()
+    };
+    let mut texts = Vec::new();
+    // Twice: the first frame lays out the text the gutter follows.
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            editor.ui(ui, document, &options);
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        fn collect(shape: &egui::Shape, texts: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, texts)),
+                _ => {}
+            }
+        }
+        for clipped in &output.shapes {
+            collect(&clipped.shape, &mut texts);
+        }
+    }
+    texts
+}
+
+#[test]
+fn the_gutter_shows_profiled_times_and_skips_the_fastest_lines() {
+    let text = "import time\ntime.sleep(2.5)\nx = 1\n";
+    let mut document = Document::untitled(text);
+    let mut editor = CodeEditor::default();
+    assert!(
+        !painted_texts(&mut editor, &mut document)
+            .iter()
+            .any(|t| t.ends_with(" s"))
+    );
+
+    let profile = [(1, timing(0.0004)), (2, timing(2.5)), (3, timing(0.012))];
+    editor.set_line_profile(profile.into_iter().collect(), text, text);
+    let texts = painted_texts(&mut editor, &mut document);
+    assert!(texts.iter().any(|t| t == "2.5 s"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "12 ms"));
+    assert!(
+        !texts.iter().any(|t| t == "<1 ms"),
+        "below a millisecond: blank"
+    );
+}

@@ -76,9 +76,29 @@ dropped when no line has it any more. The gutter and line backgrounds also
 show:
 
 * the **current debug line** (yellow) while a debugging session is paused;
-* the **error line** (red) after a failed run.
+* the **error line** (red) after a failed run;
+* the **time of each line** after a profiled run (below).
 
 See [Debugging and inspection](debugging.md).
+
+## Profiling
+
+**Run > Profile** (Alt+F5, toolbar stopwatch) renders the script and measures
+where the time goes. The gutter then shows, next to the line numbers, the
+time each line took **with everything it called**: a line calling a slow
+function of the script shows that function's time too, and the function's
+own lines show theirs. The slowest lines are the most orange; lines that took
+less than a millisecond stay blank. The status bar names the slowest line.
+
+Hover a time for details: how many times the line ran (in a loop) and its
+calls into CadQuery by operation, slowest first, for example
+`Workplane.fillet: 1.2 s (3 calls)`.
+
+The times follow your edits, like breakpoints, until the next run, which
+clears them; **Run > Clear Profile** removes them at once. A script that
+fails is profiled up to its error. Profiling slows Python-heavy code
+somewhat (CadQuery's geometry work happens in OpenCascade and is not
+slowed), and a debugging session is never profiled.
 
 ## Files
 

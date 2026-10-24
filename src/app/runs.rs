@@ -1,17 +1,19 @@
 //! Rendering and debugging the script. [`Execution`](super::execution)
 //! decides; these methods send the requests and apply the results.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use super::execution::{RunEnd, RunRequest, StopPlan};
 use super::{AppState, StatusKind};
 use crate::editor::text_ops::{self, Located};
+use crate::editor::{LineTiming, format_seconds};
 use crate::logging::{self, Level};
 use crate::parameters;
 use crate::scene::{Overlay, RunScript, SceneNode};
 use crate::worker::protocol::{
-    DebugAction, Request, RequestId, RunFinished, SceneNode as NodeMessage,
+    DebugAction, Request, RequestId, RunFinished, RunProfile, SceneNode as NodeMessage,
 };
 
 /// How long after the last parameter change the script renders again, in
@@ -61,6 +63,19 @@ impl AppState {
     }
 
     pub(super) fn start_run(&mut self, debug: bool) {
+        self.start_run_with(debug, false);
+    }
+
+    /// Renders with the time of each line measured, shown in the gutter.
+    pub(super) fn start_profile(&mut self) {
+        if self.is_busy() {
+            self.set_status(StatusKind::Warning, "Already running; stop it first");
+            return;
+        }
+        self.start_run_with(false, true);
+    }
+
+    fn start_run_with(&mut self, debug: bool, profile: bool) {
         let availability = self.worker.status().into();
         match self.execution.request_run(debug, availability) {
             RunRequest::Start => {}
@@ -105,12 +120,18 @@ impl AppState {
             settings: self.settings.run_settings(),
             scene: self.settings.scene_settings(),
             known_geometry,
+            profile,
         };
         if !self.worker.send(&request) {
             self.set_status(StatusKind::Error, "Cannot reach Python");
             return;
         }
         self.execution.started(id, debug);
+        // The times of an earlier profile no longer describe the script.
+        self.editor.line_profile.clear();
+        if profile {
+            self.set_status(StatusKind::Info, "Profiling…");
+        }
         if debug {
             // Like the original: the view starts empty and follows the
             // locals of each paused frame.
@@ -221,6 +242,9 @@ impl AppState {
                 "Meshing cancelled; the model shown before stays",
             );
         }
+        if let Some(profile) = result.profile {
+            self.show_profile(result.id, profile);
+        }
         if ok {
             // The script may have started importing other modules.
             self.request_imports();
@@ -306,6 +330,54 @@ impl AppState {
     fn restart_to_stop(&mut self, message: &str) {
         self.start_worker();
         self.set_status(StatusKind::Warning, message);
+    }
+
+    /// Puts a profiled run's times in the gutter, on the lines of the
+    /// document as it is now.
+    fn show_profile(&mut self, id: RequestId, profile: RunProfile) {
+        let Some(run_text) = self
+            .run_script
+            .as_ref()
+            .filter(|(run, _)| *run == id)
+            .map(|(_, script)| script.text.clone())
+        else {
+            return;
+        };
+        let mut lines: BTreeMap<usize, LineTiming> = profile
+            .lines
+            .iter()
+            .map(|line| {
+                let timing = LineTiming {
+                    seconds: line.seconds,
+                    hits: line.hits,
+                    operations: Vec::new(),
+                };
+                (line.line, timing)
+            })
+            .collect();
+        for operation in profile.operations {
+            if let Some(timing) = lines.get_mut(&operation.line) {
+                timing
+                    .operations
+                    .push((operation.name, operation.seconds, operation.calls));
+            }
+        }
+        self.editor
+            .set_line_profile(lines, &run_text, &self.document.text);
+        // On the lines of the document as it is now.
+        let slowest = self
+            .editor
+            .line_profile
+            .iter()
+            .max_by(|a, b| a.1.seconds.total_cmp(&b.1.seconds))
+            .map(|(line, timing)| (*line, timing.seconds));
+        if let Some((line, seconds)) = slowest {
+            let text = format!(
+                "Profiled: the slowest line is {line} ({}); times are in the gutter",
+                format_seconds(seconds)
+            );
+            self.set_status(StatusKind::Success, text);
+        }
     }
 
     /// Gives the nodes of a run the script text their lines refer to.

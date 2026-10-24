@@ -167,6 +167,18 @@ places. Both changes bump the pick revision, which rebuilds the picking
 index. Placements themselves never change, so measurements and exports,
 which the worker computes from the real shapes, are unaffected.
 
+### Profiling
+
+`worker/cq_worker/profiling.py` times a run with `sys.settrace`, which also
+works on Python 3.10: the global trace function follows the frames of the
+editor buffer line by line, adding the time between two events of a frame to
+the line that was running, so a line's time includes its callees. Calls from
+the script straight into CadQuery's files are timed per function; their own
+lines are not traced (`f_trace_lines = False`), and other code is not traced
+at all, which keeps the overhead to one Python call per function call. The
+GUI maps the profile from the text that ran onto the edited document, and
+`CodeEditor::sync_markers` moves it with later edits like the breakpoints.
+
 ### Picking
 
 `viewer/picking.rs` hit-tests faces exactly with a ray, accelerated by the

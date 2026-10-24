@@ -100,6 +100,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
         tool(
             ui,
             actions,
+            icon::TIMER,
+            "Profile: render and show each line's time in the gutter",
+            Action::Profile,
+            true,
+            !state.editor.line_profile.is_empty(),
+        );
+        tool(
+            ui,
+            actions,
             icon::BUG,
             "Debug",
             Action::ToggleDebug,

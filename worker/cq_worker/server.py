@@ -39,6 +39,7 @@ from .execution import (
     describe_variables,
     script_api,
 )
+from .profiling import LineProfiler
 from .protocol import (
     LOG_CAPTURE_CHARS,
     LOG_MESSAGE_CHARS,
@@ -237,6 +238,11 @@ class Server:
                 lambda frame: self._pause(frame, execution, builder),
             )
             executor = self._debugger.run
+        # The debugger traces the script itself; it cannot be profiled too.
+        profiler = None
+        if request.get("profile") and not debug:
+            profiler = LineProfiler(SCRIPT_FILENAME)
+            executor = profiler.run
 
         started = time.perf_counter()
         try:
@@ -273,6 +279,8 @@ class Server:
             "stopped": execution.stopped,
             "cancelled": cancelled,
             "interrupted": execution.interrupted,
+            # Also after a failure: where the time went until then.
+            "profile": profiler.result() if profiler else None,
             "objects": objects,
             "variables": variables,
             "error": execution.error,

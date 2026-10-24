@@ -29,6 +29,8 @@ pub enum Request {
         /// Content-addressed meshes the GUI holds and pins for this request.
         /// The worker may answer with lightweight references to these ids.
         known_geometry: Vec<String>,
+        /// Measure the time of each line (not with `debug`).
+        profile: bool,
     },
     /// Only valid while a debugging session is paused.
     Debug {
@@ -327,6 +329,9 @@ pub struct RunFinished {
     /// Stop interrupted the script; `error` says where.
     #[serde(default)]
     pub interrupted: bool,
+    /// Where the time went, for a run asked to `profile`.
+    #[serde(default)]
+    pub profile: Option<RunProfile>,
     /// `None` when a failed run should keep the current scene.
     pub objects: Option<Vec<SceneNode>>,
     pub variables: Option<Vec<Variable>>,
@@ -337,6 +342,35 @@ pub struct RunFinished {
     /// Filled in by the reader thread, not sent by the worker.
     #[serde(skip)]
     pub receipt: Receipt,
+}
+
+/// The time a profiled run spent on each line of the script, with
+/// everything the line called, and on its calls into CadQuery.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct RunProfile {
+    /// In line order.
+    pub lines: Vec<LineTime>,
+    /// The slowest calls of each line, slowest first.
+    pub operations: Vec<OperationTime>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct LineTime {
+    /// 1-based.
+    pub line: usize,
+    pub seconds: f64,
+    /// How many times the line started.
+    pub hits: u64,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct OperationTime {
+    pub line: usize,
+    /// For example `Workplane.fillet`.
+    pub name: String,
+    pub seconds: f64,
+    pub calls: u64,
 }
 
 /// Where the worker spent a run's time, in seconds, and what it sent.

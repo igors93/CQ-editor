@@ -382,6 +382,8 @@ impl AppState {
             Action::Preferences => self.dialogs.preferences = true,
 
             Action::Render => self.start_run(false),
+            Action::Profile => self.start_profile(),
+            Action::ClearProfile => self.editor.line_profile.clear(),
             Action::ToggleDebug => {
                 if self.is_debugging() {
                     self.stop_debugging();

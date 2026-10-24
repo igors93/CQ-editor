@@ -44,6 +44,10 @@ pub enum Action {
     Preferences,
     // Run
     Render,
+    /// Renders with the time of each line measured, shown in the gutter.
+    Profile,
+    /// Removes the profile's times from the gutter.
+    ClearProfile,
     /// Starts a debugging session, or ends the running one.
     ToggleDebug,
     Debug(DebugAction),
@@ -205,6 +209,7 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::Stop, ctrl_shift(Key::F5)),
         (Action::ToggleDebug, ctrl(Key::F5)),
         (Action::Render, key(Key::F5)),
+        (Action::Profile, alt(Key::F5)),
         (Action::Debug(DebugAction::Step), ctrl(Key::F10)),
         (Action::Debug(DebugAction::StepOut), ctrl_shift(Key::F11)),
         (Action::Debug(DebugAction::StepIn), ctrl(Key::F11)),

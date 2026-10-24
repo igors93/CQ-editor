@@ -10,7 +10,7 @@ pub mod highlight;
 pub mod history;
 pub mod text_ops;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
@@ -161,9 +161,40 @@ struct LayoutCache {
     width: f32,
 }
 
+/// What a profiled run spent on one line (FEAT-E2).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineTiming {
+    /// With everything the line called.
+    pub seconds: f64,
+    pub hits: u64,
+    /// Its slowest calls into CadQuery: name, seconds and calls.
+    pub operations: Vec<(String, f64, u64)>,
+}
+
+/// Lines faster than this get no time in the gutter.
+const PROFILE_FLOOR_SECONDS: f64 = 0.001;
+/// Characters of the gutter's time column ("999 ms", "12.3 s").
+const PROFILE_CHARS: f32 = 6.0;
+
+/// A duration as the gutter shows it: `850 ms`, `1.2 s`, `14 s`.
+pub fn format_seconds(seconds: f64) -> String {
+    if seconds >= 10.0 {
+        format!("{seconds:.0} s")
+    } else if seconds >= 0.9995 {
+        format!("{seconds:.1} s")
+    } else if seconds >= PROFILE_FLOOR_SECONDS {
+        format!("{:.0} ms", seconds * 1000.0)
+    } else {
+        "<1 ms".to_owned()
+    }
+}
+
 pub struct CodeEditor {
     /// 1-based line numbers.
     pub breakpoints: BTreeSet<usize>,
+    /// The last profiled run's time per 1-based line; it follows edits like
+    /// the breakpoints do.
+    pub line_profile: BTreeMap<usize, LineTiming>,
     pub debug_line: Option<usize>,
     pub error_line: Option<usize>,
     /// The text the line markers above refer to; see [`Self::sync_markers`].
@@ -193,6 +224,7 @@ impl Default for CodeEditor {
     fn default() -> Self {
         Self {
             breakpoints: BTreeSet::new(),
+            line_profile: BTreeMap::new(),
             debug_line: None,
             error_line: None,
             marked_text: None,
@@ -225,6 +257,7 @@ impl CodeEditor {
     /// Forgets per-document state when another file is loaded.
     pub fn reset(&mut self) {
         self.breakpoints.clear();
+        self.line_profile.clear();
         self.debug_line = None;
         self.error_line = None;
         self.marked_text = None;
@@ -335,8 +368,28 @@ impl CodeEditor {
                 .collect();
             self.error_line = self.error_line.and_then(|line| map.map(line));
             self.debug_line = self.debug_line.and_then(|line| map.map(line));
+            self.line_profile = std::mem::take(&mut self.line_profile)
+                .into_iter()
+                .filter_map(|(line, timing)| Some((map.map(line)?, timing)))
+                .collect();
         }
         self.marked_text = Some(text.to_owned());
+    }
+
+    /// Shows the times of a profiled run of `run_text` in the gutter of
+    /// `text`, the document as it is now (edited, perhaps, while it ran).
+    pub fn set_line_profile(
+        &mut self,
+        profile: BTreeMap<usize, LineTiming>,
+        run_text: &str,
+        text: &str,
+    ) {
+        self.sync_markers(text);
+        let map = text_ops::LineMap::new(run_text, text);
+        self.line_profile = profile
+            .into_iter()
+            .filter_map(|(line, timing)| Some((map.map(line)?, timing)))
+            .collect();
     }
 
     pub fn toggle_breakpoint(&mut self, line: usize) {
@@ -566,7 +619,13 @@ impl CodeEditor {
 
         let line_count = document.text.matches('\n').count() + 1;
         let digits = line_count.to_string().len().max(2);
-        let gutter_width = digits as f32 * char_width + 28.0;
+        let number_width = digits as f32 * char_width;
+        let profile_width = if self.line_profile.is_empty() {
+            0.0
+        } else {
+            PROFILE_CHARS * char_width + 8.0
+        };
+        let gutter_width = number_width + 28.0 + profile_width;
 
         let dark = ui.visuals().dark_mode;
         let colors = options.colors;
@@ -710,7 +769,7 @@ impl CodeEditor {
             })
             .inner;
 
-        self.paint_gutter(ui, &geometry, gutter_rect, colors);
+        self.paint_gutter(ui, &geometry, gutter_rect, colors, number_width);
         let gutter = ui.interact(gutter_rect, self.text_id.with("gutter"), Sense::click());
         if gutter.clicked()
             && let Some(line) = gutter
@@ -1301,11 +1360,18 @@ impl CodeEditor {
         geometry: &Geometry,
         gutter: Rect,
         colors: &EditorColors,
+        number_width: f32,
     ) {
         let painter = ui.painter_at(gutter);
         let clip = gutter;
         let font = FontId::monospace(geometry.row_height.max(8.0) * 0.8);
         let cursor_line = geometry.line_of_byte(self.selection.cursor);
+        let slowest = self
+            .line_profile
+            .values()
+            .map(|timing| timing.seconds)
+            .fold(0.0, f64::max);
+        let time_right = gutter.right() - 10.0 - number_width - 8.0;
         for (line, rect) in geometry.lines() {
             if rect.bottom() < clip.top() || rect.top() > clip.bottom() {
                 continue;
@@ -1326,6 +1392,26 @@ impl CodeEditor {
                 font.clone(),
                 color,
             );
+            if let Some(timing) = self.line_profile.get(&number)
+                && timing.seconds >= PROFILE_FLOOR_SECONDS
+            {
+                // Hotter for a larger share of the slowest line's time.
+                let share = (timing.seconds / slowest.max(f64::EPSILON)).sqrt() as f32;
+                let color = lerp_color(colors.gutter_text, PROFILE_HOT, share);
+                let galley = painter.layout_no_wrap(
+                    format_seconds(timing.seconds),
+                    FontId::monospace(font.size * 0.9),
+                    color,
+                );
+                let at = Pos2::new(
+                    time_right - galley.size().x,
+                    y_center - galley.size().y / 2.0,
+                );
+                let area = Rect::from_min_size(at, galley.size());
+                painter.galley(at, galley, color);
+                ui.interact(area, self.text_id.with(("profile", number)), Sense::hover())
+                    .on_hover_text(profile_tooltip(number, timing));
+            }
             let marker = Pos2::new(gutter.left() + 10.0, y_center);
             if self.breakpoints.contains(&number) {
                 painter.circle(
@@ -1652,3 +1738,35 @@ impl Geometry {
 #[cfg(test)]
 #[path = "../../tests/rust/editor/test_editor.rs"]
 mod tests;
+
+/// The gutter's color for the slowest lines.
+const PROFILE_HOT: Color32 = Color32::from_rgb(235, 110, 45);
+
+fn lerp_color(from: Color32, to: Color32, amount: f32) -> Color32 {
+    let mix = |a: u8, b: u8| {
+        (f32::from(a) + (f32::from(b) - f32::from(a)) * amount.clamp(0.0, 1.0)).round() as u8
+    };
+    Color32::from_rgb(
+        mix(from.r(), to.r()),
+        mix(from.g(), to.g()),
+        mix(from.b(), to.b()),
+    )
+}
+
+fn profile_tooltip(line: usize, timing: &LineTiming) -> String {
+    let times = if timing.hits == 1 {
+        String::new()
+    } else {
+        format!(" over {} runs of the line", timing.hits)
+    };
+    let mut text = format!("Line {line}: {}{times}", format_seconds(timing.seconds));
+    for (name, seconds, calls) in &timing.operations {
+        let calls = if *calls == 1 {
+            String::new()
+        } else {
+            format!(" ({calls} calls)")
+        };
+        text += &format!("\n{name}: {}{calls}", format_seconds(*seconds));
+    }
+    text
+}

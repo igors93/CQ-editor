@@ -64,7 +64,7 @@ The worker handles one request at a time, in arrival order.
 
 | `cmd` | Fields | Reply |
 | --- | --- | --- |
-| `run` | `id`, `script`, `path` (or null), `debug`, `breakpoints` (line numbers), `settings` (RunSettings), `scene` (SceneSettings), `known_geometry` (mesh ids) | `run_finished`, preceded by `debug_paused` messages when debugging |
+| `run` | `id`, `script`, `path` (or null), `debug`, `breakpoints` (line numbers), `settings` (RunSettings), `scene` (SceneSettings), `known_geometry` (mesh ids), `profile` (time each line; ignored with `debug`) | `run_finished`, preceded by `debug_paused` messages when debugging |
 | `debug` | `action` (`continue`, `step`, `step_in`, `step_out`, `stop`), `breakpoints` | Only while paused. Resumes the session |
 | `release` | `keys` | None. Frees registry entries |
 | `complete` | `id`, `source`, `line` (1-based), `column` (0-based, characters), `path`, `target` (`editor` or `console`) | `completions` |
@@ -98,7 +98,7 @@ The worker handles one request at a time, in arrival order.
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings` | End of a run. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings`, `profile` | End of a run. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below. `profile`, for a run asked to profile (null otherwise): `lines` (`line`, `seconds` with everything the line called, `hits`) and `operations` (`line`, `name` such as `Workplane.fillet`, `seconds`, `calls`), at most 8 per line, slowest first |
 | `progress` | `id`, `stage` (`meshing`), `done`, `total` | How many of the run's parts (one per shape of an assembly) are meshed: first `0`, at most every 0.1 s, and `total` at the end |
 | `debug_paused` | `id`, `line`, `variables`, `objects` | The debugger stopped at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |

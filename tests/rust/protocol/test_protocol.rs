@@ -156,6 +156,7 @@ fn serializes_run_request_with_worker_settings() {
             merge_assemblies: false,
         },
         known_geometry: vec!["abc".into()],
+        profile: true,
     };
     let json = serde_json::to_value(request).unwrap();
     assert_eq!(json["cmd"], "run");
@@ -165,6 +166,7 @@ fn serializes_run_request_with_worker_settings() {
     assert_eq!(json["settings"]["add_script_dir_to_path"], true);
     assert_eq!(json["scene"]["linear_tolerance"], 0.001);
     assert_eq!(json["known_geometry"], serde_json::json!(["abc"]));
+    assert_eq!(json["profile"], true);
 }
 
 #[test]
@@ -510,4 +512,23 @@ fn the_worker_declares_the_same_protocol_version() {
         .find_map(|line| line.strip_prefix("PROTOCOL_VERSION = "))
         .expect("protocol.py declares PROTOCOL_VERSION");
     assert_eq!(declared.trim().parse::<u32>().unwrap(), PROTOCOL_VERSION);
+}
+
+#[test]
+fn profiles_cross_the_protocol() {
+    let result = run_finished(
+        r#","profile":{"lines":[{"line":2,"seconds":1.5,"hits":3}],
+            "operations":[{"line":2,"name":"Workplane.fillet","seconds":1.2,"calls":3}]}"#,
+    );
+    let profile = result.profile.unwrap();
+    assert_eq!(
+        profile.lines,
+        [LineTime {
+            line: 2,
+            seconds: 1.5,
+            hits: 3
+        }]
+    );
+    assert_eq!(profile.operations[0].name, "Workplane.fillet");
+    assert!(run_finished("").profile.is_none());
 }

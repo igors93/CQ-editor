@@ -97,3 +97,12 @@ fn go_to_source_has_its_own_shortcut() {
         .count();
     assert_eq!(taken, 1);
 }
+
+#[test]
+fn profiling_has_its_own_shortcut_next_to_render() {
+    assert_eq!(shortcut(&Action::Profile), Some(alt(Key::F5)));
+    // Alt+F5 is matched before the plain F5 of Render.
+    let order: Vec<_> = shortcuts().into_iter().map(|(action, _)| action).collect();
+    let position = |action: &Action| order.iter().position(|a| a == action).unwrap();
+    assert!(position(&Action::Profile) < position(&Action::Render));
+}

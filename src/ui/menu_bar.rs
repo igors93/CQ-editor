@@ -244,6 +244,15 @@ fn run_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     let paused = state.is_paused();
     let debugging = state.is_debugging();
     item(ui, actions, icon::PLAY, "Render", Action::Render);
+    item(ui, actions, icon::TIMER, "Profile", Action::Profile);
+    item_enabled(
+        ui,
+        actions,
+        icon::ERASER,
+        "Clear Profile",
+        Action::ClearProfile,
+        !state.editor.line_profile.is_empty(),
+    );
     item(
         ui,
         actions,
