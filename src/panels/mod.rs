@@ -16,11 +16,12 @@ pub use log::LogView;
 pub use measurements::{MeasurementState, SelectorState, SelectorUse};
 pub use parameters::ParametersState;
 
-use egui_dock::{DockState, NodeIndex, TabViewer};
+use egui_dock::{DockState, NodeIndex, NodePath, TabViewer};
 use egui_phosphor::regular as icon;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
+use crate::commands::Action;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Tab {
@@ -113,6 +114,8 @@ pub fn default_layout() -> DockState<Tab> {
 pub struct TabContext<'a> {
     pub state: &'a mut AppState,
     pub frame: &'a eframe::Frame,
+    /// One panel fills the window (see `Action::ToggleMaximize`).
+    pub maximized: bool,
 }
 
 impl TabViewer for TabContext<'_> {
@@ -125,6 +128,12 @@ impl TabViewer for TabContext<'_> {
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
         let mut title = format!("{}  {}", tab.icon(), tab.title());
         match tab {
+            // With several files open their names are on the tab strip.
+            Tab::Editor if self.state.tabs().len() > 1 => {
+                if self.state.any_modified() {
+                    title.push_str(" •");
+                }
+            }
             Tab::Editor => {
                 title = format!("{}  {}", tab.icon(), self.state.document.display_name());
                 if self.state.document.is_modified() {
@@ -157,6 +166,41 @@ impl TabViewer for TabContext<'_> {
             Tab::Log => log::ui(ui, self.state),
             Tab::Project => project::ui(ui, self.state),
         }
+    }
+
+    fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
+        if response.double_clicked() {
+            self.state.queue([Action::ToggleMaximize(Some(*tab))]);
+        }
+    }
+
+    /// Added above the dock's own Float and Close items.
+    fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Tab, _path: NodePath) {
+        let (label, glyph) = if self.maximized {
+            ("Restore Layout", icon::ARROWS_IN)
+        } else {
+            ("Maximize", icon::ARROWS_OUT)
+        };
+        let mut button = egui::Button::new(format!("{glyph}  {label}"));
+        if let Some(shortcut) = crate::commands::shortcut(&Action::ToggleMaximize(None)) {
+            button = button.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+        }
+        if ui
+            .add(button)
+            .on_hover_text("Double-clicking the tab does the same")
+            .clicked()
+        {
+            self.state.queue([Action::ToggleMaximize(Some(*tab))]);
+            ui.close();
+        }
+        if ui
+            .button(format!("{}  Reset Layout", icon::LAYOUT))
+            .clicked()
+        {
+            self.state.queue([Action::ResetLayout]);
+            ui.close();
+        }
+        ui.separator();
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {

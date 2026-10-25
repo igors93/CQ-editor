@@ -13,164 +13,272 @@ use crate::worker::protocol::DebugAction;
 
 const BUTTON_SIZE: Vec2 = Vec2::new(28.0, 26.0);
 
+/// Space between buttons, in points.
+const SPACING: f32 = 2.0;
+/// A separator with the space around it.
+const SEPARATOR_WIDTH: f32 = 17.0;
+/// "Select:" and its drop-down.
+const SELECTION_WIDTH: f32 = 125.0;
+
+/// The toolbar's groups, in the original's order. Those that do not fit the
+/// window go, from the last one, to the » menu at its end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Group {
+    File,
+    Objects,
+    Run,
+    Inspect,
+    View,
+    Display,
+    Selection,
+}
+
+impl Group {
+    const ALL: [Group; 7] = [
+        Group::File,
+        Group::Objects,
+        Group::Run,
+        Group::Inspect,
+        Group::View,
+        Group::Display,
+        Group::Selection,
+    ];
+
+    /// Width of the group in the toolbar, in points.
+    fn width(self) -> f32 {
+        let buttons = match self {
+            Group::File => 5,
+            Group::Objects => 2,
+            Group::Run => 8,
+            Group::Inspect => 1,
+            // Fit, the standard views and the named views.
+            Group::View => StandardView::ALL.len() + 2,
+            // The display modes, section, exploded view and screenshot.
+            Group::Display => DisplayMode::ALL.len() + 3,
+            Group::Selection => return SELECTION_WIDTH,
+        };
+        buttons as f32 * (BUTTON_SIZE.x + SPACING)
+    }
+}
+
+/// How many groups, from the first, fit in `width`. When some do not, the
+/// » button takes room too.
+fn fitting_groups(width: f32) -> usize {
+    let widths: Vec<f32> = Group::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, group)| group.width() + if index > 0 { SEPARATOR_WIDTH } else { 0.0 })
+        .collect();
+    if widths.iter().sum::<f32>() <= width {
+        return Group::ALL.len();
+    }
+    let budget = width - SEPARATOR_WIDTH - BUTTON_SIZE.x - SPACING;
+    let mut used = 0.0;
+    widths
+        .iter()
+        .take_while(|group| {
+            used += *group;
+            used <= budget
+        })
+        .count()
+}
+
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     let mut actions = Vec::new();
-    let paused = state.is_paused();
+    let shown = fitting_groups(ui.available_width());
 
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        let actions = &mut actions;
-        tool(
-            ui,
-            actions,
-            icon::FILE_PLUS,
-            "New",
-            Action::NewFile,
-            true,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::FOLDER_OPEN,
-            "Open",
-            Action::OpenFile,
-            true,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::FLOPPY_DISK,
-            "Save",
-            Action::Save,
-            true,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::FLOPPY_DISK_BACK,
-            "Save as",
-            Action::SaveAs,
-            true,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::ARROWS_CLOCKWISE,
-            "Automatic reload and preview",
-            Action::ToggleAutoreload,
-            true,
-            state.settings.editor.autoreload,
-        );
-        separator(ui);
+        ui.spacing_mut().item_spacing.x = SPACING;
+        for (index, group) in Group::ALL[..shown].iter().enumerate() {
+            if index > 0 {
+                separator(ui);
+            }
+            group_ui(ui, *group, state, &mut actions, false);
+        }
+        if shown < Group::ALL.len() {
+            if shown > 0 {
+                separator(ui);
+            }
+            let more = icon_button(ui, icon::CARET_DOUBLE_RIGHT, true, false)
+                .on_hover_text("More tools: the window is too narrow for them all");
+            egui::Popup::menu(&more)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    for group in &Group::ALL[shown..] {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = SPACING;
+                            group_ui(ui, *group, state, &mut actions, true);
+                        });
+                    }
+                });
+        }
+    });
 
-        let has_objects = !state.scene.is_empty();
-        tool(
-            ui,
-            actions,
-            icon::TRASH,
-            "Clear all objects",
-            Action::ClearObjects,
-            has_objects,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::X_SQUARE,
-            "Clear current object",
-            Action::RemoveSelected,
-            !state.scene.selection.is_empty(),
-            false,
-        );
-        separator(ui);
+    state.queue(actions);
+}
 
-        // Names the project's main script when another file is shown.
-        let render = match state.main_script() {
-            Some(main) if Some(main) != state.document.path() => format!(
-                "Render {}",
-                main.file_name().unwrap_or_default().to_string_lossy()
-            ),
-            _ => "Render".to_owned(),
-        };
-        tool(
-            ui,
-            actions,
-            icon::PLAY,
-            &render,
-            Action::Render,
-            true,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::TIMER,
-            "Profile: render and show each line's time in the gutter",
-            Action::Profile,
-            true,
-            !state.editor.line_profile.is_empty(),
-        );
-        tool(
-            ui,
-            actions,
-            icon::BUG,
-            "Debug",
-            Action::ToggleDebug,
-            true,
-            state.is_debugging(),
-        );
-        tool(
-            ui,
-            actions,
-            icon::ARROW_BEND_DOWN_RIGHT,
-            "Step",
-            Action::Debug(DebugAction::Step),
-            paused,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::ARROW_ELBOW_DOWN_RIGHT,
-            "Step in",
-            Action::Debug(DebugAction::StepIn),
-            paused,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::ARROW_ELBOW_UP_LEFT,
-            "Step out",
-            Action::Debug(DebugAction::StepOut),
-            paused,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::FAST_FORWARD,
-            "Continue",
-            Action::Debug(DebugAction::Continue),
-            paused,
-            false,
-        );
-        tool(
-            ui,
-            actions,
-            icon::STOP,
-            "Stop",
-            Action::Stop,
-            state.can_stop(),
-            false,
-        );
-        separator(ui);
-
-        tool(
+/// The buttons of `group`. In the » menu (`overflow`), the controls that
+/// open popups of their own become submenus and plain buttons.
+fn group_ui(
+    ui: &mut egui::Ui,
+    group: Group,
+    state: &AppState,
+    actions: &mut Vec<Action>,
+    overflow: bool,
+) {
+    let paused = state.is_paused();
+    match group {
+        Group::File => {
+            tool(
+                ui,
+                actions,
+                icon::FILE_PLUS,
+                "New",
+                Action::NewFile,
+                true,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::FOLDER_OPEN,
+                "Open",
+                Action::OpenFile,
+                true,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::FLOPPY_DISK,
+                "Save",
+                Action::Save,
+                true,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::FLOPPY_DISK_BACK,
+                "Save as",
+                Action::SaveAs,
+                true,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::ARROWS_CLOCKWISE,
+                "Automatic reload and preview",
+                Action::ToggleAutoreload,
+                true,
+                state.settings.editor.autoreload,
+            );
+        }
+        Group::Objects => {
+            let has_objects = !state.scene.is_empty();
+            tool(
+                ui,
+                actions,
+                icon::TRASH,
+                "Clear all objects",
+                Action::ClearObjects,
+                has_objects,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::X_SQUARE,
+                "Clear current object",
+                Action::RemoveSelected,
+                !state.scene.selection.is_empty(),
+                false,
+            );
+        }
+        Group::Run => {
+            // Names the project's main script when another file is shown.
+            let render = match state.main_script() {
+                Some(main) if Some(main) != state.document.path() => format!(
+                    "Render {}",
+                    main.file_name().unwrap_or_default().to_string_lossy()
+                ),
+                _ => "Render".to_owned(),
+            };
+            // Green, as the run button of most editors: the first thing to
+            // press.
+            let run = state.palette().success;
+            if icon_button_colored(ui, icon::PLAY, true, false, Some(run))
+                .on_hover_text(tooltip_text(ui, &render, &Action::Render))
+                .clicked()
+            {
+                actions.push(Action::Render);
+            }
+            tool(
+                ui,
+                actions,
+                icon::TIMER,
+                "Profile: render and show each line's time in the gutter",
+                Action::Profile,
+                true,
+                !state.editor.line_profile.is_empty(),
+            );
+            tool(
+                ui,
+                actions,
+                icon::BUG,
+                "Debug",
+                Action::ToggleDebug,
+                true,
+                state.is_debugging(),
+            );
+            tool(
+                ui,
+                actions,
+                icon::ARROW_BEND_DOWN_RIGHT,
+                "Step",
+                Action::Debug(DebugAction::Step),
+                paused,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::ARROW_ELBOW_DOWN_RIGHT,
+                "Step in",
+                Action::Debug(DebugAction::StepIn),
+                paused,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::ARROW_ELBOW_UP_LEFT,
+                "Step out",
+                Action::Debug(DebugAction::StepOut),
+                paused,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::FAST_FORWARD,
+                "Continue",
+                Action::Debug(DebugAction::Continue),
+                paused,
+                false,
+            );
+            tool(
+                ui,
+                actions,
+                icon::STOP,
+                "Stop",
+                Action::Stop,
+                state.can_stop(),
+                false,
+            );
+        }
+        Group::Inspect => tool(
             ui,
             actions,
             icon::STACK,
@@ -178,105 +286,118 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             Action::ToggleInspect,
             true,
             state.inspector.show_in_view,
-        );
-        separator(ui);
-
-        tool(
-            ui,
-            actions,
-            icon::CORNERS_OUT,
-            "Fit",
-            Action::Fit,
-            true,
-            false,
-        );
-        for view in StandardView::ALL {
-            let action = Action::View(view);
-            let tooltip = tooltip_text(ui, view.label(), &action);
-            if view_button(ui, view).on_hover_text(tooltip).clicked() {
-                actions.push(action);
-            }
-        }
-        let views = icon_button(ui, icon::BOOKMARKS_SIMPLE, true, false)
-            .on_hover_text("Named views: save the camera and come back to it");
-        egui::Popup::menu(&views)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| super::named_views::manager(ui, state, actions));
-        separator(ui);
-
-        for mode in DisplayMode::ALL {
-            let (glyph, tooltip) = match mode {
-                DisplayMode::Wireframe => (icon::CUBE_TRANSPARENT, "Wireframe"),
-                DisplayMode::Shaded => (icon::CUBE, "Shaded"),
-                DisplayMode::XRay => (icon::INTERSECT_SQUARE, "X-ray: see-through faces"),
-                DisplayMode::HiddenLine => (
-                    icon::RECTANGLE_DASHED,
-                    "Hidden line: visible edges, hidden ones dashed",
-                ),
-            };
+        ),
+        Group::View => {
             tool(
                 ui,
                 actions,
-                glyph,
-                tooltip,
-                Action::Display(mode),
+                icon::CORNERS_OUT,
+                "Fit",
+                Action::Fit,
                 true,
-                state.viewer.display_mode == mode,
+                false,
+            );
+            for view in StandardView::ALL {
+                let action = Action::View(view);
+                let tooltip = tooltip_text(ui, view.label(), &action);
+                if view_button(ui, view).on_hover_text(tooltip).clicked() {
+                    actions.push(action);
+                }
+            }
+            let hint = "Named views: save the camera and come back to it";
+            if overflow {
+                ui.menu_button(icon::BOOKMARKS_SIMPLE, |ui| {
+                    super::named_views::manager(ui, state, actions);
+                })
+                .response
+                .on_hover_text(hint);
+            } else {
+                let views =
+                    icon_button(ui, icon::BOOKMARKS_SIMPLE, true, false).on_hover_text(hint);
+                egui::Popup::menu(&views)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| super::named_views::manager(ui, state, actions));
+            }
+        }
+        Group::Display => {
+            for mode in DisplayMode::ALL {
+                let (glyph, tooltip) = match mode {
+                    DisplayMode::Wireframe => (icon::CUBE_TRANSPARENT, "Wireframe"),
+                    DisplayMode::Shaded => (icon::CUBE, "Shaded"),
+                    DisplayMode::XRay => (icon::INTERSECT_SQUARE, "X-ray: see-through faces"),
+                    DisplayMode::HiddenLine => (
+                        icon::RECTANGLE_DASHED,
+                        "Hidden line: visible edges, hidden ones dashed",
+                    ),
+                };
+                tool(
+                    ui,
+                    actions,
+                    glyph,
+                    tooltip,
+                    Action::Display(mode),
+                    true,
+                    state.viewer.display_mode == mode,
+                );
+            }
+            tool(
+                ui,
+                actions,
+                icon::SCISSORS,
+                "Section view: cut the model with a plane",
+                Action::ToggleSection,
+                true,
+                state.viewer.section.enabled,
+            );
+            tool(
+                ui,
+                actions,
+                icon::ARROWS_OUT,
+                "Exploded view: move the parts apart",
+                Action::ToggleExplode,
+                true,
+                state.viewer.explode_controls,
+            );
+            tool(
+                ui,
+                actions,
+                icon::CAMERA,
+                "Screenshot",
+                Action::Screenshot,
+                true,
+                false,
             );
         }
-        tool(
-            ui,
-            actions,
-            icon::SCISSORS,
-            "Section view: cut the model with a plane",
-            Action::ToggleSection,
-            true,
-            state.viewer.section.enabled,
-        );
-        tool(
-            ui,
-            actions,
-            icon::ARROWS_OUT,
-            "Exploded view: move the parts apart",
-            Action::ToggleExplode,
-            true,
-            state.viewer.explode_controls,
-        );
-        tool(
-            ui,
-            actions,
-            icon::CAMERA,
-            "Screenshot",
-            Action::Screenshot,
-            true,
-            false,
-        );
-        separator(ui);
-
-        ui.label("Select:");
-        egui::ComboBox::from_id_salt("topology_selection_mode")
-            .width(72.0)
-            .selected_text(state.viewer.selection_mode.label())
-            .show_ui(ui, |ui| {
+        Group::Selection => {
+            ui.label("Select:");
+            let hint = |mode| match mode {
+                SelectionMode::Auto => "Nearest vertex, edge or face",
+                SelectionMode::Object => "Whole displayed object",
+                SelectionMode::Face => "Faces only",
+                SelectionMode::Edge => "Edges only",
+                SelectionMode::Vertex => "Vertices only",
+            };
+            let mut choices = |ui: &mut egui::Ui| {
                 for mode in SelectionMode::ALL {
                     if ui
                         .selectable_label(state.viewer.selection_mode == mode, mode.label())
-                        .on_hover_text(match mode {
-                            SelectionMode::Auto => "Nearest vertex, edge or face",
-                            SelectionMode::Object => "Whole displayed object",
-                            SelectionMode::Face => "Faces only",
-                            SelectionMode::Edge => "Edges only",
-                            SelectionMode::Vertex => "Vertices only",
-                        })
+                        .on_hover_text(hint(mode))
                         .clicked()
                     {
                         actions.push(Action::SelectionMode(mode));
                     }
                 }
-            });
-    });
-
-    state.queue(actions);
+            };
+            if overflow {
+                choices(ui);
+            } else {
+                egui::ComboBox::from_id_salt("topology_selection_mode")
+                    .width(72.0)
+                    .selected_text(state.viewer.selection_mode.label())
+                    .show_ui(ui, choices);
+            }
+        }
+    }
 }
 
 fn tool(
@@ -331,9 +452,20 @@ fn button_frame(ui: &mut egui::Ui, enabled: bool, selected: bool) -> (Rect, Resp
 }
 
 fn icon_button(ui: &mut egui::Ui, glyph: &str, enabled: bool, selected: bool) -> Response {
+    icon_button_colored(ui, glyph, enabled, selected, None)
+}
+
+/// An icon button whose glyph has `color` when it is enabled.
+fn icon_button_colored(
+    ui: &mut egui::Ui,
+    glyph: &str,
+    enabled: bool,
+    selected: bool,
+    color: Option<Color32>,
+) -> Response {
     let (rect, response) = button_frame(ui, enabled, selected);
     let color = if enabled {
-        ui.visuals().text_color()
+        color.unwrap_or_else(|| ui.visuals().text_color())
     } else {
         ui.visuals().weak_text_color().gamma_multiply(0.6)
     };
@@ -478,3 +610,7 @@ fn paint_view_icon(
         painter.add(Shape::convex_polygon(points, fill, Stroke::new(1.0, line)));
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/rust/app/test_toolbar.rs"]
+mod tests;

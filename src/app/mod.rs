@@ -562,7 +562,8 @@ impl AppState {
                 };
             }
             // Layout changes are handled by the app, which owns the dock.
-            Action::TogglePanel(_) | Action::ResetLayout => {}
+            Action::TogglePanel(_) | Action::ResetLayout | Action::ToggleMaximize(_) => {}
+            Action::CommandPalette => self.dialogs.palette = Some(Default::default()),
 
             Action::Export(format) => self.export(format),
             Action::ToggleInspect => self.toggle_inspect(),
@@ -706,7 +707,16 @@ fn take_requested_urls(ctx: &egui::Context) -> Vec<String> {
 
 pub struct CqEditorApp {
     dock: DockState<Tab>,
+    /// The whole layout while one panel is maximized in `dock`.
+    maximized: Option<DockState<Tab>>,
     state: AppState,
+}
+
+/// Names of the panel tabs' own menu that a newcomer understands.
+fn label_tab_menus(dock: &mut DockState<Tab>) {
+    let menu = &mut dock.translations.tab_context_menu;
+    menu.eject_button = "Float in a Window".to_owned();
+    menu.close_button = "Close Panel".to_owned();
 }
 
 impl CqEditorApp {
@@ -799,16 +809,59 @@ impl CqEditorApp {
         }
         state.restore_views();
         state.start_worker();
-        let mut app = Self { dock, state };
+        let mut dock = dock;
+        label_tab_menus(&mut dock);
+        let mut app = Self {
+            dock,
+            maximized: None,
+            state,
+        };
         if app.state.project.is_some() {
             app.show_project_panel();
         }
         app
     }
 
+    /// Shows `tab` alone in the window (the focused panel when `None`), or
+    /// brings the whole layout back.
+    fn toggle_maximize(&mut self, tab: Option<Tab>) {
+        if self.maximized.is_some() {
+            self.restore_layout();
+            return;
+        }
+        let tab = tab.or_else(|| self.dock.find_active_focused().map(|(_, tab)| *tab));
+        let Some(tab) = tab else {
+            self.state.set_status(
+                StatusKind::Info,
+                "Click in a panel first, or double-click its tab, to maximize it",
+            );
+            return;
+        };
+        let mut alone = DockState::new(vec![tab]);
+        label_tab_menus(&mut alone);
+        self.maximized = Some(std::mem::replace(&mut self.dock, alone));
+        self.state.set_status(
+            StatusKind::Info,
+            format!(
+                "{} is maximized; double-click its tab to bring the layout back",
+                tab.title()
+            ),
+        );
+    }
+
+    /// Ends a maximized panel, bringing the whole layout back.
+    fn restore_layout(&mut self) {
+        if let Some(layout) = self.maximized.take() {
+            self.dock = layout;
+        }
+    }
+
     /// Shows the Project panel, to the left of the editor when it was
     /// closed.
     fn show_project_panel(&mut self) {
+        if self.dock.find_tab(&Tab::Project).is_none() {
+            self.restore_layout();
+        }
         if let Some(path) = self.dock.find_tab(&Tab::Project) {
             let _ = self.dock.set_active_tab(path);
             return;
@@ -824,6 +877,9 @@ impl CqEditorApp {
 
     /// Brings the editor's panel to the front.
     fn show_editor_panel(&mut self) {
+        if self.dock.find_tab(&Tab::Editor).is_none() {
+            self.restore_layout();
+        }
         if let Some(path) = self.dock.find_tab(&Tab::Editor) {
             let _ = self.dock.set_active_tab(path);
         }
@@ -831,14 +887,20 @@ impl CqEditorApp {
 
     fn execute(&mut self, action: Action) {
         match action {
-            Action::TogglePanel(tab) => match self.dock.find_tab(&tab) {
-                Some(path) => {
-                    self.dock.remove_tab(path);
+            Action::TogglePanel(tab) => {
+                self.restore_layout();
+                match self.dock.find_tab(&tab) {
+                    Some(path) => {
+                        self.dock.remove_tab(path);
+                    }
+                    None => self.dock.push_to_focused_leaf(tab),
                 }
-                None => self.dock.push_to_focused_leaf(tab),
-            },
+            }
+            Action::ToggleMaximize(tab) => self.toggle_maximize(tab),
             Action::ResetLayout => {
+                self.maximized = None;
                 self.dock = panels::default_layout();
+                label_tab_menus(&mut self.dock);
                 if self.state.project.is_some() {
                     self.show_project_panel();
                 }
@@ -876,14 +938,15 @@ impl eframe::App for CqEditorApp {
         self.state.begin_frame(&ctx);
         let palette = self.state.palette;
 
-        let open_panels: Vec<Tab> = self.dock.iter_all_tabs().map(|(_, tab)| *tab).collect();
+        let layout = self.maximized.as_ref().unwrap_or(&self.dock);
+        let open_panels: Vec<Tab> = layout.iter_all_tabs().map(|(_, tab)| *tab).collect();
         let bar = |margin_y: i8| {
             egui::Frame::NONE
                 .fill(palette.window)
                 .inner_margin(egui::Margin::symmetric(8, margin_y))
         };
         egui::Panel::top("menu_bar").frame(bar(2)).show(ui, |ui| {
-            crate::ui::menu_bar::ui(ui, &mut self.state, &open_panels)
+            crate::ui::menu_bar::ui(ui, &mut self.state, &open_panels, self.maximized.is_some())
         });
         egui::Panel::top("toolbar")
             .frame(bar(3))
@@ -908,9 +971,15 @@ impl eframe::App for CqEditorApp {
                         &mut TabContext {
                             state: &mut self.state,
                             frame,
+                            maximized: self.maximized.is_some(),
                         },
                     );
             });
+
+        // Closing the one panel shown maximized brings the layout back.
+        if self.maximized.is_some() && self.dock.iter_all_tabs().next().is_none() {
+            self.restore_layout();
+        }
 
         dialogs::show(&ctx, &mut self.state);
         if let worker::Status::Failed(reason) = self.state.worker.status() {
@@ -946,7 +1015,9 @@ impl eframe::App for CqEditorApp {
         self.state.remember_views();
         self.state.remember_session();
         eframe::set_value(storage, SETTINGS_KEY, &self.state.settings);
-        eframe::set_value(storage, LAYOUT_KEY, &self.dock);
+        // The whole layout, not the one panel maximized.
+        let layout = self.maximized.as_ref().unwrap_or(&self.dock);
+        eframe::set_value(storage, LAYOUT_KEY, layout);
     }
 
     fn on_exit(&mut self) {
@@ -956,7 +1027,7 @@ impl eframe::App for CqEditorApp {
 
 #[cfg(test)]
 #[path = "../../tests/rust/app/test_app.rs"]
-mod tests;
+pub(crate) mod tests;
 
 /// `preferred`, or `preferred-2`, `-3`… when it exists and is not empty.
 fn unused_folder(preferred: &Path) -> PathBuf {

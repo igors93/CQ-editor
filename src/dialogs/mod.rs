@@ -135,6 +135,8 @@ pub struct Dialogs {
     pub external_queue: Vec<ExternalChange>,
     pub recovery_session: Option<RecoverySession>,
     pub file_prompt: Option<FilePrompt>,
+    /// The command palette, while it is open.
+    pub palette: Option<crate::ui::command_palette::Palette>,
     pub history: Option<HistoryDialog>,
     /// A file that is not UTF-8, waiting for permission to read it as
     /// Windows-1252.
@@ -216,6 +218,15 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     if recovery_was_open {
         state.queue(actions);
         return;
+    }
+
+    if state.dialogs.palette.is_some() {
+        let commands = crate::ui::command_palette::commands(state);
+        let palette = state.dialogs.palette.as_mut().expect("open");
+        if let Some(chosen) = crate::ui::command_palette::window(ctx, palette, commands) {
+            state.dialogs.palette = None;
+            actions.extend(chosen);
+        }
     }
 
     if let Some(intent) = state.dialogs.unsaved.clone() {

@@ -9,14 +9,16 @@ use crate::viewer::DisplayMode;
 use crate::viewer::camera::StandardView;
 use crate::worker::protocol::{DebugAction, ExportFormat};
 
-pub fn ui(ui: &mut egui::Ui, state: &mut AppState, open_panels: &[Tab]) {
+pub fn ui(ui: &mut egui::Ui, state: &mut AppState, open_panels: &[Tab], maximized: bool) {
     let mut actions = Vec::new();
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| file_menu(ui, state, &mut actions));
         ui.menu_button("Edit", |ui| edit_menu(ui, state, &mut actions));
         ui.menu_button("Tools", |ui| tools_menu(ui, state, &mut actions));
         ui.menu_button("Run", |ui| run_menu(ui, state, &mut actions));
-        ui.menu_button("View", |ui| view_menu(ui, state, open_panels, &mut actions));
+        ui.menu_button("View", |ui| {
+            view_menu(ui, state, open_panels, maximized, &mut actions)
+        });
         ui.menu_button("Help", |ui| help_menu(ui, state, &mut actions));
     });
     state.queue(actions);
@@ -391,7 +393,21 @@ fn main_script_item(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Actio
     }
 }
 
-fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: &mut Vec<Action>) {
+fn view_menu(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    open_panels: &[Tab],
+    maximized: bool,
+    actions: &mut Vec<Action>,
+) {
+    item(
+        ui,
+        actions,
+        icon::MAGNIFYING_GLASS,
+        "Command Palette…",
+        Action::CommandPalette,
+    );
+    ui.separator();
     item(ui, actions, icon::CORNERS_OUT, "Fit", Action::Fit);
     item(
         ui,
@@ -477,6 +493,13 @@ fn view_menu(ui: &mut egui::Ui, state: &AppState, open_panels: &[Tab], actions: 
         );
     }
     ui.separator();
+    check_item(
+        ui,
+        actions,
+        maximized,
+        "Maximize Panel",
+        Action::ToggleMaximize(None),
+    );
     item(
         ui,
         actions,

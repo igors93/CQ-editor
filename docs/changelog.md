@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* New: View > Command Palette (Ctrl+Shift+P) finds any command, tab,
+  recent file, example, panel or named view by a few letters of its name,
+  and shows its shortcut
+* New: a panel can fill the window: double-click its tab, use View >
+  Maximize Panel (Ctrl+Shift+M) or its tab's menu; the same brings the
+  layout back, and the saved layout stays the whole one
+* New: a panel tab's right-click menu has Maximize and Reset Layout, and
+  names its other items Float in a Window and Close Panel
+* Fixed: in a narrow window the toolbar's last groups were cut off; they now
+  move to a » menu at its end
+* Changed: the Render button is green, and with several files open the
+  editor panel's tab reads "Editor" (their names are on the tab strip)
 * New: multiple files in tabs (FEAT-D1). Each tab keeps its caret,
   scrolling, undo history and breakpoints; Ctrl+Tab / Ctrl+Shift+Tab switch,
   Ctrl+W closes, and File > Save All saves them all. Opening a file no

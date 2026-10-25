@@ -43,7 +43,7 @@ fn links_clicked_in_widgets_are_taken_from_the_platform_output() {
 
 /// An `AppState` with defaults and no Python, for exercising actions and
 /// worker replies directly.
-pub(super) fn test_state(text: &str) -> AppState {
+pub(crate) fn test_state(text: &str) -> AppState {
     let ctx = egui::Context::default();
     let cache_dir = std::env::temp_dir().join("cq-editor-app-tests");
     AppState {
@@ -726,4 +726,89 @@ fn console_results_from_the_worker_reach_the_console() {
         image: None,
     }));
     assert_eq!(state.console.entries.len(), 1, "stale output is ignored");
+}
+
+// -- the dock layout ---------------------------------------------------------
+
+fn test_app() -> CqEditorApp {
+    let mut dock = panels::default_layout();
+    label_tab_menus(&mut dock);
+    CqEditorApp {
+        dock,
+        maximized: None,
+        state: test_state(""),
+    }
+}
+
+fn panels_shown(app: &CqEditorApp) -> Vec<Tab> {
+    let mut tabs: Vec<Tab> = app.dock.iter_all_tabs().map(|(_, tab)| *tab).collect();
+    tabs.sort_by_key(|tab| Tab::ALL.iter().position(|t| t == tab));
+    tabs
+}
+
+#[test]
+fn a_maximized_panel_fills_the_window_until_it_is_restored() {
+    let mut app = test_app();
+    let layout = panels_shown(&app);
+    assert_eq!(
+        app.dock.translations.tab_context_menu.eject_button,
+        "Float in a Window"
+    );
+
+    app.execute(Action::ToggleMaximize(Some(Tab::Viewer)));
+    assert_eq!(panels_shown(&app), [Tab::Viewer]);
+    assert!(
+        app.state
+            .status
+            .as_ref()
+            .unwrap()
+            .text
+            .contains("double-click")
+    );
+    app.execute(Action::ToggleMaximize(None));
+    assert_eq!(panels_shown(&app), layout);
+
+    // Going to a line needs the editor: the layout comes back.
+    app.execute(Action::ToggleMaximize(Some(Tab::Objects)));
+    app.execute(Action::GoToLine(1));
+    assert_eq!(panels_shown(&app), layout);
+
+    // So does showing or hiding a panel, and resetting the layout.
+    app.execute(Action::ToggleMaximize(Some(Tab::Console)));
+    app.execute(Action::TogglePanel(Tab::Log));
+    assert!(app.maximized.is_none());
+    assert!(!panels_shown(&app).contains(&Tab::Log));
+    app.execute(Action::ToggleMaximize(Some(Tab::Console)));
+    app.execute(Action::ResetLayout);
+    assert_eq!(panels_shown(&app), layout);
+}
+
+#[derive(Default)]
+struct MemoryStorage(std::collections::HashMap<String, String>);
+
+impl eframe::Storage for MemoryStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.0.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn the_whole_layout_is_saved_while_a_panel_is_maximized() {
+    let mut app = test_app();
+    app.execute(Action::ToggleMaximize(Some(Tab::Editor)));
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut app, &mut storage);
+    let saved: DockState<Tab> = eframe::get_value(&storage, LAYOUT_KEY).unwrap();
+    assert!(saved.find_tab(&Tab::Viewer).is_some());
+    assert!(saved.find_tab(&Tab::Console).is_some());
 }

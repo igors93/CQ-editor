@@ -125,7 +125,12 @@ pub enum Action {
     UpdateView(usize),
     DeleteView(usize),
     TogglePanel(Tab),
+    /// Shows this panel (`None`: the focused one) alone in the window, or
+    /// brings the whole layout back.
+    ToggleMaximize(Option<Tab>),
     ResetLayout,
+    /// Opens the search over every command.
+    CommandPalette,
     // Tools
     Export(ExportFormat),
     ToggleInspect,
@@ -261,6 +266,8 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::FindPrevious, alt(Key::F3)),
         (Action::FindNext, key(Key::F3)),
         (Action::Preferences, ctrl(Key::Comma)),
+        (Action::CommandPalette, ctrl_shift(Key::P)),
+        (Action::ToggleMaximize(None), ctrl_shift(Key::M)),
         (Action::Stop, ctrl_shift(Key::F5)),
         (Action::ToggleDebug, ctrl(Key::F5)),
         (Action::Render, key(Key::F5)),

@@ -27,6 +27,17 @@ panel to stack it, or close it. **View** lists all panels as toggles, and
 **View > Reset Layout** restores the arrangement above. The layout is saved
 between sessions.
 
+* **Double-click a panel's tab** (or **View > Maximize Panel**, Ctrl+Shift+M,
+  for the panel you last clicked in) to let it fill the window, for example
+  the editor while you write or the 3D view while you inspect a model.
+  Double-click the tab again, or press Ctrl+Shift+M, to bring the layout
+  back. Going to a line, showing a panel or resetting the layout also brings
+  it back, and the layout saved between sessions is always the whole one.
+* **Right-click a panel's tab** for **Maximize** / **Restore Layout**,
+  **Reset Layout**, **Float in a Window** (the panel moves to a window of its
+  own inside CQ-editor; drag its tab back to dock it again) and **Close
+  Panel**.
+
 | Panel | Purpose | Details |
 | --- | --- | --- |
 | **Editor** | The script, with highlighting, breakpoints and completion; a tab per open file | [Code editor](editor.md), [tabs](projects.md#tabs) |
@@ -93,7 +104,22 @@ From left to right:
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
-session is paused) are disabled. Hover a button to see its shortcut.
+session is paused) are disabled. Hover a button to see its shortcut. The
+green ▷ **Render** button is the one to start with.
+
+When the window is too narrow for every group, the last groups move to the
+**»** button at the end of the toolbar, which shows them in a menu.
+
+## Command palette
+
+**View > Command Palette…** (Ctrl+Shift+P) searches every command: type a
+few letters of its name, in order, such as `exp stl` for
+*Export as STL…* or `max` for *Maximize Panel*. Use ↑/↓ and Enter, or click;
+Esc closes it. Each command shows its menu and its shortcut, so the palette
+also teaches the shortcuts. Besides the menus' commands, it finds the open
+tabs, named views, recent files and folders, examples and panels. Commands
+that cannot be used right now, such as *Step* when no debugging session is
+paused, are not offered.
 
 ## Menus
 
@@ -103,7 +129,7 @@ session is paused) are disabled. Hover a button to see its shortcut.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Set as Main Script / Clear Main Script · Profile · Clear Profile · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Reset Layout |
+| **View** | Command Palette… · Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Maximize Panel · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Download CQ-editor *x.y.z*… (when a newer release is out) · Check for Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).

@@ -27,6 +27,8 @@ On macOS, **Ctrl** means **Cmd**.
 | Go to Source (of the selected object) | Ctrl+Shift+G |
 | Next / previous match | F3 / Alt+F3 |
 | Preferences… | Ctrl+, |
+| Command Palette… (search every command) | Ctrl+Shift+P |
+| Maximize the focused panel / restore the layout | Ctrl+Shift+M, or double-click a panel's tab |
 | Zoom the interface | Ctrl + plus / Ctrl + minus |
 
 ### Run and debug
