@@ -247,6 +247,9 @@ class RegistryEntry:
     #: node alone puts it where the view shows it.
     parent_location: cq.Location | None = None
     inherited_color: cq.Color | None = None
+    #: The name and display color of this node as shown by the script.
+    name: str = ""
+    display_color: cq.Color | None = None
 
     def subshape(self, part: int, kind: str, identifier: int) -> cq.Shape:
         try:
@@ -450,6 +453,8 @@ class SceneBuilder:
                 shape,
                 topologies=[topology],
                 sources=[PartSource(obj, cq.Location())],
+                name=str(name),
+                display_color=(cq.Color(*options.color) if options.color else None),
             )
         )
         return self._message(key, name, obj, options, [part], [])
@@ -505,6 +510,8 @@ class SceneBuilder:
             sources=sources,
             parent_location=None if top else parent_location,
             inherited_color=None if top else inherited_color,
+            name=str(name),
+            display_color=(cq.Color(*options.color) if options.color else None),
         )
         key = self.registry.add(entry)
         message = self._message(key, name, assembly, options, parts, children)
@@ -549,6 +556,8 @@ class SceneBuilder:
                 cq.Compound.makeCompound(shapes),
                 topologies=topologies,
                 sources=sources,
+                name=str(name),
+                display_color=(cq.Color(*options.color) if options.color else None),
             )
         )
         return self._message(key, name, assembly, options, parts, [])

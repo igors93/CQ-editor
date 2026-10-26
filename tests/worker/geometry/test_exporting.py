@@ -1,8 +1,10 @@
 """Exports put shapes where the view shows them."""
 
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile
+
 import cadquery as cq
 import pytest
-
 from cq_worker import exporting
 from cq_worker.scene import Registry, SceneBuilder, ShownObject
 from cq_worker.tessellation import Tolerance
@@ -78,3 +80,83 @@ def test_parts_are_exported_in_the_color_they_inherit(tmp_path, level):
     # The script's own assembly is not touched.
     assert root.children[0].color is None
     assert root.children[0].children[0].color is None
+
+
+def test_several_shown_objects_keep_names_colors_and_positions_in_step(tmp_path):
+    registry = Registry()
+    nodes = SceneBuilder(registry, Tolerance()).build(
+        {
+            "base": ShownObject(cq.Workplane().box(10, 10, 2), {"color": "steelblue"}),
+            "pin": ShownObject(
+                cq.Workplane().center(50, 0).cylinder(10, 2),
+                {"color": "red"},
+            ),
+        }
+    )
+    path = tmp_path / "parts.step"
+    exporting.export(registry, [node["key"] for node in nodes], "step", str(path))
+    imported = cq.Assembly.importStep(str(path))
+    parts = {node.name: node for _, node in imported.traverse() if node.obj is not None}
+    assert set(parts) == {"base", "pin"}
+    assert bounds(parts["base"].obj) == [-5, 5, -5, 5]
+    assert bounds(parts["pin"].obj.moved(parts["pin"].loc)) == [48, 52, -2, 2]
+    assert parts["pin"].color.toTuple()[:3] == pytest.approx((1, 0, 0))
+
+
+@pytest.mark.parametrize(
+    "schema,header",
+    [
+        ("ap214", "AUTOMOTIVE_DESIGN"),
+        ("ap242", "AP242_MANAGED_MODEL"),
+    ],
+)
+def test_step_schema_is_written_into_the_file(tmp_path, schema, header):
+    registry, nodes = build(cq.Workplane().box(1, 1, 1))
+    path = tmp_path / "part.step"
+    exporting.export(registry, [nodes[0]["key"]], "step", str(path), step_schema=schema)
+    assert header in path.read_text(errors="ignore")
+
+
+def test_fused_step_is_an_explicit_export_option(tmp_path):
+    registry, nodes = build(cq.Workplane().box(2, 2, 2))
+    path = tmp_path / "fused.step"
+    exporting.export(registry, [nodes[0]["key"]], "step", str(path), step_mode="fused")
+    assert bounds(cq.importers.importStep(str(path)).val()) == [-1, 1, -1, 1]
+
+
+@pytest.mark.parametrize(
+    "file_format",
+    ["stl", "brep", "3mf", "gltf", "glb", "amf", "vrml", "xbf", "svg", "dxf"],
+)
+def test_other_export_formats_write_a_nonempty_file(tmp_path, file_format):
+    registry, nodes = build(cq.Workplane().box(1, 1, 1))
+    path = tmp_path / f"part.{file_format}"
+    exporting.export(registry, [nodes[0]["key"]], file_format, str(path))
+    assert path.stat().st_size > 100
+
+
+def test_3mf_carries_each_shown_name_and_color(tmp_path):
+    registry = Registry()
+    nodes = SceneBuilder(registry, Tolerance()).build(
+        {
+            "base": ShownObject(cq.Workplane().box(2, 2, 2), {"color": "red"}),
+            "pin": ShownObject(
+                cq.Workplane().center(10, 0).box(1, 1, 1), {"color": "blue"}
+            ),
+        }
+    )
+    path = tmp_path / "parts.3mf"
+    exporting.export(registry, [node["key"] for node in nodes], "3mf", str(path))
+    with ZipFile(path) as archive:
+        model = ET.fromstring(archive.read("3D/3dmodel.model"))
+    core = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
+    resources = model.find(f"{core}resources")
+    materials = resources.find(f"{core}basematerials")
+    colors = {base.get("name"): base.get("displaycolor") for base in materials}
+    assert colors == {"base": "#FF0000", "pin": "#0000FF"}
+    objects = [
+        node
+        for node in resources.findall(f"{core}object")
+        if node.find(f"{core}mesh") is not None
+    ]
+    assert {node.get("name") for node in objects} == {"base", "pin"}

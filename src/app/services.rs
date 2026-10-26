@@ -350,11 +350,39 @@ impl AppState {
     }
 
     pub(super) fn export(&mut self, format: ExportFormat) {
-        let keys = self.objects_to_process();
-        if keys.is_empty() {
+        if self.scene.top_level_keys().is_empty() {
             self.set_status(StatusKind::Warning, "Nothing to export");
             return;
         }
+        let mut options = crate::dialogs::ExportDialog::new(
+            format,
+            self.settings.objects.stl_tolerance,
+            self.settings.objects.stl_angular_tolerance,
+        );
+        if !self.scene.selected_roots().is_empty() {
+            options.scope = crate::dialogs::ExportScope::Selection;
+        }
+        self.dialogs.export = Some(options);
+    }
+
+    pub(crate) fn export_confirmed(&mut self, options: crate::dialogs::ExportDialog) {
+        use crate::dialogs::ExportScope;
+        let keys = match options.scope {
+            ExportScope::Selection => self.scene.selected_roots(),
+            ExportScope::Visible => self
+                .scene
+                .visible_nodes()
+                .into_iter()
+                .filter(|node| !node.parts.is_empty())
+                .map(|node| node.key.clone())
+                .collect(),
+            ExportScope::Everything => self.scene.top_level_keys(),
+        };
+        if keys.is_empty() {
+            self.set_status(StatusKind::Warning, "Nothing to export in the chosen scope");
+            return;
+        }
+        let format = options.format;
         // Named after the script that made the model.
         let stem = self
             .run_target_path()
@@ -371,10 +399,18 @@ impl AppState {
         if path.extension().is_none() {
             path.set_extension(format.extension());
         }
-        let (tolerance, angular_tolerance) = (
-            self.settings.objects.stl_tolerance,
-            self.settings.objects.stl_angular_tolerance,
-        );
+        let (tolerance, angular_tolerance) = (options.tolerance, options.angular_tolerance);
+        if !tolerance.is_finite()
+            || tolerance <= 0.0
+            || !angular_tolerance.is_finite()
+            || angular_tolerance <= 0.0
+        {
+            self.dialogs.error(
+                "Cannot export",
+                "Tolerances must be finite positive numbers.",
+            );
+            return;
+        }
         let path_text = path.display().to_string();
         if self.send_tracked(Pending::Export, |id| Request::Export {
             id,
@@ -383,6 +419,15 @@ impl AppState {
             path: path_text,
             tolerance,
             angular_tolerance,
+            step_mode: if options.step_fused {
+                "fused"
+            } else {
+                "default"
+            }
+            .into(),
+            step_schema: if options.step_ap242 { "ap242" } else { "ap214" }.into(),
+            stl_ascii: options.stl_ascii,
+            flat_parts: options.scope == ExportScope::Visible,
         }) {
             self.set_status(StatusKind::Info, format!("Exporting {}…", path.display()));
         }

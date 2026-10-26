@@ -383,7 +383,7 @@ the code**.
 | ✅ | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
 | ✅ | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
 | ✅ | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
-| | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
+| ✅ | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
 | | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
 | | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
 | | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
@@ -485,6 +485,13 @@ other CAD) need the parts, names, colors and hierarchy.
 `cq.Assembly` instead of two (fused compound, or a single assembly). The
 registry's world placements, already used by STL and BREP, become the
 single source of placement for every format.
+
+**Progress.** Done. STEP exports multiple shown objects as named, colored
+assembly children with world placements. The Export dialog chooses scope,
+format, STEP mode and schema, STL encoding and mesh tolerances. The worker
+also exports 3MF (with per-part names and display colors), glTF/GLB, AMF,
+VRML, VTK.js, XBF, SVG and DXF. A VTK.js exporter that returns an empty
+archive is reported as a failure instead of a false success.
 
 ### REQ-05 · Units reach the exported files
 

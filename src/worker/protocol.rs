@@ -109,6 +109,10 @@ pub enum Request {
         path: String,
         tolerance: f64,
         angular_tolerance: f64,
+        step_mode: String,
+        step_schema: String,
+        stl_ascii: bool,
+        flat_parts: bool,
     },
     Upload {
         id: RequestId,
@@ -164,16 +168,48 @@ pub enum ExportFormat {
     Step,
     Stl,
     Brep,
+    #[serde(rename = "3mf")]
+    ThreeMf,
+    Gltf,
+    Glb,
+    Amf,
+    Vrml,
+    Vtkjs,
+    Xbf,
+    Svg,
+    Dxf,
 }
 
 impl ExportFormat {
-    pub const ALL: [ExportFormat; 3] = [ExportFormat::Step, ExportFormat::Stl, ExportFormat::Brep];
+    pub const ALL: [ExportFormat; 12] = [
+        ExportFormat::Step,
+        ExportFormat::Stl,
+        ExportFormat::Brep,
+        ExportFormat::ThreeMf,
+        ExportFormat::Gltf,
+        ExportFormat::Glb,
+        ExportFormat::Amf,
+        ExportFormat::Vrml,
+        ExportFormat::Vtkjs,
+        ExportFormat::Xbf,
+        ExportFormat::Svg,
+        ExportFormat::Dxf,
+    ];
 
     pub fn extension(self) -> &'static str {
         match self {
             ExportFormat::Step => "step",
             ExportFormat::Stl => "stl",
             ExportFormat::Brep => "brep",
+            ExportFormat::ThreeMf => "3mf",
+            ExportFormat::Gltf => "gltf",
+            ExportFormat::Glb => "glb",
+            ExportFormat::Amf => "amf",
+            ExportFormat::Vrml => "vrml",
+            ExportFormat::Vtkjs => "vtkjs",
+            ExportFormat::Xbf => "xbf",
+            ExportFormat::Svg => "svg",
+            ExportFormat::Dxf => "dxf",
         }
     }
 
@@ -182,6 +218,15 @@ impl ExportFormat {
             ExportFormat::Step => "STEP",
             ExportFormat::Stl => "STL",
             ExportFormat::Brep => "BREP",
+            ExportFormat::ThreeMf => "3MF",
+            ExportFormat::Gltf => "glTF",
+            ExportFormat::Glb => "GLB",
+            ExportFormat::Amf => "AMF",
+            ExportFormat::Vrml => "VRML",
+            ExportFormat::Vtkjs => "VTK.js",
+            ExportFormat::Xbf => "XBF",
+            ExportFormat::Svg => "SVG",
+            ExportFormat::Dxf => "DXF",
         }
     }
 }

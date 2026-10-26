@@ -243,6 +243,15 @@ fn export_formats_have_distinct_extensions_and_wire_values() {
         (ExportFormat::Step, "step", "STEP"),
         (ExportFormat::Stl, "stl", "STL"),
         (ExportFormat::Brep, "brep", "BREP"),
+        (ExportFormat::ThreeMf, "3mf", "3MF"),
+        (ExportFormat::Gltf, "gltf", "glTF"),
+        (ExportFormat::Glb, "glb", "GLB"),
+        (ExportFormat::Amf, "amf", "AMF"),
+        (ExportFormat::Vrml, "vrml", "VRML"),
+        (ExportFormat::Vtkjs, "vtkjs", "VTK.js"),
+        (ExportFormat::Xbf, "xbf", "XBF"),
+        (ExportFormat::Svg, "svg", "SVG"),
+        (ExportFormat::Dxf, "dxf", "DXF"),
     ];
     for (format, extension, label) in expected {
         assert_eq!(format.extension(), extension);

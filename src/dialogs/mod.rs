@@ -16,6 +16,7 @@ use crate::commands::Action;
 use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
 use crate::worker::Problem;
+use crate::worker::protocol::ExportFormat;
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -114,6 +115,38 @@ pub struct HistoryDialog {
     pub selected: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportScope {
+    Selection,
+    Visible,
+    Everything,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExportDialog {
+    pub format: ExportFormat,
+    pub scope: ExportScope,
+    pub step_fused: bool,
+    pub step_ap242: bool,
+    pub stl_ascii: bool,
+    pub tolerance: f64,
+    pub angular_tolerance: f64,
+}
+
+impl ExportDialog {
+    pub fn new(format: ExportFormat, tolerance: f64, angular_tolerance: f64) -> Self {
+        Self {
+            format,
+            scope: ExportScope::Everything,
+            step_fused: false,
+            step_ap242: true,
+            stl_ascii: false,
+            tolerance,
+            angular_tolerance,
+        }
+    }
+}
+
 enum HistoryChoice {
     Restore(RecoverySnapshot),
     Close,
@@ -148,6 +181,7 @@ pub struct Dialogs {
     /// The command palette, while it is open.
     pub palette: Option<crate::ui::command_palette::Palette>,
     pub history: Option<HistoryDialog>,
+    pub export: Option<ExportDialog>,
     /// A file that is not UTF-8, waiting for permission to read it as
     /// Windows-1252.
     pub legacy_encoding: Option<PathBuf>,
@@ -167,6 +201,7 @@ impl Dialogs {
             || self.file_prompt.is_some()
             || self.palette.is_some()
             || self.history.is_some()
+            || self.export.is_some()
             || self.legacy_encoding.is_some()
             || self.message.is_some()
     }
@@ -323,6 +358,27 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         None => {}
     }
 
+    let selected = state.scene.selected_roots().len();
+    let visible = state
+        .scene
+        .visible_nodes()
+        .iter()
+        .filter(|node| !node.parts.is_empty())
+        .count();
+    let everything = state.scene.top_level_keys().len();
+    let export_choice = state
+        .dialogs
+        .export
+        .as_mut()
+        .and_then(|dialog| export_options(ctx, dialog, selected, visible, everything));
+    if let Some(confirmed) = export_choice {
+        if let Some(options) = state.dialogs.export.take() {
+            if confirmed {
+                state.export_confirmed(options);
+            }
+        }
+    }
+
     if let Some(message) = &state.dialogs.message
         && message_box(ctx, message)
     {
@@ -334,6 +390,113 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
 
 fn modal_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::popup(&ctx.style_of(ctx.theme())).inner_margin(egui::Margin::same(18))
+}
+
+fn export_options(
+    ctx: &egui::Context,
+    options: &mut ExportDialog,
+    selected: usize,
+    visible: usize,
+    everything: usize,
+) -> Option<bool> {
+    let mut choice = None;
+    let response = egui::Modal::new(egui::Id::new("export_options"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(390.0);
+            ui.heading("Export model");
+            egui::ComboBox::from_label("Format")
+                .selected_text(options.format.label())
+                .show_ui(ui, |ui| {
+                    for format in ExportFormat::ALL {
+                        ui.selectable_value(&mut options.format, format, format.label());
+                    }
+                });
+            ui.separator();
+            ui.label("Objects");
+            ui.add_enabled_ui(selected > 0, |ui| {
+                ui.radio_value(
+                    &mut options.scope,
+                    ExportScope::Selection,
+                    format!("Selection ({selected})"),
+                );
+            });
+            ui.add_enabled_ui(visible > 0, |ui| {
+                ui.radio_value(
+                    &mut options.scope,
+                    ExportScope::Visible,
+                    format!("Visible parts ({visible})"),
+                );
+            });
+            ui.radio_value(
+                &mut options.scope,
+                ExportScope::Everything,
+                format!("Everything ({everything})"),
+            );
+            if options.format == ExportFormat::Step {
+                ui.separator();
+                ui.checkbox(&mut options.step_fused, "Fuse STEP assembly");
+                ui.checkbox(&mut options.step_ap242, "STEP AP242 (uncheck for AP214)");
+            }
+            if options.format == ExportFormat::Stl {
+                ui.separator();
+                ui.checkbox(&mut options.stl_ascii, "ASCII STL (larger file)");
+            }
+            if matches!(
+                options.format,
+                ExportFormat::Stl
+                    | ExportFormat::ThreeMf
+                    | ExportFormat::Gltf
+                    | ExportFormat::Glb
+                    | ExportFormat::Amf
+                    | ExportFormat::Vrml
+                    | ExportFormat::Vtkjs
+            ) {
+                ui.horizontal(|ui| {
+                    ui.label("Linear tolerance");
+                    ui.add(
+                        egui::DragValue::new(&mut options.tolerance)
+                            .speed(0.01)
+                            .range(0.0001..=100.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Angular tolerance (rad)");
+                    ui.add(
+                        egui::DragValue::new(&mut options.angular_tolerance)
+                            .speed(0.01)
+                            .range(0.0001..=3.14),
+                    );
+                });
+            }
+            let note = match options.format {
+                ExportFormat::Step | ExportFormat::Gltf | ExportFormat::Glb | ExportFormat::Xbf => {
+                    "Keeps object hierarchy, names and colors."
+                }
+                ExportFormat::ThreeMf => "Keeps part names and colors for 3D printing.",
+                ExportFormat::Stl
+                | ExportFormat::Brep
+                | ExportFormat::Amf
+                | ExportFormat::Vrml
+                | ExportFormat::Vtkjs => "This format may not keep hierarchy or display colors.",
+                ExportFormat::Svg => "Exports a projected hidden-line drawing.",
+                ExportFormat::Dxf => "Requires planar faces or a 2D section.",
+            };
+            ui.weak(note);
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
+                }
+                if ui.button("Choose file…").clicked() {
+                    choice = Some(true);
+                }
+            });
+        });
+    if response.should_close() {
+        choice = Some(false);
+    }
+    choice
 }
 
 fn about(ctx: &egui::Context, state: &mut AppState) {

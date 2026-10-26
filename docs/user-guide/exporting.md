@@ -4,28 +4,32 @@
 
 | Format | Menu | Best for |
 | --- | --- | --- |
-| **STEP** (`.step`) | Tools > Export as STEP… | Exchanging exact CAD geometry with other CAD programs. Single assemblies keep names, structure and colors |
+| **STEP** (`.step`) | Tools > Export as STEP… | Exact CAD geometry with names, hierarchy and colors, including multiple objects |
 | **STL** (`.stl`) | Tools > Export as STL… | 3D printing, mesh tools |
 | **BREP** (`.brep`) | Tools > Export as BREP… | OpenCascade's native format: lossless, for other OCCT-based tools |
+| **3MF** (`.3mf`) | Tools > Export as 3MF… | 3D printing with part names and colors |
+| **glTF / GLB** (`.gltf`, `.glb`) | Tools > Export as glTF / GLB… | Web viewers and rendering |
+| **XBF** (`.xbf`) | Tools > Export as XBF… | OpenCascade assemblies with names and colors |
+| **AMF, VRML, VTK.js, SVG, DXF** | Tools > Export as… | Mesh or drawing interchange |
 
 The same commands are in the **Export** button of the Objects panel and in
 the right-click menu of an object.
 
-**What gets exported.** The **selected** objects (with their children), or
-**all objects** when nothing is selected. Several objects are fused into one
-compound. A single selected `cq.Assembly` exported to STEP is written with
-CadQuery's assembly exporter instead, so other programs see the parts by
-name and color. Every format puts the shapes where the view shows them: a
-part or sub-assembly selected inside an assembly keeps its place in the
-whole, and parts are written in the color they inherit from their parents,
-as they are drawn.
+**What gets exported.** The Export dialog offers the selection (including
+its children), visible parts, or everything. STEP exports named assembly
+children by default, with world placement and colors even when several
+objects were shown separately. You may choose fused STEP output and AP214
+or AP242. Other formats preserve the properties their file format supports;
+the dialog calls out limitations before export. A broken or empty VTK.js
+archive is reported as an error.
 
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the
 file is written.
 
-**STL precision.** STL is a mesh, so its fineness is set by two options in
-*Preferences > Objects*. They are separate from the display mesh.
+**Mesh precision.** The dialog starts with the two values from
+*Preferences > Objects* and lets you adjust them for each export. They are
+separate from the display mesh. STL can be binary or ASCII.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -36,8 +40,7 @@ Lower values give smoother prints and bigger files.
 
 ### Exporting from the script
 
-For repeatable output, or formats the menu does not offer (DXF, SVG, glTF,
-VRML, AMF, …), export from the script with CadQuery:
+For repeatable output, export from the script with CadQuery:
 
 ```python
 cq.exporters.export(bracket, "bracket.step")

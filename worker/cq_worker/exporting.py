@@ -2,11 +2,31 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile
+
 import cadquery as cq
+from OCP.Interface import Interface_Static
+from OCP.STEPControl import STEPControl_Controller
 
 from .scene import Registry, RegistryEntry, to_compound
 
-FORMATS = ("step", "stl", "brep")
+FORMATS = (
+    "step",
+    "stl",
+    "brep",
+    "3mf",
+    "gltf",
+    "glb",
+    "amf",
+    "vrml",
+    "vtkjs",
+    "xbf",
+    "svg",
+    "dxf",
+)
 
 
 def export(
@@ -16,12 +36,15 @@ def export(
     path: str,
     tolerance: float = 0.1,
     angular_tolerance: float = 0.1,
+    step_mode: str = "default",
+    step_schema: str = "ap242",
+    stl_ascii: bool = False,
+    flat_parts: bool = False,
 ) -> None:
     """Export the objects behind ``keys`` (with their descendants).
 
-    A single assembly exported to STEP keeps its structure, names and colors;
-    anything else is fused into one compound. Either way the shapes are where
-    the view shows them.
+    STEP always uses a named assembly, including several shown objects. The
+    original CadQuery objects are never changed by export.
     """
 
     file_format = file_format.lower()
@@ -30,21 +53,213 @@ def export(
     if not keys:
         raise ValueError("Nothing to export")
 
-    if file_format == "step" and len(keys) == 1:
-        entry = registry.get(keys[0])
-        if isinstance(entry.obj, cq.Assembly):
-            placed_assembly(entry).export(path, "STEP")
-            return
+    if step_mode not in ("default", "fused"):
+        raise ValueError(f"Unsupported STEP mode {step_mode!r}")
+    if step_schema not in ("ap214", "ap242"):
+        raise ValueError(f"Unsupported STEP schema {step_schema!r}")
 
-    compound = to_compound(registry.subtree_shapes(keys))
+    if file_format in ("step", "gltf", "glb", "vrml", "vtkjs", "xbf"):
+        assembly = export_assembly(registry, keys, flat_parts)
+        if file_format == "step":
+            STEPControl_Controller.Init_s()
+            previous = Interface_Static.CVal_s("write.step.schema")
+            schema = "AP242DIS" if step_schema == "ap242" else "AP214IS"
+            if not Interface_Static.SetCVal_s("write.step.schema", schema):
+                raise RuntimeError(f"Cannot select STEP schema {schema}")
+            try:
+                assembly.export(path, "STEP", mode=step_mode)
+            finally:
+                Interface_Static.SetCVal_s("write.step.schema", previous)
+        else:
+            assembly.export(
+                path,
+                "GLTF" if file_format == "gltf" else file_format.upper(),
+                tolerance=tolerance,
+                angularTolerance=angular_tolerance,
+            )
+            if file_format == "vtkjs":
+                # CadQuery appends .zip itself. Reject a broken/empty scene
+                # instead of reporting an export that cannot be opened.
+                archive = path + ".zip"
+                try:
+                    with ZipFile(archive) as package:
+                        if not package.namelist():
+                            raise RuntimeError(
+                                "VTK.js exporter produced an empty scene"
+                            )
+                    os.replace(archive, path)
+                except Exception:
+                    if os.path.exists(archive):
+                        os.unlink(archive)
+                    raise
+        return
+
+    shapes = (
+        [registry.get(key).shape for key in keys if registry.get(key).shape is not None]
+        if flat_parts
+        else registry.subtree_shapes(keys)
+    )
+    compound = to_compound(shapes)
     if file_format == "stl":
         compound.exportStl(
-            path, tolerance=tolerance, angularTolerance=angular_tolerance
+            path,
+            tolerance=tolerance,
+            angularTolerance=angular_tolerance,
+            ascii=stl_ascii,
         )
-    elif file_format == "step":
-        compound.exportStep(path)
-    else:
+    elif file_format == "brep":
         compound.exportBrep(path)
+    elif file_format == "3mf":
+        cq.exporters.export(
+            compound,
+            path,
+            "3MF",
+            tolerance,
+            angular_tolerance,
+        )
+        _decorate_3mf(path, _export_parts(registry, keys, flat_parts))
+    else:
+        cq.exporters.export(
+            compound,
+            path,
+            file_format.upper(),
+            tolerance,
+            angular_tolerance,
+        )
+
+
+def export_assembly(
+    registry: Registry, keys: list[str], flat_parts: bool = False
+) -> cq.Assembly:
+    """The requested nodes, with world placement, names and display colors.
+
+    A selected ancestor owns its descendants. Ignoring separately selected
+    descendants prevents a duplicated solid in the resulting STEP file.
+    """
+
+    descendants: set[str] = set()
+
+    def mark_children(key: str) -> None:
+        for child in registry.get(key).children:
+            descendants.add(child)
+            mark_children(child)
+
+    if not flat_parts:
+        for key in keys:
+            mark_children(key)
+
+    result = cq.Assembly(name="CQ-editor export")
+    used_names: set[str] = set()
+    for key in dict.fromkeys(keys):
+        if key in descendants:
+            continue
+        entry = registry.get(key)
+        name = entry.name or key
+        original = name
+        index = 2
+        while name in used_names:
+            name = f"{original} ({index})"
+            index += 1
+        used_names.add(name)
+        if flat_parts and entry.shape is not None:
+            color = (
+                entry.display_color
+                or (entry.obj.color if isinstance(entry.obj, cq.Assembly) else None)
+                or entry.inherited_color
+            )
+            result.add(entry.shape, name=name, color=color)
+        elif isinstance(entry.obj, cq.Assembly):
+            result.add(placed_assembly(entry), name=name)
+        elif entry.shape is not None:
+            result.add(entry.shape, name=name, color=entry.display_color)
+    if not result.children:
+        raise ValueError("No exportable geometry in the chosen objects")
+    return result
+
+
+def _export_parts(
+    registry: Registry, keys: list[str], flat_parts: bool
+) -> list[RegistryEntry]:
+    """The individual displayed shapes in the order used by 3MF export."""
+    parts: list[RegistryEntry] = []
+    seen: set[str] = set()
+
+    def visit(key: str) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        entry = registry.get(key)
+        if entry.shape is not None:
+            parts.append(entry)
+        if not flat_parts:
+            for child in entry.children:
+                visit(child)
+
+    for key in keys:
+        visit(key)
+    return parts
+
+
+def _decorate_3mf(path: str, parts: list[RegistryEntry]) -> None:
+    """Add shown names and colors to CadQuery's unit-aware 3MF meshes.
+
+    CadQuery's 3MF writer emits the geometry and package but anonymous
+    uncolored mesh resources. The core 3MF base-material group gives each
+    mesh a display color without changing its triangles or placement.
+    """
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    ET.register_namespace("", core)
+    model_name = "3D/3dmodel.model"
+    with ZipFile(path) as package:
+        files = [(item, package.read(item.filename)) for item in package.infolist()]
+    model = next(data for item, data in files if item.filename == model_name)
+    root = ET.fromstring(model)
+    resources = root.find(f"{{{core}}}resources")
+    if resources is None:
+        raise ValueError("3MF export has no resources")
+    meshes = [
+        object_node
+        for object_node in resources.findall(f"{{{core}}}object")
+        if object_node.find(f"{{{core}}}mesh") is not None
+    ]
+    if len(meshes) != len(parts):
+        raise ValueError("3MF mesh count differs from the displayed parts")
+    used_ids = [int(item.get("id", "0")) for item in resources if item.get("id")]
+    materials = ET.Element(
+        f"{{{core}}}basematerials", id=str(max(used_ids, default=0) + 1)
+    )
+    for index, (mesh, entry) in enumerate(zip(meshes, parts)):
+        name = entry.name or f"Part {index + 1}"
+        mesh.set("name", name)
+        color = (
+            entry.display_color
+            or (entry.obj.color if isinstance(entry.obj, cq.Assembly) else None)
+            or entry.inherited_color
+        )
+        if color is None:
+            color = cq.Color(0.75, 0.75, 0.75)
+        r, g, b, _ = color.toTuple()
+        hex_color = "#{:02X}{:02X}{:02X}".format(
+            *(round(max(0, min(1, value)) * 255) for value in (r, g, b))
+        )
+        ET.SubElement(materials, f"{{{core}}}base", name=name, displaycolor=hex_color)
+        mesh.set("pid", materials.get("id"))
+        mesh.set("pindex", str(index))
+    resources.insert(0, materials)
+    encoded = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    directory = os.path.dirname(os.path.abspath(path))
+    with tempfile.NamedTemporaryFile(
+        dir=directory, suffix=".3mf", delete=False
+    ) as temp:
+        temporary = temp.name
+    try:
+        with ZipFile(temporary, "w") as package:
+            for item, data in files:
+                package.writestr(item, encoded if item.filename == model_name else data)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def placed_assembly(entry: RegistryEntry) -> cq.Assembly:
@@ -69,12 +284,14 @@ def placed_assembly(entry: RegistryEntry) -> cq.Assembly:
         ),
     )
     placed = holder.children[0]
-    _push_colors(placed, entry.inherited_color)
+    _push_colors(placed, entry.inherited_color, entry.display_color)
     return placed
 
 
-def _push_colors(node: cq.Assembly, inherited: cq.Color | None) -> None:
-    color = node.color or inherited
+def _push_colors(
+    node: cq.Assembly, inherited: cq.Color | None, override: cq.Color | None = None
+) -> None:
+    color = override or node.color or inherited
     node.color = color
     for child in node.children:
-        _push_colors(child, color)
+        _push_colors(child, color, override)
