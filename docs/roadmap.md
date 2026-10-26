@@ -388,7 +388,7 @@ the code**.
 | ✅ | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
 | ✅ | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
 | ✅ | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
-| | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
+| ✅ | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
 | | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
 | | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
 | | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
@@ -587,7 +587,7 @@ run target's", which removes the special case that BUG-38 slipped through.
 path. The worker traces project modules, reports the paused file, and the
 editor opens that module at its paused line. Profiling records file paths
 and source snapshots so module tabs receive line timings. Closing the run
-script or paused module ends debugging. The protocol is version 10.
+script or paused module ends debugging. The protocol is version 11.
 
 ### REQ-09 · Large and unusual results travel safely
 

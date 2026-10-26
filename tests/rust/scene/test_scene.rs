@@ -418,6 +418,37 @@ fn content_addressed_mesh_references_reuse_cpu_geometry() {
 }
 
 #[test]
+fn streamed_part_is_visible_before_finish_and_resolves_in_final_scene() {
+    let mut scene = Scene::default();
+    let message = worker_node("part", triangle_mesh("streamed"), Mat4::IDENTITY);
+    scene
+        .add_preview_part(7, message.parts.into_iter().next().unwrap())
+        .unwrap();
+    assert_eq!(scene.preview_parts.len(), 1);
+    assert_eq!(scene.visible_bounds().max.x, 1.0);
+
+    let nodes = scene
+        .decode_nodes(
+            Some(7),
+            vec![worker_node(
+                "part",
+                mesh_reference("streamed"),
+                Mat4::IDENTITY,
+            )],
+        )
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        &scene.preview_parts[0].mesh,
+        &nodes[0].parts[0].mesh
+    ));
+    scene.clear_preview();
+    scene.append(nodes, None);
+    scene.release_geometry(|_| false);
+    assert!(scene.preview_parts.is_empty());
+    assert_eq!(scene.nodes[0].parts[0].mesh.indices, [0, 1, 2]);
+}
+
+#[test]
 fn face_colors_are_instance_local_and_preserve_picking_geometry() {
     let mut scene = Scene::default();
     let mut first = worker_node("first", triangle_mesh("shared"), Mat4::IDENTITY);

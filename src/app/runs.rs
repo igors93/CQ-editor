@@ -147,6 +147,7 @@ impl AppState {
             return;
         }
         self.execution.started(id, debug);
+        self.scene.clear_preview();
         // The times of an earlier profile no longer describe the script.
         self.clear_line_profiles();
         if profile {
@@ -188,6 +189,7 @@ impl AppState {
         self.clear_debug_lines();
 
         if stale {
+            self.scene.clear_preview();
             let keys = result.objects.into_iter().flatten().map(|node| node.key);
             self.release(keys.collect());
             log::info!("Discarded the result of a run of the previous document");
@@ -244,6 +246,7 @@ impl AppState {
             // A scene that cannot be decoded is reported, and the rest of
             // the result (variables, a queued render) still applies.
             if let Some(mut nodes) = self.decode_scene_nodes(Some(result.id), objects) {
+                self.scene.clear_preview();
                 self.attach_run_script(result.id, &mut nodes);
                 if let Some(timings) = &result.timings {
                     log::info!("{}", timings.report(&result.receipt, decoding.elapsed()));
@@ -283,6 +286,7 @@ impl AppState {
                 }
             }
         }
+        self.scene.clear_preview();
         if let Some(variables) = result.variables {
             self.variables = variables;
         }
@@ -310,6 +314,7 @@ impl AppState {
     /// A run of the worker failed before it could finish.
     pub(super) fn run_failed(&mut self, id: RequestId, message: String) {
         let RunEnd { stale, rerun } = self.execution.ended(id);
+        self.scene.clear_preview();
         self.clear_debug_lines();
         if stale {
             log::warn!("A run of the previous document failed: {message}");

@@ -162,6 +162,21 @@ class Mesh:
             )
         )
 
+    def non_finite_array(self) -> str | None:
+        """Name the first floating mesh array unsafe to put on the wire."""
+        for name in (
+            "positions",
+            "normals",
+            "edges",
+            "points",
+            "segment_angles",
+            "face_positions",
+            "topology_vertices",
+        ):
+            if not np.isfinite(getattr(self, name)).all():
+                return name
+        return None
+
     def to_message(self, geometry_id: str = "") -> dict:
         lo, hi = self.bounds()
         return {

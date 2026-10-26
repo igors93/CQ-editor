@@ -228,6 +228,9 @@ class Server:
     def run(self, request: Message) -> Message:
         self.registry.release(request.get("release", []))
         builder = self._scene_builder(request)
+        builder.on_part = lambda name, part: self.channel.send(
+            {"type": "run_part", "id": request["id"], "name": name, "part": part}
+        )
         execution = Execution(
             request.get("script", ""),
             request.get("path"),

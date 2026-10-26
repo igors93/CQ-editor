@@ -63,8 +63,8 @@ def test_a_non_finite_number_never_loses_the_whole_run(conversation, caplog):
     assert list(objects) == ["good", "faded"]
     assert objects["faded"]["alpha"] is None
     assert objects["faded"]["color"] == pytest.approx([1, 0, 0], abs=1e-3)
-    assert "Cannot display lost: parts[0]." in caplog.text
-    assert "is not a finite number" in caplog.text
+    assert "Cannot display lost:" in caplog.text
+    assert "NaN or infinity" in caplog.text
 
 
 def test_script_log_reaches_the_gui(conversation):
@@ -385,8 +385,9 @@ def test_editing_one_assembly_part_meshes_and_sends_only_that_part(conversation)
     first = conversation(_assembly_run(1, radius=1))
     first.serve()
     (finished,) = first.of_type("run_finished")
-    before = _meshes(finished["objects"])
+    before = {part["name"]: part["part"]["mesh"] for part in first.of_type("run_part")}
     assert all("bbox" in mesh for mesh in before.values())
+    assert all(list(mesh) == ["id"] for mesh in _meshes(finished["objects"]).values())
     assert finished["timings"]["meshed"] == 3
 
     # The GUI advertises what it holds; only the edited sphere is new.
@@ -394,10 +395,11 @@ def test_editing_one_assembly_part_meshes_and_sends_only_that_part(conversation)
     edited = conversation(_assembly_run(2, radius=2, known=known))
     edited.serve()
     (finished,) = edited.of_type("run_finished")
-    after = _meshes(finished["objects"])
+    after = {part["name"]: part["part"]["mesh"] for part in edited.of_type("run_part")}
     assert after["a"] == {"id": before["a"]["id"]}
     assert after["c"] == {"id": before["c"]["id"]}
     assert "bbox" in after["b"] and after["b"]["id"] != before["b"]["id"]
+    assert all(list(mesh) == ["id"] for mesh in _meshes(finished["objects"]).values())
     timings = finished["timings"]
     assert (timings["meshed"], timings["cached"], timings["referenced"]) == (1, 0, 2)
 

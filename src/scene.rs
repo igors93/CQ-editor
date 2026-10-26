@@ -708,6 +708,26 @@ pub struct Part {
     pub render_mesh: Option<Arc<Mesh>>,
 }
 
+impl Part {
+    fn from_message(
+        part: protocol::Part,
+        library: &mut MeshLibrary,
+        request: Option<RequestId>,
+    ) -> Result<Self, String> {
+        let mesh = library.resolve(part.mesh, request)?;
+        let render_mesh = mesh.with_face_colors(&part.face_attributes);
+        Ok(Self {
+            mesh,
+            transform: Mat4::from_cols_array(&part.transform),
+            color: part.color,
+            alpha: part.alpha,
+            face_attributes: part.face_attributes,
+            material: part.material,
+            render_mesh,
+        })
+    }
+}
+
 /// Display properties the user can change in the Objects panel.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overrides {
@@ -764,17 +784,7 @@ impl SceneNode {
     ) -> Result<Self, String> {
         let mut parts = Vec::with_capacity(message.parts.len());
         for part in message.parts {
-            let mesh = library.resolve(part.mesh, request)?;
-            let render_mesh = mesh.with_face_colors(&part.face_attributes);
-            parts.push(Part {
-                mesh,
-                transform: Mat4::from_cols_array(&part.transform),
-                color: part.color,
-                alpha: part.alpha,
-                face_attributes: part.face_attributes,
-                material: part.material,
-                render_mesh,
-            });
+            parts.push(Part::from_message(part, library, request)?);
         }
         let mut children = Vec::with_capacity(message.children.len());
         for child in message.children {
@@ -1053,6 +1063,8 @@ impl MeshLibrary {
 
 pub struct Scene {
     pub nodes: Vec<SceneNode>,
+    /// Parts of a run still being built; drawn progressively, never picked.
+    pub preview_parts: Vec<Part>,
     pub axes: [AxisHelper; 3],
     /// Selected node keys; the last one is the "current" object.
     pub selection: Vec<NodeKey>,
@@ -1092,6 +1104,7 @@ impl Default for Scene {
         };
         Self {
             nodes: Vec::new(),
+            preview_parts: Vec::new(),
             axes: [
                 axis("X", Vec3::X, [1.0, 0.0, 0.0]),
                 // "lawngreen", as in the original editor.
@@ -1116,6 +1129,20 @@ impl Default for Scene {
 pub type PreservedProperties = HashMap<String, (bool, Overrides)>;
 
 impl Scene {
+    pub fn add_preview_part(
+        &mut self,
+        request: RequestId,
+        part: protocol::Part,
+    ) -> Result<(), String> {
+        self.preview_parts
+            .push(Part::from_message(part, &mut self.meshes, Some(request))?);
+        self.meshes.evict();
+        Ok(())
+    }
+
+    pub fn clear_preview(&mut self) {
+        self.preview_parts.clear();
+    }
     /// Resolves full content-addressed meshes and references in one worker
     /// response to `request`, whose meshes stay pinned until it ends.
     pub fn decode_nodes(
@@ -1176,6 +1203,7 @@ impl Scene {
 
     /// Removes all objects; returns the removed top-level keys.
     pub fn clear(&mut self) -> Vec<NodeKey> {
+        self.clear_preview();
         self.clear_selection();
         let removed: Vec<_> = self.nodes.drain(..).map(|n| n.key).collect();
         if !removed.is_empty() {
@@ -1286,6 +1314,11 @@ impl Scene {
 
     /// Bounds of everything visible except the helpers, as shown (exploded).
     pub fn visible_bounds(&self) -> Aabb {
+        if !self.preview_parts.is_empty() {
+            return self.preview_parts.iter().fold(Aabb::EMPTY, |bounds, part| {
+                bounds.union(part.mesh.bounds.transformed(part.transform))
+            });
+        }
         let mut bounds = self
             .visible_nodes()
             .iter()

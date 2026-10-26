@@ -458,8 +458,9 @@ fn worker_message_limit(line: &[u8]) -> usize {
     // message twice. Quotes inside a JSON string are escaped and therefore
     // cannot match these field encodings.
     const HEADER_BYTES: usize = 1024;
-    const MESH_TYPES: [&[u8]; 4] = [
+    const MESH_TYPES: [&[u8]; 5] = [
         br#""type":"run_finished""#,
+        br#""type":"run_part""#,
         br#""type":"debug_paused""#,
         br#""type":"inspection_geometry""#,
         br#""type":"scene_add""#,

@@ -1098,6 +1098,9 @@ impl Viewer {
         rect: Rect,
         pos: Pos2,
     ) -> Option<(NodeKey, Option<TopologySelection>)> {
+        if !scene.preview_parts.is_empty() {
+            return None;
+        }
         self.pick_index.update(scene);
         let candidate_indices = self.pick_index.query(
             &self.camera,
@@ -1156,7 +1159,11 @@ impl Viewer {
             .iter()
             .map(|selection| selection.node.as_str())
             .collect();
-        for node in scene.visible_nodes() {
+        for node in scene
+            .visible_nodes()
+            .into_iter()
+            .filter(|_| scene.preview_parts.is_empty())
+        {
             let selected =
                 highlighted.contains(&node.key) && !topology_nodes.contains(node.key.as_str());
             let hovered = self.hovered.as_deref() == Some(node.key.as_str());
@@ -1233,7 +1240,36 @@ impl Viewer {
             }
         }
 
-        for (part, transform) in scene.placed_topology_highlights() {
+        for part in &scene.preview_parts {
+            let rgb = part.color.unwrap_or(default_color);
+            let alpha = part.alpha.unwrap_or(1.0);
+            let has_faces = !part.mesh.indices.is_empty();
+            let look = PartLook {
+                face_color: rgb_to_linear(rgb, alpha),
+                edge_color: default_edge,
+                highlight: [0.0; 4],
+                has_faces,
+                emphasized: false,
+                edges: None,
+                finish: if presenting {
+                    presentation.material
+                } else {
+                    crate::settings::Finish::Default
+                },
+            };
+            items.push(DrawItem {
+                mesh: part.render_mesh.as_ref().unwrap_or(&part.mesh).clone(),
+                transform: part.transform,
+                style: self.display_mode.style(look, settings, input.rendering),
+                layer: Layer::Scene,
+            });
+        }
+
+        for (part, transform) in scene
+            .placed_topology_highlights()
+            .into_iter()
+            .filter(|_| scene.preview_parts.is_empty())
+        {
             let color = linear_color(colors.selection, 1.0);
             items.push(DrawItem {
                 mesh: part.mesh.clone(),

@@ -384,6 +384,15 @@ class BuildCancelled(Exception):
     """The GUI cancelled the request while its scene was being built."""
 
 
+class MeshTransferError(Exception):
+    """A single part cannot be sent within the transport's wire limit."""
+
+
+# Base64 expands raw arrays by 4/3; leave room for JSON and metadata below
+# the GUI's 512 MiB limit for one mesh-bearing message.
+MAX_STREAMED_MESH_BYTES = 350 * 1024 * 1024
+
+
 def count_parts(obj: Any) -> int:
     """How many meshes showing ``obj`` takes: one per shape of an assembly."""
 
@@ -417,6 +426,8 @@ class SceneBuilder:
         self.progress: Callable[[int, int], None] | None = None
         #: Asked before each part; true stops :meth:`build`.
         self.cancelled: Callable[[], bool] | None = None
+        #: Send one complete part before its containing scene node is done.
+        self.on_part: Callable[[str, dict], None] | None = None
         self._done = 0
         self._total = 0
 
@@ -431,7 +442,7 @@ class SceneBuilder:
         registered = set(self.registry.keys())
         try:
             return self._build(objects)
-        except (BuildCancelled, KeyboardInterrupt):
+        except (BuildCancelled, MeshTransferError, KeyboardInterrupt):
             self.registry.release(set(self.registry.keys()) - registered)
             raise
 
@@ -442,7 +453,7 @@ class SceneBuilder:
                 node = self.node(
                     name, shown.obj, DisplayOptions.parse(shown.options), shown.line
                 )
-            except BuildCancelled:
+            except (BuildCancelled, MeshTransferError):
                 raise
             except Exception as error:
                 log.error(
@@ -486,9 +497,10 @@ class SceneBuilder:
 
         shape = to_compound(obj)
         topology = TopologyIndex.build(shape.wrapped)
-        part = self._part(shape, topology, None, None, cq.Location(), obj)
+        part = self._part(shape, topology, None, None, cq.Location(), obj, name)
         if part is None:
             return None
+        self._emit_part(name, part)
         key = self.registry.add(
             RegistryEntry(
                 obj,
@@ -529,11 +541,13 @@ class SceneBuilder:
                 *self._part_color(color or self._material_color(material)),
                 location,
                 assembly.obj,
+                name,
             )
             if part is not None:
                 attributes = self._face_attributes(assembly, local_shape)
                 part["face_attributes"] = attributes
                 part["material"] = self._material_message(material)
+                self._emit_part(name, part)
                 parts.append(part)
                 topologies.append(topology)
                 sources.append(PartSource(assembly.obj, location))
@@ -598,10 +612,12 @@ class SceneBuilder:
                     *self._part_color(color or self._material_color(material)),
                     location,
                     node.obj,
+                    node.name,
                 )
                 if part is not None:
                     part["face_attributes"] = self._face_attributes(node, local_shape)
                     part["material"] = self._material_message(material)
+                    self._emit_part(node.name, part)
                     parts.append(part)
                     topologies.append(topology)
                     sources.append(PartSource(node.obj, location))
@@ -632,6 +648,16 @@ class SceneBuilder:
             return None, None
         rgb, alpha = parse_color(color)
         return rgb, alpha
+
+    def _emit_part(self, name: str, part: dict) -> None:
+        if self.on_part is not None:
+            where = non_finite(part)
+            if where is not None:
+                raise ValueError(
+                    f"Cannot display {name}: {where} is not a finite number"
+                )
+            self.on_part(name, part)
+            part["mesh"] = {"id": part["mesh"]["id"]}
 
     @staticmethod
     def _material_color(material: cq.Material | None) -> cq.Color | None:
@@ -689,11 +715,14 @@ class SceneBuilder:
         alpha: float | None,
         location: cq.Location,
         source: Any,
+        name: str,
     ) -> dict | None:
         if self.cancelled is not None and self.cancelled():
             raise BuildCancelled()
         try:
-            return self._mesh_part(shape, topology, color, alpha, location, source)
+            return self._mesh_part(
+                shape, topology, color, alpha, location, source, name
+            )
         finally:
             self._done += 1
             if self.progress is not None:
@@ -707,6 +736,7 @@ class SceneBuilder:
         alpha: float | None,
         location: cq.Location,
         source: Any,
+        name: str,
     ) -> dict | None:
         stats = self.stats
         source_id = id(source)
@@ -731,6 +761,16 @@ class SceneBuilder:
             stats.tessellate += time.perf_counter() - started
             if mesh is None:
                 return None
+            invalid = mesh.non_finite_array()
+            if invalid is not None:
+                raise ValueError(
+                    f"Cannot display {name}: mesh {invalid} contains NaN or infinity"
+                )
+            if mesh.byte_size() > MAX_STREAMED_MESH_BYTES:
+                raise MeshTransferError(
+                    f"{name}: one part is too large to transfer; raise Deviation "
+                    "in Preferences > 3D View or split the part"
+                )
             started = time.perf_counter()
             mesh_message = mesh.to_message(geometry_id)
             stats.encode += time.perf_counter() - started
@@ -740,12 +780,13 @@ class SceneBuilder:
                 stats.meshed += 1
             stats.mesh_bytes += mesh.byte_size()
             self.known_geometry.add(geometry_id)
-        return {
+        part = {
             "mesh": mesh_message,
             "transform": location_matrix(location),
             "color": list(color) if color else None,
             "alpha": alpha,
         }
+        return part
 
     @staticmethod
     def _message(key, name, obj, options, parts, children) -> dict:

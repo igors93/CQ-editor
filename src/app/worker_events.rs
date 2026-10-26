@@ -76,6 +76,7 @@ impl AppState {
     /// Forgets everything that was in flight in the worker.
     fn reset_execution_state(&mut self) {
         self.execution.reset();
+        self.scene.clear_preview();
         self.console.busy = false;
         self.clear_debug_lines();
         self.inspector.loading = false;
@@ -208,6 +209,14 @@ impl AppState {
                 logging::push(Level::from_python(&level), &source, &message);
             }
             Message::RunFinished(result) => self.finish_run(*result),
+            Message::RunPart { id, name, part } => {
+                if matches!(self.execution.pending(id), Some(Pending::Run)) {
+                    match self.scene.add_preview_part(id, *part) {
+                        Ok(()) => self.set_status(StatusKind::Info, format!("Rendering {name}…")),
+                        Err(error) => self.worker_protocol_failed(error),
+                    }
+                }
+            }
             Message::Progress {
                 id,
                 stage,
@@ -242,6 +251,7 @@ impl AppState {
                 }
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
+                self.scene.clear_preview();
                 let Some(mut nodes) = self.decode_scene_nodes(Some(id), objects) else {
                     return;
                 };

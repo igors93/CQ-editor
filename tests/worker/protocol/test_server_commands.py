@@ -283,6 +283,45 @@ def test_debug_pause_identifies_the_project_module(conversation, tmp_path):
     assert talk.of_type("run_finished")[0]["ok"]
 
 
+def test_run_streams_meshes_before_the_final_scene(conversation):
+    script = (
+        "show_object(cq.Workplane().box(1, 1, 1), name='first')\n"
+        "show_object(cq.Workplane().sphere(2), name='second')\n"
+    )
+    talk = conversation({"cmd": "run", "id": 4, "script": script})
+    talk.serve()
+
+    parts = talk.of_type("run_part")
+    (finished,) = talk.of_type("run_finished")
+    assert [part["name"] for part in parts] == ["first", "second"]
+    assert all(part["part"]["mesh"]["indices"] for part in parts)
+    assert all(list(node["parts"][0]["mesh"]) == ["id"] for node in finished["objects"])
+    assert [message["type"] for message in talk.messages].index("run_part") < [
+        message["type"] for message in talk.messages
+    ].index("run_finished")
+
+
+def test_part_limit_reports_the_object_instead_of_breaking_the_pipe(
+    conversation, monkeypatch
+):
+    from cq_worker import scene
+
+    monkeypatch.setattr(scene, "MAX_STREAMED_MESH_BYTES", 1)
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 9,
+            "script": "show_object(cq.Workplane().box(1, 1, 1), name='heavy')",
+        },
+        {"cmd": "run", "id": 10, "script": "print('still alive')"},
+    )
+    talk.serve()
+    (error,) = talk.of_type("error")
+    assert error["id"] == 9
+    assert "heavy" in error["message"] and "too large" in error["message"]
+    assert talk.of_type("run_finished")[0]["id"] == 10
+
+
 def test_brep_export_writes_a_nonempty_file(conversation, tmp_path):
     path = tmp_path / "model.brep"
     talk = conversation(

@@ -12,7 +12,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 pub type RequestId = u64;
 
@@ -290,6 +290,12 @@ pub enum Message {
         message: String,
     },
     RunFinished(Box<RunFinished>),
+    /// One mesh and its placement, sent before the final scene hierarchy.
+    RunPart {
+        id: RequestId,
+        name: String,
+        part: Box<Part>,
+    },
     /// How far a request is, e.g. parts meshed of all.
     Progress {
         id: RequestId,

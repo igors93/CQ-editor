@@ -36,7 +36,7 @@ from typing import Any, BinaryIO
 Message = dict[str, Any]
 
 #: Bumped whenever the message format changes incompatibly.
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 
 #: How often an interruptible request looks for an ``interrupt`` request.
 INTERRUPT_POLL_SECONDS = 0.05

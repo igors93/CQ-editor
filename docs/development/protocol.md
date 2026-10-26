@@ -1,4 +1,4 @@
-# Worker protocol (version 10)
+# Worker protocol (version 11)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":8,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":11,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -99,7 +99,8 @@ The worker handles one request at a time, in arrival order.
 | `fatal` | `message`, `detail`, `executable` | Worker cannot start |
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings`, `profile` | End of a run. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below. `profile`, for a run asked to profile (null otherwise): `lines` (`file` null for main, `line`, `seconds` with everything the line called, `hits`), `operations` (`file`, `line`, `name`, `seconds`, `calls`), at most 8 per line, and `sources` for project modules |
+| `run_part` | `id`, `name`, `part` | A complete mesh part, sent before the final scene. The GUI draws received parts progressively and retains their meshes for this request. A single part exceeding the wire limit fails with an error naming the object. |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings`, `profile` | End of a run. Meshes in `objects` refer by id to preceding `run_part` messages. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below. `profile`, for a run asked to profile (null otherwise): `lines` (`file` null for main, `line`, `seconds` with everything the line called, `hits`), `operations` (`file`, `line`, `name`, `seconds`, `calls`), at most 8 per line, and `sources` for project modules |
 | `progress` | `id`, `stage` (`meshing`), `done`, `total` | How many of the run's parts (one per shape of an assembly) are meshed: first `0`, at most every 0.1 s, and `total` at the end |
 | `debug_paused` | `id`, `line`, `path` (null for the main buffer), `variables`, `objects` | The debugger stopped in this document at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
