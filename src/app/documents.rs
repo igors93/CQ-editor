@@ -10,7 +10,7 @@ use super::{AppState, StatusKind};
 use crate::dialogs::{
     ExternalChange, ExternalChangeChoice, HistoryDialog, Intent, RecoverySession, UnsavedChoice,
 };
-use crate::document::{Document, Encoding, is_not_utf8};
+use crate::document::{DiskVersion, Document, Encoding, is_not_utf8};
 use crate::logging::{self, Level};
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoverySnapshot};
 
@@ -109,15 +109,67 @@ impl AppState {
         }
         match choice {
             ExternalChangeChoice::KeepLocal => {
+                self.keep_local_version(&change);
+                if change.on_save {
+                    self.save();
+                } else {
+                    self.set_status(
+                        StatusKind::Info,
+                        format!("Kept unsaved changes to {}", self.document.display_name()),
+                    );
+                }
+                self.rerun_after_external_change(change.rerun_after_resolution);
+            }
+            ExternalChangeChoice::Cancel => {
                 self.set_status(
                     StatusKind::Info,
-                    format!("Kept unsaved changes to {}", self.document.display_name()),
+                    format!("{} was not saved", self.document.display_name()),
                 );
                 self.rerun_after_external_change(change.rerun_after_resolution);
             }
             ExternalChangeChoice::Reload => self.reload_external_change(change),
             ExternalChangeChoice::SaveCopy => self.save_copy_then_reload(change),
         }
+    }
+
+    /// The user keeps the buffer over the version another program wrote:
+    /// that version goes to the local history, since the next save replaces
+    /// it, and becomes the baseline the save no longer asks about.
+    fn keep_local_version(&mut self, change: &ExternalChange) {
+        if let Err(error) = self.recovery.archive_path(&change.path) {
+            log::warn!(
+                "Cannot keep the disk version of {} in local history: {error}",
+                change.path.display()
+            );
+        }
+        self.document.adopt_disk_baseline(&change.disk);
+    }
+
+    /// Saving would replace a version of the file the editor has not seen:
+    /// the user is asked first, with the dialog of the file watcher.
+    fn ask_before_overwriting(&mut self, disk: DiskVersion) {
+        let Some(path) = self.document.path().map(Path::to_path_buf) else {
+            return;
+        };
+        let change = ExternalChange {
+            path,
+            disk,
+            show_comparison: false,
+            rerun_after_resolution: false,
+            on_save: true,
+        };
+        if self.dialogs.external_change.is_none() {
+            self.dialogs.external_change = Some(change);
+        } else {
+            self.dialogs.external_queue.insert(0, change);
+        }
+        self.set_status(
+            StatusKind::Warning,
+            format!(
+                "{} was changed by another program; nothing was saved yet",
+                self.document.display_name()
+            ),
+        );
     }
 
     fn perform(&mut self, intent: Intent) {
@@ -234,9 +286,32 @@ impl AppState {
         }
     }
 
-    /// Returns whether the document ended up saved.
+    /// Returns whether the document ended up saved. A file that another
+    /// program changed since it was loaded or saved is not replaced without
+    /// asking.
     pub(super) fn save(&mut self) -> bool {
         self.checkpoint_recovery();
+        match self.document.unseen_disk_version() {
+            Ok(None) => {}
+            Ok(Some(disk)) => {
+                self.ask_before_overwriting(disk);
+                return false;
+            }
+            Err(error) => {
+                let path = self
+                    .document
+                    .path()
+                    .map_or_else(String::new, |path| path.display().to_string());
+                self.dialogs.error(
+                    "Cannot save",
+                    format!(
+                        "{path} could not be read to check it before saving:\n{error}\n\n\
+                         Nothing was saved. Use Save As to save your edits elsewhere."
+                    ),
+                );
+                return false;
+            }
+        }
         match self.document.save() {
             Ok(true) => {
                 self.after_save();

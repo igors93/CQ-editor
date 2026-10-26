@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Fixed: saving replaced a version of the file that another program had
+  written since it was opened or saved: with automatic reload off (the
+  default), a Ctrl+S could undo a `git pull`. Saving now asks first, with
+  the File changed on disk dialog, and keeps the replaced version in the
+  local history (BUG-33)
 * New: View > Command Palette (Ctrl+Shift+P) finds any command, tab,
   recent file, example, panel or named view by a few letters of its name,
   and shows its shortcut

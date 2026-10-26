@@ -35,16 +35,22 @@ pub enum UnsavedChoice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalChangeChoice {
     Reload,
+    /// Keep the buffer; a save that asked goes ahead over the disk version.
     KeepLocal,
     SaveCopy,
+    /// A save that asked is given up; nothing changes.
+    Cancel,
 }
 
-/// An on-disk edit that conflicts with unsaved editor contents.
+/// An on-disk edit that conflicts with the editor contents.
 pub struct ExternalChange {
     pub path: PathBuf,
     pub disk: DiskVersion,
     pub show_comparison: bool,
     pub rerun_after_resolution: bool,
+    /// Found by a save, which waits for the answer, rather than by the
+    /// file watcher.
+    pub on_save: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -582,7 +588,8 @@ fn legacy_encoding(ctx: &egui::Context, path: &Path) -> Option<bool> {
 }
 
 /// Returns a resolution only after an explicit choice. Comparing keeps the
-/// dialog open and Escape takes the lossless "keep local" path.
+/// dialog open, and Escape takes the lossless path: keeping the buffer, or
+/// giving up the save that asked.
 fn external_change(
     ctx: &egui::Context,
     name: &str,
@@ -602,10 +609,19 @@ fn external_change(
                 );
                 ui.vertical(|ui| {
                     ui.label(RichText::new("File changed on disk").strong().size(16.0));
-                    ui.label(format!(
-                        "{name} was changed by another program while you have unsaved edits."
-                    ));
-                    ui.weak("Your editor contents have not been replaced.");
+                    if change.on_save {
+                        ui.label(format!(
+                            "{name} was changed by another program since you opened or \
+                             saved it. Saving would replace that version."
+                        ));
+                        ui.weak("Nothing was saved yet.");
+                    } else {
+                        ui.label(format!(
+                            "{name} was changed by another program while you have unsaved \
+                             edits."
+                        ));
+                        ui.weak("Your editor contents have not been replaced.");
+                    }
                 });
             });
 
@@ -640,18 +656,27 @@ fn external_change(
             ui.add_space(12.0);
             ui.weak(
                 "Reload creates a recovery backup before replacing the editor contents. \
-                 Saving a copy preserves your version separately, then reloads the disk version.",
+                 Saving a copy preserves your version separately, then reloads the disk version. \
+                 The disk version is kept in the local history before it is overwritten.",
             );
             ui.add_space(8.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let keep = if change.on_save {
+                    "Save my version"
+                } else {
+                    "Keep my version"
+                };
                 if ui
                     .add(
-                        egui::Button::new(RichText::new("Keep my version").strong())
+                        egui::Button::new(RichText::new(keep).strong())
                             .fill(ui.visuals().selection.bg_fill),
                     )
                     .clicked()
                 {
                     choice = Some(ExternalChangeChoice::KeepLocal);
+                }
+                if change.on_save && ui.button("Cancel").clicked() {
+                    choice = Some(ExternalChangeChoice::Cancel);
                 }
                 if ui.button("Reload from disk").clicked() {
                     choice = Some(ExternalChangeChoice::Reload);
@@ -670,7 +695,11 @@ fn external_change(
             });
         });
     if response.should_close() && choice.is_none() {
-        choice = Some(ExternalChangeChoice::KeepLocal);
+        choice = Some(if change.on_save {
+            ExternalChangeChoice::Cancel
+        } else {
+            ExternalChangeChoice::KeepLocal
+        });
     }
     choice
 }

@@ -134,6 +134,7 @@ impl AppState {
                         disk,
                         show_comparison: false,
                         rerun_after_resolution: is_script,
+                        on_save: false,
                     });
                 }
                 Some(ExternalUpdate::MatchesBuffer | ExternalUpdate::Reload) => {

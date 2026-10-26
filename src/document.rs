@@ -309,6 +309,29 @@ impl Document {
         }))
     }
 
+    /// The file's contents when another program changed them since they
+    /// were last loaded or saved, which a save would replace unseen. `None`
+    /// for untitled buffers, for a file that still holds that version or
+    /// the buffer's own text, and for a deleted file, which saving recreates.
+    pub fn unseen_disk_version(&self) -> io::Result<Option<DiskVersion>> {
+        match self.disk_version() {
+            Ok(Some(version))
+                if !self.disk_matches_saved(&version) && version.text != self.text =>
+            {
+                Ok(Some(version))
+            }
+            Ok(_) => Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The user saw `version` and keeps the buffer: it becomes the saved
+    /// baseline, so the buffer counts as modified until it is saved over it.
+    pub fn adopt_disk_baseline(&mut self, version: &DiskVersion) {
+        self.saved_hash = hash(&version.text);
+    }
+
     /// Whether a disk snapshot still has the contents last loaded or saved.
     pub fn disk_matches_saved(&self, version: &DiskVersion) -> bool {
         self.path.as_ref() == Some(&version.path) && hash(&version.text) == self.saved_hash

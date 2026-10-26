@@ -173,6 +173,41 @@ fn classifies_external_updates_without_mutating_the_buffer() {
 }
 
 #[test]
+fn a_save_finds_the_version_another_program_wrote() {
+    let path = temporary_file("unseen.py");
+    std::fs::write(&path, "original\n").unwrap();
+    let mut doc = Document::open(&path).unwrap();
+    assert!(doc.unseen_disk_version().unwrap().is_none());
+
+    // Even an unedited buffer would replace it.
+    std::fs::write(&path, "theirs\n").unwrap();
+    let unseen = doc.unseen_disk_version().unwrap().unwrap();
+    assert_eq!(unseen.text, "theirs\n");
+
+    // Contents equal to the buffer lose nothing.
+    doc.text = "theirs\n".into();
+    assert!(doc.unseen_disk_version().unwrap().is_none());
+
+    // Once seen and kept, the buffer stays modified and saving goes ahead.
+    doc.text = "mine\n".into();
+    doc.adopt_disk_baseline(&unseen);
+    assert!(doc.is_modified());
+    assert!(doc.unseen_disk_version().unwrap().is_none());
+    assert!(doc.save().unwrap());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "mine\n");
+
+    // A deleted file is simply written again.
+    std::fs::remove_file(&path).unwrap();
+    assert!(doc.unseen_disk_version().unwrap().is_none());
+    assert!(
+        Document::untitled("x")
+            .unseen_disk_version()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn recovery_backup_preserves_edits_without_marking_them_saved() {
     let path = temporary_file("recovery.py");
     let recovery_dir = temporary_file("recovery-dir");

@@ -194,13 +194,19 @@ on disk** dialog appears:
 
 | Choice | Result |
 | --- | --- |
-| **Keep my version** | The buffer is unchanged. Saving later overwrites the disk version |
+| **Keep my version** | The buffer is unchanged. Saving later overwrites the disk version, which is first kept in the local history |
 | **Reload from disk** | The disk version replaces the buffer. Your edits are first saved as a recovery backup, whose path is shown in the status bar and the log |
 | **Save a copy…** | Saves your edits under another name (`<name>.local-copy.py` by default), then reloads the disk version |
 | **Compare changes** | Shows both versions side by side before you decide |
 
 If the disk version matches your buffer, nothing is lost and the reload
 happens without a question.
+
+Saving checks the file too, with or without automatic reload. If another
+program (git, another editor, a formatter) changed it since you opened or
+last saved it, nothing is written: the same dialog asks first, with
+**Save my version** (the other version is kept in the local history before
+it is replaced) and **Cancel** in place of *Keep my version*.
 
 ## Crash recovery and local history
 

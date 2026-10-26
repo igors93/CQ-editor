@@ -95,7 +95,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 
 | Status | Id | Problem | Priority |
 | :---: | --- | --- | --- |
-| | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
+| ✅ | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
 | | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
 | | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
 | | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
@@ -105,6 +105,17 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
 
 ### BUG-33 · Saving replaces a newer version on disk without a word
+
+✅ **Resolved.** `Document::unseen_disk_version` reads the file before a
+save and returns it when it is neither the saved baseline nor the buffer's
+text; a deleted file is simply written again. `AppState::save` then writes
+nothing and opens the **File changed on disk** dialog (`on_save`), with
+**Save my version**, **Reload from disk**, **Save a copy…** and **Cancel**;
+Escape cancels. Keeping one's version, from a save or from the watcher,
+archives the disk version in the local history and adopts it as the
+baseline (`adopt_disk_baseline`), so the next save goes ahead. Tests:
+`a_save_finds_the_version_another_program_wrote`,
+`saving_never_replaces_a_version_another_program_wrote_unseen`.
 
 *Evidence: test.* **Where:** `src/document.rs` (`Document::save`, `write`),
 `src/app/documents.rs` (`AppState::save`).
@@ -312,6 +323,9 @@ deleted or moved says so in its title.
 **How it helps the code.** One conflict path (`ExternalChange`) for the
 watcher, save and focus, instead of a protection that exists only while
 autoreload is on. `Document::save` gets a precondition the tests can state.
+
+**Progress.** The check on save is done (BUG-33). The check when the window
+gets focus back and the title of a deleted file remain.
 
 ### REQ-02 · Dialogs own the keyboard and their document
 

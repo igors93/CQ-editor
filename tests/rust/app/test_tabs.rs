@@ -432,6 +432,68 @@ fn a_file_changed_on_disk_reloads_its_tab_unless_it_has_unsaved_edits() {
 }
 
 #[test]
+fn saving_never_replaces_a_version_another_program_wrote_unseen() {
+    use crate::dialogs::ExternalChangeChoice;
+    let dir = folder("save-conflict", &[("part.py", "width = 1\n")]);
+    let file = dir.join("part.py");
+    let mut state = state_in(&dir);
+    open(&mut state, &file);
+    assert!(
+        !state.settings.editor.autoreload,
+        "nothing watches the file"
+    );
+
+    // Another program saves; a habitual Ctrl+S must not undo it.
+    std::fs::write(&file, "width = 2  # theirs\n").unwrap();
+    state.execute(Action::Save);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "width = 2  # theirs\n"
+    );
+    let change = state.dialogs.external_change.take().expect("asked");
+    assert!(change.on_save);
+    assert_eq!(change.disk.text, "width = 2  # theirs\n");
+
+    // Cancel saves nothing.
+    state.resolve_external_change(change, ExternalChangeChoice::Cancel);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "width = 2  # theirs\n"
+    );
+
+    // Saving my version replaces it, keeping it in the local history.
+    state.document.text = "width = 3  # mine\n".into();
+    state.execute(Action::Save);
+    let change = state.dialogs.external_change.take().expect("asked again");
+    state.resolve_external_change(change, ExternalChangeChoice::KeepLocal);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "width = 3  # mine\n"
+    );
+    assert!(!state.document.is_modified());
+    let history = state.recovery.history(Some(&file)).unwrap();
+    assert!(history.iter().any(|v| v.text == "width = 2  # theirs\n"));
+
+    // Reloading takes the other version instead.
+    std::fs::write(&file, "width = 4  # theirs again\n").unwrap();
+    state.execute(Action::Save);
+    let change = state.dialogs.external_change.take().expect("asked");
+    state.resolve_external_change(change, ExternalChangeChoice::Reload);
+    assert_eq!(state.document.text, "width = 4  # theirs again\n");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "width = 4  # theirs again\n"
+    );
+
+    // Without a change elsewhere, saving asks nothing.
+    state.document.text = "width = 5\n".into();
+    state.execute(Action::Save);
+    assert!(state.dialogs.external_change.is_none());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "width = 5\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn completions_asked_for_in_another_tab_are_dropped() {
     use crate::app::execution::Pending;
     let dir = folder("completions", &[("a.py", "import cadquery as cq\ncq.\n")]);
