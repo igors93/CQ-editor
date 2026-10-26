@@ -67,6 +67,20 @@ in screenshots too.
 | Edges | All edges | Which edges Shaded, X-Ray and Hidden Line draw, when *3D View > Show edges* is on: **All edges**; **Sharp edges**, without the edges between faces that continue smoothly (a fillet's borders, the seams of cylinders and spheres, faces split in one plane); or **Outline**, the sharp edges plus the outline of curved surfaces as seen from the camera. Wireframe always draws every edge |
 | Sharp edge angle | 30° | Faces meeting at less than this angle continue smoothly: Sharp edges and Outline leave their edge out |
 
+## Presentation
+
+The look of the Presentation display mode (*View > Presentation*), apart
+from the modeling view.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| Material | Matte plastic | The material of objects whose script and Objects panel choose none |
+| Show edges | off | Each object can still override it in the Objects panel |
+| Edges | Outline | Which edges, when shown: All edges, Sharp edges or Outline (see *Rendering*) |
+| Background, top / bottom | (236, 237, 240) / (188, 191, 198) | A vertical gradient |
+| Axes and grid | off | Also draws the axes, the ground grid and the scale bar |
+| Lighting … Contrast | Studio | The same controls as in *Rendering*, for this mode |
+
 ## Editor
 
 | Option | Default | Description |

@@ -87,6 +87,7 @@ part of a named view.
 | Shaded | Shift+F10 |
 | X-Ray (see-through faces) | Shift+F11 |
 | Hidden Line (visible edges, hidden ones dashed) | Shift+F12 |
+| Presentation (the model for showing) | View menu, toolbar ✦, command palette |
 | Perspective Projection (toggle) | View menu |
 
 **X-Ray** draws faces at 30% opacity (less if the object is already more
@@ -96,6 +97,18 @@ behind them, which leaves a line drawing of the visible edges. Hidden
 edges are drawn as faint dashes; turn *Hidden edges* off in *Preferences >
 3D View* for visible edges only. In this mode a [section](#section-view)
 is hatched in the edge color.
+
+**Presentation** is for showing a model rather than working on it: in
+screenshots, turntables, reviews. It has settings of its own, in
+*Preferences > Presentation*, so switching back to Shaded restores the
+modeling view untouched. By default it draws no edges, lights the model
+with the Studio lights, shades objects without a material of their own
+as matte plastic, puts the model on a light grey gradient and leaves out
+the axes, the ground grid and the scale bar. Every one of these can be
+changed there: edges (with the Outline style, the contour of curved
+surfaces and the sharp edges), the lights, the default material, the two
+background colors and the helpers. Objects keep their own colors and
+materials, and the Objects panel's Edges and Material choices still apply.
 
 In Shaded and X-Ray modes each object can show or hide its own edges: the
 **Edges** checkbox in the Objects panel's property sheet overrides *Show

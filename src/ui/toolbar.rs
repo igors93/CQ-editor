@@ -329,6 +329,11 @@ fn group_ui(
                         icon::RECTANGLE_DASHED,
                         "Hidden line: visible edges, hidden ones dashed",
                     ),
+                    DisplayMode::Presentation => (
+                        icon::SPARKLE,
+                        "Presentation: the model for showing, with the lights, material \
+                         and background of Preferences > Presentation",
+                    ),
                 };
                 tool(
                     ui,

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* New: a Presentation display mode (View menu, toolbar ✦, command palette)
+  for showing a model: no edges, Studio lights, matte plastic for objects
+  without a material, a light grey gradient and no axes, grid or scale bar
+  by default, all set apart from the modeling view in *Preferences >
+  Presentation*
 * New: materials. `show_object(part, material="matte plastic")` shades an
   object as matte or glossy plastic, brushed steel, aluminum or wood, by
   metalness and roughness, with metals reflecting a soft studio around the

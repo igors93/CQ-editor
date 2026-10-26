@@ -72,14 +72,19 @@ pub enum DisplayMode {
     /// Faces filled with the background: the visible edges are drawn, the
     /// hidden ones as faint dashes (unless turned off in the preferences).
     HiddenLine,
+    /// For showing the model rather than working on it: the settings of
+    /// Preferences > Presentation (no edges, studio lights, a material for
+    /// objects without one, a light background, no helpers by default).
+    Presentation,
 }
 
 impl DisplayMode {
-    pub const ALL: [DisplayMode; 4] = [
+    pub const ALL: [DisplayMode; 5] = [
         DisplayMode::Wireframe,
         DisplayMode::Shaded,
         DisplayMode::XRay,
         DisplayMode::HiddenLine,
+        DisplayMode::Presentation,
     ];
 
     pub fn label(self) -> &'static str {
@@ -88,6 +93,7 @@ impl DisplayMode {
             DisplayMode::Wireframe => "Wireframe",
             DisplayMode::XRay => "X-Ray",
             DisplayMode::HiddenLine => "Hidden Line",
+            DisplayMode::Presentation => "Presentation",
         }
     }
 
@@ -100,11 +106,17 @@ impl DisplayMode {
         settings: &settings::Viewer,
         rendering: &settings::Rendering,
     ) -> Style {
+        let presentation = &rendering.presentation;
+        let edge_style = if self == DisplayMode::Presentation {
+            presentation.edges
+        } else {
+            rendering.edges
+        };
         let filtered = look.has_faces && self != DisplayMode::Wireframe;
         let (edge_min_angle, silhouettes) = if filtered {
             (
-                rendering.edges.minimum_angle(rendering.sharp_angle),
-                rendering.edges == settings::EdgeStyle::Outline,
+                edge_style.minimum_angle(rendering.sharp_angle),
+                edge_style == settings::EdgeStyle::Outline,
             )
         } else {
             (0.0, false)
@@ -113,13 +125,14 @@ impl DisplayMode {
             // The edges are all there is to see.
             DisplayMode::Wireframe | DisplayMode::HiddenLine => true,
             DisplayMode::Shaded | DisplayMode::XRay => look.edges.unwrap_or(settings.show_edges),
+            DisplayMode::Presentation => look.edges.unwrap_or(presentation.show_edges),
         } || !look.has_faces;
         let mut face_color = look.face_color;
         match self {
             DisplayMode::XRay => face_color[3] = face_color[3].min(XRAY_OPACITY),
             // Transparent faces would not hide the edges behind them.
             DisplayMode::HiddenLine => face_color[3] = 1.0,
-            DisplayMode::Shaded | DisplayMode::Wireframe => {}
+            DisplayMode::Shaded | DisplayMode::Wireframe | DisplayMode::Presentation => {}
         }
         let edge_width = if look.has_faces {
             settings.edge_width
@@ -533,6 +546,7 @@ impl Viewer {
                 // Captures show every part in full, whatever its size here.
                 let full_items = (self.simplifying && self.capture.is_some())
                     .then(|| self.draw_items(&input, false));
+                let (lighting, top, bottom) = self.backdrop(&input);
                 let renderer = self
                     .renderer
                     .get_or_insert_with(|| SceneRenderer::new(render_state));
@@ -543,12 +557,6 @@ impl Viewer {
                 ];
                 self.view_px = size;
                 let settings = input.settings;
-                let top = linear_rgba(settings.background, 1.0);
-                let bottom = if settings.use_gradient {
-                    linear_rgba(settings.background_aux, 1.0)
-                } else {
-                    top
-                };
                 let frame_input = FrameInput {
                     camera: &self.camera,
                     size,
@@ -558,7 +566,7 @@ impl Viewer {
                     section: self.section.renderer_plane(bounds),
                     pixel_scale: 1.0,
                     eye: self.camera.mono_eye(),
-                    lighting: input.rendering.lighting,
+                    lighting,
                 };
                 let stereo = (settings.projection == settings::Projection::Stereo)
                     .then_some(settings.stereo_mode);
@@ -659,6 +667,27 @@ impl Viewer {
             show_meshing_controls(ui, rect, controls, progress, &mut events);
         }
         events
+    }
+
+    /// The lights and the background (top and bottom of the gradient,
+    /// linear) of the display mode: Presentation has its own.
+    fn backdrop(&self, input: &ViewInput<'_>) -> (settings::Lighting, [f32; 4], [f32; 4]) {
+        if self.display_mode == DisplayMode::Presentation {
+            let presentation = &input.rendering.presentation;
+            return (
+                presentation.lighting,
+                linear_rgba(presentation.background_top, 1.0),
+                linear_rgba(presentation.background_bottom, 1.0),
+            );
+        }
+        let settings = input.settings;
+        let top = linear_rgba(settings.background, 1.0);
+        let bottom = if settings.use_gradient {
+            linear_rgba(settings.background_aux, 1.0)
+        } else {
+            top
+        };
+        (input.rendering.lighting, top, bottom)
     }
 
     fn apply_settings(&mut self, settings: &settings::Viewer) {
@@ -1086,6 +1115,10 @@ impl Viewer {
         let (scene, settings, colors) = (input.scene, input.settings, input.colors);
         let default_color = srgb_unit(settings.default_color);
         let default_edge = linear_rgba(settings.edge_color, 1.0);
+        let presentation = &input.rendering.presentation;
+        let presenting = self.display_mode == DisplayMode::Presentation;
+        // The axes and the ground grid, which Presentation leaves out.
+        let helpers = !presenting || presentation.helpers;
         let mut items = Vec::new();
 
         // Selecting an assembly highlights all of its parts.
@@ -1105,9 +1138,21 @@ impl Viewer {
             let selected =
                 highlighted.contains(&node.key) && !topology_nodes.contains(node.key.as_str());
             let hovered = self.hovered.as_deref() == Some(node.key.as_str());
-            let finish = node.finish();
+            // Presentation gives objects without a material its own, and
+            // that material's color to those without a color either.
+            let own_finish = node.overrides.finish.or(node.finish);
+            let (finish, fallback_color) = match own_finish {
+                None if presenting => (
+                    presentation.material,
+                    presentation
+                        .material
+                        .natural_color()
+                        .unwrap_or(default_color),
+                ),
+                _ => (node.finish(), default_color),
+            };
             for part in &node.parts {
-                let (rgb, alpha) = node.part_color(part, default_color);
+                let (rgb, alpha) = node.part_color(part, fallback_color);
                 let has_faces = !part.mesh.indices.is_empty();
                 let highlight = if selected {
                     with_alpha(colors.selection, 0.6)
@@ -1205,7 +1250,9 @@ impl Viewer {
                 [line(x.direction), line(y.direction), line(z.direction)],
             ));
         }
-        if let Some((_, meshes)) = &self.axis_meshes {
+        if let Some((_, meshes)) = &self.axis_meshes
+            && helpers
+        {
             for (axis, mesh) in scene.axes.iter().zip(meshes) {
                 if axis.visible {
                     items.push(line_item(
@@ -1218,7 +1265,9 @@ impl Viewer {
             }
         }
 
-        if let Some((ground, minor, major)) = &self.ground {
+        if let Some((ground, minor, major)) = &self.ground
+            && helpers
+        {
             let color = |alpha| linear_color(colors.grid, alpha);
             items.push(line_item(
                 minor.clone(),
@@ -1303,7 +1352,8 @@ impl Viewer {
         }
 
         let mut bottom = rect.bottom() - 10.0;
-        if input.settings.scale_bar {
+        let presenting = self.display_mode == DisplayMode::Presentation;
+        if input.settings.scale_bar && (!presenting || input.rendering.presentation.helpers) {
             let units_per_point = ground::units_per_point(&self.camera, rect.height());
             let bar = ScaleBar::new(units_per_point, input.settings.units);
             let mut label = bar.label.clone();

@@ -4,7 +4,8 @@ use egui_phosphor::regular as icon;
 
 use crate::commands::Action;
 use crate::settings::{
-    EdgeStyle, Lighting, LightingPreset, OrbitMethod, Projection, Settings, Theme,
+    EdgeStyle, Finish, Lighting, LightingPreset, OrbitMethod, Projection, Rendering, Settings,
+    Theme,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -13,16 +14,18 @@ pub enum Page {
     General,
     Viewer,
     Rendering,
+    Presentation,
     Editor,
     Objects,
     Execution,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [
+    const ALL: [Page; 7] = [
         Page::General,
         Page::Viewer,
         Page::Rendering,
+        Page::Presentation,
         Page::Editor,
         Page::Objects,
         Page::Execution,
@@ -33,6 +36,7 @@ impl Page {
             Page::General => "General",
             Page::Viewer => "3D View",
             Page::Rendering => "Rendering",
+            Page::Presentation => "Presentation",
             Page::Editor => "Editor",
             Page::Objects => "Objects",
             Page::Execution => "Execution",
@@ -44,6 +48,7 @@ impl Page {
             Page::General => icon::SLIDERS_HORIZONTAL,
             Page::Viewer => icon::CUBE,
             Page::Rendering => icon::SUN,
+            Page::Presentation => icon::SPARKLE,
             Page::Editor => icon::CODE,
             Page::Objects => icon::TREE_STRUCTURE,
             Page::Execution => icon::PLAY,
@@ -96,6 +101,7 @@ pub fn window(
                                     Page::General => general(ui, settings, actions),
                                     Page::Viewer => viewer(ui, settings),
                                     Page::Rendering => rendering(ui, settings),
+                                    Page::Presentation => presentation(ui, settings),
                                     Page::Editor => editor(ui, settings),
                                     Page::Objects => objects(ui, settings),
                                     Page::Execution => execution(ui, settings),
@@ -120,7 +126,14 @@ fn restore_defaults(page: Page, settings: &mut Settings) {
     match page {
         Page::General => settings.general = defaults.general,
         Page::Viewer => settings.viewer = defaults.viewer,
-        Page::Rendering => settings.rendering = defaults.rendering,
+        // Presentation has a page of its own.
+        Page::Rendering => {
+            settings.rendering = Rendering {
+                presentation: settings.rendering.presentation.clone(),
+                ..defaults.rendering
+            }
+        }
+        Page::Presentation => settings.rendering.presentation = defaults.rendering.presentation,
         Page::Editor => settings.editor = defaults.editor,
         Page::Objects => settings.objects = defaults.objects,
         Page::Execution => settings.execution = defaults.execution,
@@ -440,6 +453,65 @@ fn rendering(ui: &mut egui::Ui, settings: &mut Settings) {
             );
         },
     );
+}
+
+/// The Presentation display mode's own look.
+fn presentation(ui: &mut egui::Ui, settings: &mut Settings) {
+    let presentation = &mut settings.rendering.presentation;
+    row(
+        ui,
+        "Material",
+        "The material of objects whose script and Objects panel choose none",
+        |ui| {
+            egui::ComboBox::from_id_salt("presentation_material")
+                .selected_text(presentation.material.label())
+                .show_ui(ui, |ui| {
+                    for finish in Finish::ALL {
+                        ui.selectable_value(&mut presentation.material, finish, finish.label());
+                    }
+                });
+        },
+    );
+    row(
+        ui,
+        "Show edges",
+        "Off, the shapes speak alone; each object can still override it in the Objects panel",
+        |ui| {
+            ui.checkbox(&mut presentation.show_edges, "");
+        },
+    );
+    row(
+        ui,
+        "Edges",
+        "Which edges, when they are shown: Outline gives the contour of curved surfaces \
+         and the sharp edges, as an illustration has them",
+        |ui| {
+            ui.add_enabled_ui(presentation.show_edges, |ui| {
+                egui::ComboBox::from_id_salt("presentation_edges")
+                    .selected_text(presentation.edges.label())
+                    .show_ui(ui, |ui| {
+                        for style in EdgeStyle::ALL {
+                            ui.selectable_value(&mut presentation.edges, style, style.label());
+                        }
+                    });
+            });
+        },
+    );
+    color_row(ui, "Background, top", &mut presentation.background_top);
+    color_row(
+        ui,
+        "Background, bottom",
+        &mut presentation.background_bottom,
+    );
+    row(
+        ui,
+        "Axes and grid",
+        "Draw the axes, the ground grid and the scale bar in this mode too",
+        |ui| {
+            ui.checkbox(&mut presentation.helpers, "");
+        },
+    );
+    lighting_rows(ui, "presentation_lighting", &mut presentation.lighting);
 }
 
 /// The rows of one set of lights, starting with a preset.

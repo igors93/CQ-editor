@@ -526,6 +526,8 @@ pub struct Rendering {
     /// Edges whose faces meet at less than this many degrees are smooth:
     /// the Sharp and Outline styles leave them out.
     pub sharp_angle: f32,
+    /// The Presentation display mode's own settings.
+    pub presentation: Presentation,
 }
 
 impl Default for Rendering {
@@ -534,6 +536,42 @@ impl Default for Rendering {
             lighting: Lighting::default(),
             edges: EdgeStyle::All,
             sharp_angle: 30.0,
+            presentation: Presentation::default(),
+        }
+    }
+}
+
+/// The Presentation display mode, for showing a model rather than working
+/// on it: lights, edges, a material for objects without one, a background
+/// and helpers of its own, so switching back to Shaded restores the
+/// modeling view untouched.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Presentation {
+    pub lighting: Lighting,
+    /// Edges are drawn at all; off, the shapes speak alone.
+    pub show_edges: bool,
+    /// Which edges, when they are drawn.
+    pub edges: EdgeStyle,
+    /// The material of objects whose script and Objects panel choose none.
+    pub material: Finish,
+    /// The background, a vertical gradient from top to bottom (sRGB).
+    pub background_top: [u8; 3],
+    pub background_bottom: [u8; 3],
+    /// The axes and the ground grid are drawn.
+    pub helpers: bool,
+}
+
+impl Default for Presentation {
+    fn default() -> Self {
+        Self {
+            lighting: LightingPreset::Studio.lighting(),
+            show_edges: false,
+            edges: EdgeStyle::Outline,
+            material: Finish::MattePlastic,
+            background_top: [236, 237, 240],
+            background_bottom: [188, 191, 198],
+            helpers: false,
         }
     }
 }

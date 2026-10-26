@@ -448,6 +448,113 @@ fn large_models_draw_small_parts_simplified_but_never_the_selection() {
 }
 
 #[test]
+fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
+    use crate::scene::{Part, SceneNode};
+    use crate::settings::{EdgeStyle, Finish, Rendering};
+    let part = |name: &str, finish: Option<Finish>| SceneNode {
+        key: name.into(),
+        name: name.into(),
+        kind: "Workplane".into(),
+        inspectable: false,
+        parts: vec![Part {
+            mesh: Arc::new(fine_plate(4)),
+            transform: GMat4::IDENTITY,
+            color: None,
+            alpha: None,
+        }],
+        children: Vec::new(),
+        visible: true,
+        color: None,
+        alpha: None,
+        edge_color: None,
+        finish,
+        overrides: Default::default(),
+        line: None,
+        script: None,
+    };
+    let mut scene = Scene::default();
+    scene.append(
+        vec![
+            part("plain", None),
+            part("steel", Some(Finish::BrushedSteel)),
+        ],
+        None,
+    );
+    let settings = crate::settings::Viewer::default();
+    let colors = crate::theme::Palette::DARK.viewer();
+    let mut viewer = Viewer::default();
+    viewer.update_ground(
+        true,
+        Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)),
+    );
+    let mut rendering = Rendering::default();
+    rendering.presentation.material = Finish::Aluminum;
+    let items = |viewer: &mut Viewer, rendering: &Rendering| {
+        let input = ViewInput {
+            scene: &scene,
+            settings: &settings,
+            rendering,
+            colors: &colors,
+            busy: None,
+            empty_hint: None,
+            meshing: None,
+        };
+        viewer.draw_items(&input, false)
+    };
+
+    // Shaded: the plain shading, every edge, the axes and the grid.
+    let shaded = items(&mut viewer, &rendering);
+    assert_eq!(shaded.len(), 2 + 3 + 2);
+    assert_eq!(shaded[0].style.surface, Finish::Default.surface());
+    assert!(shaded[0].style.edges);
+
+    viewer.display_mode = DisplayMode::Presentation;
+    let presented = items(&mut viewer, &rendering);
+    assert_eq!(presented.len(), 2, "no axes, no grid");
+    let (plain, steel) = (&presented[0].style, &presented[1].style);
+    assert_eq!(plain.surface, Finish::Aluminum.surface(), "its default");
+    assert_eq!(steel.surface, Finish::BrushedSteel.surface(), "its own");
+    // The default material's color for an object without one.
+    let aluminum = Finish::Aluminum.natural_color().unwrap();
+    assert_eq!(plain.face_color, super::rgb_to_linear(aluminum, 1.0));
+    assert!(!plain.edges && !steel.edges, "no edges by default");
+
+    rendering.presentation.show_edges = true;
+    rendering.presentation.helpers = true;
+    rendering.presentation.edges = EdgeStyle::Outline;
+    let outlined = items(&mut viewer, &rendering);
+    assert_eq!(outlined.len(), 2 + 3 + 2);
+    assert!(outlined[0].style.edges && outlined[0].style.silhouettes);
+
+    // Its own lights and background; Shaded keeps the others.
+    let input = ViewInput {
+        scene: &scene,
+        settings: &settings,
+        rendering: &rendering,
+        colors: &colors,
+        busy: None,
+        empty_hint: None,
+        meshing: None,
+    };
+    let (lighting, top, bottom) = viewer.backdrop(&input);
+    assert_eq!(lighting, rendering.presentation.lighting);
+    assert_ne!(lighting, rendering.lighting);
+    let presentation = &rendering.presentation;
+    assert_eq!(top, super::linear_rgba(presentation.background_top, 1.0));
+    assert_eq!(
+        bottom,
+        super::linear_rgba(presentation.background_bottom, 1.0)
+    );
+    viewer.display_mode = DisplayMode::Shaded;
+    let (lighting, top, bottom) = viewer.backdrop(&input);
+    assert_eq!(lighting, rendering.lighting);
+    assert_eq!((top, bottom), {
+        let plain = super::linear_rgba(settings.background, 1.0);
+        (plain, plain)
+    });
+}
+
+#[test]
 fn the_ground_grid_follows_its_setting_and_the_zoom() {
     let mut viewer = Viewer::default();
     let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
