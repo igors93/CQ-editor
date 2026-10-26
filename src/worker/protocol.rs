@@ -867,6 +867,9 @@ pub struct Mesh {
     pub edges: Vec<[f32; 3]>,
     #[serde(default, deserialize_with = "vec3_f32")]
     pub points: Vec<[f32; 3]>,
+    /// Degrees between the faces that meet at each segment's edge.
+    #[serde(default, deserialize_with = "f32_array")]
+    pub segment_angles: Vec<f32>,
     #[serde(default)]
     pub topology: MeshTopology,
     /// Absent only for a content-addressed reference.
@@ -915,6 +918,21 @@ fn vec3_f32<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<[f32; 3]>,
             let f = |i: usize| f32::from_le_bytes([c[i], c[i + 1], c[i + 2], c[i + 3]]);
             [f(0), f(4), f(8)]
         })
+        .collect())
+}
+
+fn f32_array<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<f32>, D::Error> {
+    let bytes = base64_bytes(deserializer)?;
+    if bytes.len() % 4 != 0 {
+        return Err(serde::de::Error::custom(
+            "float array length is not a multiple of 4",
+        ));
+    }
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect())
 }
 

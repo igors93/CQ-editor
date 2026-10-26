@@ -3,7 +3,9 @@
 use egui_phosphor::regular as icon;
 
 use crate::commands::Action;
-use crate::settings::{Lighting, LightingPreset, OrbitMethod, Projection, Settings, Theme};
+use crate::settings::{
+    EdgeStyle, Lighting, LightingPreset, OrbitMethod, Projection, Settings, Theme,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Page {
@@ -405,7 +407,39 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
 }
 
 fn rendering(ui: &mut egui::Ui, settings: &mut Settings) {
-    lighting_rows(ui, "lighting", &mut settings.rendering.lighting);
+    let rendering = &mut settings.rendering;
+    lighting_rows(ui, "lighting", &mut rendering.lighting);
+    row(
+        ui,
+        "Edges",
+        "Which edges the Shaded, X-Ray and Hidden Line modes draw (when shown at all, see \
+         3D View > Show edges). Sharp edges leaves out the edges between faces that continue \
+         smoothly, such as a fillet's borders and the seams of cylinders; Outline adds the \
+         outline of curved surfaces, as a drawing has it. Wireframe always draws every edge",
+        |ui| {
+            egui::ComboBox::from_id_salt("edge_style")
+                .selected_text(rendering.edges.label())
+                .show_ui(ui, |ui| {
+                    for style in EdgeStyle::ALL {
+                        ui.selectable_value(&mut rendering.edges, style, style.label());
+                    }
+                });
+        },
+    );
+    row(
+        ui,
+        "Sharp edge angle",
+        "Faces meeting at less than this many degrees continue smoothly: Sharp edges and \
+         Outline leave the edge between them out",
+        |ui| {
+            ui.add_enabled(
+                rendering.edges != EdgeStyle::All,
+                egui::Slider::new(&mut rendering.sharp_angle, 1.0..=90.0)
+                    .step_by(1.0)
+                    .suffix("°"),
+            );
+        },
+    );
 }
 
 /// The rows of one set of lights, starting with a preset.

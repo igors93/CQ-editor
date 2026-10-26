@@ -773,3 +773,110 @@ fn fine_meshes_get_a_coarser_copy_for_drawing_small() {
     // Small meshes are left alone.
     assert!(sphere(10.0, 10, 20).simplified().is_none());
 }
+
+#[test]
+fn the_coarser_copy_keeps_the_angle_of_each_edge() {
+    let mut fine = sphere(10.0, 120, 240);
+    // Every other segment smooth.
+    fine.segment_angles = (0..fine.edges.len() / 2)
+        .map(|i| if i % 2 == 0 { 0.0 } else { 90.0 })
+        .collect();
+    let simplified = fine.simplified().unwrap();
+    assert_eq!(simplified.segment_angles.len() * 2, simplified.edges.len());
+    assert!(simplified.segment_angles.contains(&0.0));
+    assert!(simplified.segment_angles.contains(&90.0));
+}
+
+// -- edge angles and silhouettes ---------------------------------------------
+
+#[test]
+fn segments_without_an_angle_count_as_outlines() {
+    let mut mesh = Mesh::lines(vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0; 3], [0.0, 1.0, 0.0]]);
+    assert_eq!(mesh.segment_angle(1), OUTLINE_ANGLE);
+    mesh.segment_angles = vec![12.0, 90.0];
+    assert_eq!((mesh.segment_angle(0), mesh.segment_angle(1)), (12.0, 90.0));
+}
+
+#[test]
+fn worker_angles_are_kept_only_when_there_is_one_per_segment() {
+    let lines = |angles: Vec<f32>| {
+        Mesh::from(protocol::Mesh {
+            edges: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0; 3], [0.0, 1.0, 0.0]],
+            segment_angles: angles,
+            ..Default::default()
+        })
+    };
+    assert_eq!(lines(vec![0.0, 90.0]).segment_angles, [0.0, 90.0]);
+    assert!(lines(vec![0.0]).segment_angles.is_empty(), "damaged: none");
+}
+
+/// Four corners of the square [0, 1]² at height `z`, normals up.
+fn square(z: f32) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+    let positions = vec![[0.0, 0.0, z], [1.0, 0.0, z], [1.0, 1.0, z], [0.0, 1.0, z]];
+    (positions, vec![[0.0, 0.0, 1.0]; 4])
+}
+
+#[test]
+fn a_flat_face_has_no_silhouette() {
+    let (positions, normals) = square(0.0);
+    let mesh = Mesh::new(
+        positions,
+        normals,
+        vec![0, 1, 2, 0, 2, 3],
+        Vec::new(),
+        Vec::new(),
+    );
+    assert!(
+        mesh.silhouette_edges().is_empty(),
+        "the diagonal lies in the plane"
+    );
+}
+
+#[test]
+fn silhouette_edges_join_faces_meshed_apart_at_a_crease() {
+    // A roof: two faces with vertices of their own, meeting along x = 0.5
+    // at a right angle; corners at the same place are one corner.
+    let positions = vec![
+        [0.0, 0.0, 0.0],
+        [0.5, 0.0, 0.5],
+        [0.5, 1.0, 0.5],
+        [0.0, 1.0, 0.0],
+        [0.5, 0.0, 0.5],
+        [1.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [0.5, 1.0, 0.5],
+    ];
+    let left = Vec3::new(-1.0, 0.0, 1.0).normalize().to_array();
+    let right = Vec3::new(1.0, 0.0, 1.0).normalize().to_array();
+    let normals = vec![left, left, left, left, right, right, right, right];
+    let indices = vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+    let mesh = Mesh::new(positions, normals, indices, Vec::new(), Vec::new());
+
+    let edges = mesh.silhouette_edges();
+    assert_eq!(edges.len(), 1, "only the ridge: {edges:?}");
+    let ridge = edges[0];
+    let ends = [&ridge[0..3], &ridge[3..6]];
+    assert!(ends.iter().all(|end| end[0] == 0.5 && end[2] == 0.5));
+    let normals = [
+        Vec3::from_slice(&ridge[6..9]),
+        Vec3::from_slice(&ridge[9..12]),
+    ];
+    assert!((normals[0].dot(normals[1])).abs() < 1e-5, "a right angle");
+    assert!(std::ptr::eq(edges, mesh.silhouette_edges()), "found once");
+}
+
+#[test]
+fn a_smooth_surface_offers_its_mesh_edges_as_silhouettes() {
+    let sphere = sphere(1.0, 12, 24);
+    let edges = sphere.silhouette_edges();
+    // Every edge between two quads' triangles across the curved surface,
+    // not the diagonals inside a flat quad.
+    assert!(edges.len() > 12 * 24);
+    for edge in edges {
+        let (a, b) = (
+            Vec3::from_slice(&edge[6..9]),
+            Vec3::from_slice(&edge[9..12]),
+        );
+        assert!(a.dot(b) < 0.999_99);
+    }
+}

@@ -54,6 +54,8 @@ struct Object {
     // plane clips this object; w: 1 to fill faces with the background
     // (hidden-line mode).
     params: vec4<f32>,
+    // x: edges whose faces meet at a smaller angle (degrees) are left out.
+    edge_filter: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -236,6 +238,8 @@ fn fs_cap(in: CapOut) -> @location(0) vec4<f32> {
 struct SegmentIn {
     @location(0) start: vec3<f32>,
     @location(1) end: vec3<f32>,
+    // Degrees between the faces that meet at the edge; 180 for an outline.
+    @location(2) angle: f32,
 };
 
 // Pulls a clip-space point in front of the near plane, along the segment.
@@ -255,10 +259,54 @@ struct EdgeOut {
     @location(1) @interpolate(linear) along_px: f32,
 };
 
+// A vertex outside the view, for edges that are left out: all six land on
+// it, so nothing is drawn.
+fn left_out() -> EdgeOut {
+    var out: EdgeOut;
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.world = vec3<f32>(0.0);
+    out.along_px = 0.0;
+    return out;
+}
+
 @vertex
 fn vs_edge(@builtin(vertex_index) index: u32, in: SegmentIn) -> EdgeOut {
+    if (in.angle < object.edge_filter.x) {
+        return left_out();
+    }
+    return edge_quad(index, object.model * vec4<f32>(in.start, 1.0), object.model * vec4<f32>(in.end, 1.0));
+}
+
+struct SilhouetteIn {
+    @location(0) start: vec3<f32>,
+    @location(1) end: vec3<f32>,
+    // Normals of the two triangles that share the edge.
+    @location(2) normal_a: vec3<f32>,
+    @location(3) normal_b: vec3<f32>,
+};
+
+// A mesh edge drawn where one of its triangles faces the camera and the
+// other faces away: the outline of a curved surface.
+@vertex
+fn vs_silhouette(@builtin(vertex_index) index: u32, in: SilhouetteIn) -> EdgeOut {
     let start_world = object.model * vec4<f32>(in.start, 1.0);
     let end_world = object.model * vec4<f32>(in.end, 1.0);
+    var to_eye = -camera.forward.xyz;
+    if (camera.eye.w > 0.5) {
+        to_eye = camera.eye.xyz - 0.5 * (start_world.xyz + end_world.xyz);
+    }
+    let rotation = mat3x3<f32>(object.model[0].xyz, object.model[1].xyz, object.model[2].xyz);
+    let facing_a = dot(rotation * in.normal_a, to_eye);
+    let facing_b = dot(rotation * in.normal_b, to_eye);
+    if (facing_a * facing_b > 0.0) {
+        return left_out();
+    }
+    return edge_quad(index, start_world, end_world);
+}
+
+// The two triangles of a segment from `start_world` to `end_world`,
+// expanded to the edge width in screen space.
+fn edge_quad(index: u32, start_world: vec4<f32>, end_world: vec4<f32>) -> EdgeOut {
     let start_raw = camera.view_proj * start_world;
     let end_raw = camera.view_proj * end_world;
     let start = clip_to_near(start_raw, end_raw);

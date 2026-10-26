@@ -65,6 +65,7 @@ struct ObjectUniform {
     edge_color: [f32; 4],
     highlight: [f32; 4],
     params: [f32; 4],
+    edge_filter: [f32; 4],
 }
 
 /// How one mesh is drawn. Colors are linear RGBA.
@@ -86,6 +87,12 @@ pub struct Style {
     pub background_fill: bool,
     /// Edges hidden behind faces are drawn too, as faint dashes.
     pub hidden_edges: bool,
+    /// Edges whose faces meet at a smaller angle (degrees) are left out; 0
+    /// draws every edge (see [`crate::scene::Mesh::segment_angles`]).
+    pub edge_min_angle: f32,
+    /// The outline of curved surfaces is drawn too, with the edges (see
+    /// [`crate::scene::Mesh::silhouette_edges`]).
+    pub silhouettes: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +208,8 @@ struct GpuMesh {
     segment_count: u32,
     points: Option<wgpu::Buffer>,
     point_count: u32,
+    /// Made when an outline is first drawn.
+    silhouettes: std::cell::OnceCell<Option<(wgpu::Buffer, u32)>>,
 }
 
 struct Target {
@@ -253,6 +262,7 @@ struct Pipelines {
     edges: wgpu::RenderPipeline,
     /// Edges where the depth test fails, dashed (hidden-line mode).
     hidden_edges: wgpu::RenderPipeline,
+    silhouettes: wgpu::RenderPipeline,
     overlay_edges: wgpu::RenderPipeline,
     points: wgpu::RenderPipeline,
     overlay_points: wgpu::RenderPipeline,
@@ -718,6 +728,7 @@ impl SceneRenderer {
             }
             for (index, _) in scene(Layer::Scene) {
                 self.draw_edges(&mut pass, &self.pipelines.edges, input, index);
+                self.draw_silhouettes(&mut pass, input, index);
                 self.draw_points(&mut pass, &self.pipelines.points, input, index);
             }
             // After every opaque face, so that they all hide edges.
@@ -962,6 +973,7 @@ impl SceneRenderer {
                     f32::from(u8::from(style.clipped)),
                     f32::from(u8::from(style.background_fill)),
                 ],
+                edge_filter: [style.edge_min_angle, 0.0, 0.0, 0.0],
             };
             let offset = (slot + 1) * stride;
             data[offset..offset + OBJECT_UNIFORM_SIZE as usize]
@@ -1050,6 +1062,42 @@ impl SceneRenderer {
         pass.set_bind_group(1, &self.object_bind_group, &[self.object_offset(index)]);
         pass.set_vertex_buffer(0, segments.slice(..));
         pass.draw(0..6, 0..mesh.segment_count);
+    }
+
+    /// The outline of the curved surfaces of an item drawn with one.
+    fn draw_silhouettes(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        input: &FrameInput<'_>,
+        index: usize,
+    ) {
+        let item = &input.items[index];
+        if !(item.style.edges && item.style.silhouettes && item.style.faces) {
+            return;
+        }
+        let Some(mesh) = self.meshes.get(&item.mesh.id) else {
+            return;
+        };
+        let silhouettes = mesh.silhouettes.get_or_init(|| {
+            let edges = item.mesh.silhouette_edges();
+            (!edges.is_empty()).then(|| {
+                let buffer = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("silhouettes"),
+                        contents: bytemuck::cast_slice(edges),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                (buffer, edges.len() as u32)
+            })
+        });
+        let Some((buffer, count)) = silhouettes else {
+            return;
+        };
+        pass.set_pipeline(&self.pipelines.silhouettes);
+        pass.set_bind_group(1, &self.object_bind_group, &[self.object_offset(index)]);
+        pass.set_vertex_buffer(0, buffer.slice(..));
+        pass.draw(0..6, 0..*count);
     }
 
     fn draw_points(
@@ -1296,6 +1344,25 @@ fn upload(device: &wgpu::Device, mesh: &Arc<Mesh>) -> GpuMesh {
         .map(|(p, n)| [p[0], p[1], p[2], n[0], n[1], n[2]])
         .collect();
     let has_triangles = !interleaved.is_empty() && !mesh.indices.is_empty();
+    // Each segment: its two ends and the angle its edge's faces meet at.
+    let segments: Vec<[f32; 7]> = mesh
+        .edges
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .enumerate()
+        .map(|(index, [a, b])| {
+            [
+                a[0],
+                a[1],
+                a[2],
+                b[0],
+                b[1],
+                b[2],
+                mesh.segment_angle(index),
+            ]
+        })
+        .collect();
     GpuMesh {
         source: Arc::downgrade(mesh),
         vertices: has_triangles
@@ -1323,16 +1390,17 @@ fn upload(device: &wgpu::Device, mesh: &Arc<Mesh>) -> GpuMesh {
         },
         segments: buffer(
             "segments",
-            bytemuck::cast_slice(&mesh.edges),
+            bytemuck::cast_slice(&segments),
             wgpu::BufferUsages::VERTEX,
         ),
-        segment_count: (mesh.edges.len() / 2) as u32,
+        segment_count: segments.len() as u32,
         points: buffer(
             "points",
             bytemuck::cast_slice(&mesh.points),
             wgpu::BufferUsages::VERTEX,
         ),
         point_count: mesh.points.len() as u32,
+        silhouettes: std::cell::OnceCell::new(),
     }
 }
 
@@ -1469,8 +1537,11 @@ impl Pipelines {
     ) -> Self {
         const MESH_ATTRIBUTES: [wgpu::VertexAttribute; 2] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-        const SEGMENT_ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+        const SEGMENT_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32];
+        const SILHOUETTE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+            0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3
+        ];
         const POINT_ATTRIBUTES: [wgpu::VertexAttribute; 1] =
             wgpu::vertex_attr_array![0 => Float32x3];
 
@@ -1480,9 +1551,14 @@ impl Pipelines {
             attributes: &MESH_ATTRIBUTES,
         })];
         let segment_buffers = [Some(wgpu::VertexBufferLayout {
-            array_stride: 24,
+            array_stride: 28,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &SEGMENT_ATTRIBUTES,
+        })];
+        let silhouette_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: 48,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &SILHOUETTE_ATTRIBUTES,
         })];
         let point_buffers = [Some(wgpu::VertexBufferLayout {
             array_stride: 12,
@@ -1616,6 +1692,16 @@ impl Pipelines {
                 "vs_edge",
                 "fs_edge",
                 &segment_buffers,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+                LessEqual,
+                true,
+                no_bias,
+            ),
+            silhouettes: builder.build(
+                "silhouettes",
+                "vs_silhouette",
+                "fs_edge",
+                &silhouette_buffers,
                 Some(wgpu::BlendState::ALPHA_BLENDING),
                 LessEqual,
                 true,

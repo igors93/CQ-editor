@@ -80,6 +80,55 @@ def test_message_round_trip():
     assert decode(topology["segment_edges"], "<u4", 1).shape == (12, 1)
     assert decode(topology["vertices"], "<f4", 3).shape == (8, 3)
     assert message["bbox"] == [[-0.5] * 3, [0.5] * 3]
+    angles = decode(message["segment_angles"], "<f4", 1)
+    assert angles.shape == (12, 1)
+    assert angles == pytest.approx(np.full((12, 1), 90.0))
+
+
+def edge_angles_of(shape) -> list[float]:
+    wrapped = shape.val().wrapped if isinstance(shape, cq.Workplane) else shape.wrapped
+    return [
+        round(float(a), 1)
+        for a in tessellation.edge_angles(TopologyIndex.build(wrapped))
+    ]
+
+
+def test_edges_know_the_angle_their_faces_meet_at():
+    # A box's edges are right angles.
+    assert set(edge_angles_of(cq.Workplane().box(10, 10, 10))) == {90.0}
+    # A fillet meets its faces smoothly; its far ends are still corners.
+    filleted = cq.Workplane().box(10, 10, 10).edges("|Z").fillet(2)
+    assert set(edge_angles_of(filleted)) == {0.0, 90.0}
+    # A cylinder: two circles at right angles and a smooth seam.
+    assert sorted(edge_angles_of(cq.Workplane().cylinder(10, 5))) == [0.0, 90.0, 90.0]
+    # Faces split in one plane meet flat.
+    split = (
+        cq.Workplane()
+        .box(10, 10, 1)
+        .union(cq.Workplane().box(10, 10, 1).translate((10, 0, 0)), clean=False)
+    )
+    assert 0.0 in edge_angles_of(split)
+
+
+def test_open_edges_and_wires_are_outlines():
+    outline = tessellation.OPEN_EDGE_ANGLE
+    assert set(edge_angles_of(cq.Workplane().rect(4, 4).val())) == {outline}
+    wire = cq.Workplane().polyline([(0, 0), (1, 0), (1, 1)]).val()
+    assert edge_angles_of(wire) == [outline]
+
+
+def test_every_segment_carries_the_angle_of_its_edge():
+    mesh = tessellate(
+        cq.Workplane().box(10, 10, 10).edges("|Z").fillet(2).val().wrapped, Tolerance()
+    )
+    assert len(mesh.segment_angles) == len(mesh.edges)
+    angles = tessellation.edge_angles(
+        TopologyIndex.build(
+            cq.Workplane().box(10, 10, 10).edges("|Z").fillet(2).val().wrapped
+        )
+    )
+    assert mesh.segment_angles.tolist() == angles[mesh.segment_edges - 1].tolist()
+    assert mesh.segment_angles.dtype == np.float32
 
 
 def test_finer_tolerance_gives_more_triangles():

@@ -255,6 +255,39 @@ fn red_look(edges: Option<bool>) -> PartLook {
 }
 
 #[test]
+fn the_edge_style_chooses_the_edges_of_faces_outside_wireframe() {
+    use DisplayMode::{HiddenLine, Shaded, Wireframe, XRay};
+    use settings::{EdgeStyle, Rendering};
+    let settings = settings::Viewer::default();
+    let with = |edges| Rendering {
+        edges,
+        sharp_angle: 25.0,
+        ..Rendering::default()
+    };
+
+    for mode in [Shaded, XRay, HiddenLine] {
+        let all = mode.style(red_look(None), &settings, &with(EdgeStyle::All));
+        assert_eq!((all.edge_min_angle, all.silhouettes), (0.0, false));
+        let sharp = mode.style(red_look(None), &settings, &with(EdgeStyle::Sharp));
+        assert_eq!((sharp.edge_min_angle, sharp.silhouettes), (25.0, false));
+        let outline = mode.style(red_look(None), &settings, &with(EdgeStyle::Outline));
+        assert_eq!((outline.edge_min_angle, outline.silhouettes), (25.0, true));
+    }
+    // Wireframe draws every edge, and a wire has no faces to judge by.
+    let wireframe = Wireframe.style(red_look(None), &settings, &with(EdgeStyle::Outline));
+    assert_eq!(
+        (wireframe.edge_min_angle, wireframe.silhouettes),
+        (0.0, false)
+    );
+    let wire = PartLook {
+        has_faces: false,
+        ..red_look(None)
+    };
+    let wire = Shaded.style(wire, &settings, &with(EdgeStyle::Outline));
+    assert_eq!((wire.edge_min_angle, wire.silhouettes), (0.0, false));
+}
+
+#[test]
 fn display_modes_and_object_edges_shape_how_parts_are_drawn() {
     use DisplayMode::{HiddenLine, Shaded, Wireframe, XRay};
     let settings = settings::Viewer::default();
@@ -265,32 +298,54 @@ fn display_modes_and_object_edges_shape_how_parts_are_drawn() {
 
     // Shaded and X-ray follow the object's own choice, then the preference.
     for mode in [Shaded, XRay] {
-        assert!(mode.style(red_look(None), &settings).edges);
-        assert!(!mode.style(red_look(Some(false)), &settings).edges);
-        assert!(!mode.style(red_look(None), &no_edges).edges);
-        assert!(mode.style(red_look(Some(true)), &no_edges).edges);
+        assert!(
+            mode.style(red_look(None), &settings, &Default::default())
+                .edges
+        );
+        assert!(
+            !mode
+                .style(red_look(Some(false)), &settings, &Default::default())
+                .edges
+        );
+        assert!(
+            !mode
+                .style(red_look(None), &no_edges, &Default::default())
+                .edges
+        );
+        assert!(
+            mode.style(red_look(Some(true)), &no_edges, &Default::default())
+                .edges
+        );
     }
     // Edges are the drawing in wireframe and hidden-line modes, and all
     // there is of a wire.
     for mode in [Wireframe, HiddenLine] {
-        assert!(mode.style(red_look(Some(false)), &no_edges).edges);
+        assert!(
+            mode.style(red_look(Some(false)), &no_edges, &Default::default())
+                .edges
+        );
     }
     let wire = PartLook {
         has_faces: false,
         ..red_look(Some(false))
     };
-    assert!(Shaded.style(wire, &no_edges).edges);
+    assert!(Shaded.style(wire, &no_edges, &Default::default()).edges);
 
-    let shaded = Shaded.style(red_look(None), &settings);
+    let shaded = Shaded.style(red_look(None), &settings, &Default::default());
     assert!(shaded.faces && !shaded.background_fill && !shaded.hidden_edges);
     assert_eq!(shaded.face_color[3], 0.8);
-    assert!(!Wireframe.style(red_look(None), &settings).faces);
+    assert!(
+        !Wireframe
+            .style(red_look(None), &settings, &Default::default())
+            .faces
+    );
     assert_eq!(
-        XRay.style(red_look(None), &settings).face_color[3],
+        XRay.style(red_look(None), &settings, &Default::default())
+            .face_color[3],
         XRAY_OPACITY
     );
 
-    let hidden_line = HiddenLine.style(red_look(None), &settings);
+    let hidden_line = HiddenLine.style(red_look(None), &settings, &Default::default());
     assert!(hidden_line.faces && hidden_line.background_fill && hidden_line.hidden_edges);
     assert_eq!(
         hidden_line.face_color[3], 1.0,
@@ -300,7 +355,11 @@ fn display_modes_and_object_edges_shape_how_parts_are_drawn() {
         hidden_edges: false,
         ..settings.clone()
     };
-    assert!(!HiddenLine.style(red_look(None), &solid_only).hidden_edges);
+    assert!(
+        !HiddenLine
+            .style(red_look(None), &solid_only, &Default::default())
+            .hidden_edges
+    );
 }
 
 /// A grid of `side` × `side` vertices: 2 (side - 1)² triangles, enough to be

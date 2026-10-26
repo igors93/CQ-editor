@@ -102,6 +102,18 @@ In Shaded and X-Ray modes each object can show or hide its own edges: the
 edges* for that object (**Reset** follows the preference again). Wireframe
 and Hidden Line always draw edges, and wires and points are always drawn.
 
+*Preferences > Rendering > Edges* chooses which edges are drawn. **All
+edges** draws every edge of every face. **Sharp edges** leaves out the
+edges between faces that continue smoothly: the borders of fillets, the
+seams of cylinders and spheres, faces split in one plane. On curved,
+filleted or fluted models, which have many such edges, the shape reads
+much more clearly. *Sharp edge angle* (30° by default) sets how far faces
+must turn for their edge to count as sharp. **Outline** adds the outline
+of curved surfaces as seen from the camera, the line along which a
+cylinder or a sphere turns away, so a model keeps its contour without the
+clutter; in Hidden Line mode it makes a proper drawing of round parts.
+Wireframe always draws every edge.
+
 The default projection is **orthographic**, the usual choice for CAD because
 parallel lines stay parallel. The menu toggle and *Preferences > 3D View >
 Projection* change the same setting, which is remembered.

@@ -209,6 +209,8 @@ fn red() -> Style {
         clipped: true,
         background_fill: false,
         hidden_edges: false,
+        edge_min_angle: 0.0,
+        silhouettes: false,
     }
 }
 
@@ -223,7 +225,7 @@ fn in_mode(mode: DisplayMode) -> Style {
         emphasized: false,
         edges: None,
     };
-    mode.style(look, &settings)
+    mode.style(look, &settings, &crate::settings::Rendering::default())
 }
 
 struct Frame {
@@ -346,6 +348,8 @@ fn reference_guides_stay_behind_opaque_models_on_the_gpu() {
             clipped: false,
             background_fill: false,
             hidden_edges: false,
+            edge_min_angle: 0.0,
+            silhouettes: false,
         };
         let mut camera = Camera {
             scene_radius: 4.0,
@@ -620,6 +624,148 @@ fn the_lights_follow_the_lighting_settings() {
             right[1] > right[2] && left[2] > left[1],
             "{left:?} {right:?}"
         );
+    });
+}
+
+/// An open tube of radius 1 along Z, from -1 to 1, with smooth normals.
+fn tube(sides: u32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    for side in 0..sides {
+        let angle = side as f32 / sides as f32 * std::f32::consts::TAU;
+        let (y, x) = angle.sin_cos();
+        for z in [-1.0, 1.0] {
+            positions.push([x, y, z]);
+            normals.push([x, y, 0.0]);
+        }
+    }
+    let mut indices = Vec::new();
+    for side in 0..sides {
+        let (a, b) = (side * 2, (side + 1) % sides * 2);
+        indices.extend([a, b, b + 1, a, b + 1, a + 1]);
+    }
+    Mesh::new(positions, normals, indices, Vec::new(), Vec::new())
+}
+
+/// Renders `mesh` from `view` with `style` in a `SIZE` image, 32 pixels per
+/// unit.
+fn render_mesh(
+    renderer: &mut SceneRenderer,
+    mesh: Mesh,
+    view: StandardView,
+    style: Style,
+) -> Frame {
+    let mut camera = Camera {
+        scene_radius: 2.0,
+        ..Camera::default()
+    };
+    camera.set_pose(Pose {
+        target: Vec3::ZERO,
+        rotation: view.rotation(),
+        extent: 2.0,
+    });
+    let items = [DrawItem {
+        mesh: Arc::new(mesh),
+        transform: Mat4::IDENTITY,
+        style,
+        layer: Layer::Scene,
+    }];
+    let (_, pixels) = renderer
+        .render_pixels(&FrameInput {
+            camera: &camera,
+            size: [SIZE, SIZE],
+            background_top: BACKGROUND,
+            background_bottom: BACKGROUND,
+            items: &items,
+            section: None,
+            pixel_scale: 1.0,
+            eye: Eye::Center,
+            lighting: Lighting::default(),
+        })
+        .expect("the frame is read back");
+    Frame { side: SIZE, pixels }
+}
+
+#[test]
+fn edges_whose_faces_meet_smoothly_are_left_out_on_the_gpu() {
+    with_gpu(|renderer| {
+        // Two edges seen from the top: y = 1 between faces meeting smoothly
+        // (0°), y = -1 at a right angle (90°).
+        let lines = || {
+            let mut mesh = Mesh::lines(vec![
+                [-1.5, 1.0, 0.0],
+                [1.5, 1.0, 0.0],
+                [-1.5, -1.0, 0.0],
+                [1.5, -1.0, 0.0],
+            ]);
+            mesh.segment_angles = vec![0.0, 90.0];
+            mesh
+        };
+        let style = |edge_min_angle| Style {
+            faces: false,
+            edges: true,
+            edge_width: 3.0,
+            edge_min_angle,
+            ..red()
+        };
+        // Rows 32 (y = 1) and 96 (y = -1) of the top view.
+        let drawn = |frame: &Frame, row: u32| frame.at(CENTER, row) != BACKGROUND_SRGB;
+
+        let every = render_mesh(renderer, lines(), StandardView::Top, style(0.0));
+        assert!(drawn(&every, 32) && drawn(&every, 96), "every edge");
+        let sharp = render_mesh(renderer, lines(), StandardView::Top, style(30.0));
+        assert!(!drawn(&sharp, 32), "the smooth edge is left out");
+        assert!(drawn(&sharp, 96), "the sharp edge stays");
+    });
+}
+
+#[test]
+fn curved_surfaces_get_an_outline_on_the_gpu() {
+    with_gpu(|renderer| {
+        // From the front the tube spans x = 32…96 and its outline is the
+        // two vertical sides, where its surface turns away.
+        let dark_columns = |frame: &Frame| -> Vec<u32> {
+            (16..112)
+                .filter(|&x| {
+                    let p = frame.at(x, CENTER);
+                    p[0] < 40 && p[2] < 40
+                })
+                .collect()
+        };
+        let style = |silhouettes| Style {
+            edges: true,
+            silhouettes,
+            edge_width: 2.0,
+            ..red()
+        };
+        let plain = render_mesh(renderer, tube(48), StandardView::Front, style(false));
+        assert!(dark_columns(&plain).is_empty(), "no outline without it");
+
+        let outlined = render_mesh(renderer, tube(48), StandardView::Front, style(true));
+        let dark = dark_columns(&outlined);
+        assert!(
+            dark.iter().any(|&x| (29..=35).contains(&x)),
+            "the left side: {dark:?}"
+        );
+        assert!(
+            dark.iter().any(|&x| (93..=99).contains(&x)),
+            "the right side: {dark:?}"
+        );
+        assert!(
+            dark.iter().all(|&x| x <= 35 || x >= 93),
+            "nothing across the surface: {dark:?}"
+        );
+        // Outlines follow edges: no edges, no outline.
+        let hidden = render_mesh(
+            renderer,
+            tube(48),
+            StandardView::Front,
+            Style {
+                edges: false,
+                ..style(true)
+            },
+        );
+        assert!(dark_columns(&hidden).is_empty());
     });
 }
 

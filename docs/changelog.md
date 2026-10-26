@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* New: *Preferences > Rendering > Edges* chooses which edges are drawn:
+  all of them, **Sharp edges** (without the edges between faces that
+  continue smoothly, such as fillet borders and cylinder seams, below a
+  *Sharp edge angle*), or **Outline** (sharp edges plus the outline of
+  curved surfaces seen from the camera, also in Hidden Line mode). The
+  worker measures the angle at every edge (mesh format 2)
 * New: *Preferences > Rendering* sets the lighting of the 3D view: key,
   fill, ambient and rim lights, highlights and shininess, the direction of
   the key light, exposure and contrast, with Default, Studio, Bright and

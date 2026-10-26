@@ -148,6 +148,11 @@ pub struct Mesh {
     pub indices: Vec<u32>,
     /// Line segments, two points each.
     pub edges: Vec<[f32; 3]>,
+    /// Degrees between the faces that meet at each segment's edge: 0 where
+    /// they meet smoothly, [`OUTLINE_ANGLE`] for an edge of one face or
+    /// none. Empty when unknown, and then every segment counts as an
+    /// outline.
+    pub segment_angles: Vec<f32>,
     pub points: Vec<[f32; 3]>,
     pub topology: MeshTopology,
     pub bounds: Aabb,
@@ -155,7 +160,20 @@ pub struct Mesh {
     edge_bvh: OnceLock<BoundsBvh>,
     vertex_bvh: OnceLock<BoundsBvh>,
     simplified: OnceLock<Option<Arc<Mesh>>>,
+    silhouette_edges: OnceLock<Vec<SilhouetteEdge>>,
 }
+
+/// The angle of an edge with a face on one side only, or none: an outline,
+/// drawn whatever edges are shown.
+pub const OUTLINE_ANGLE: f32 = 180.0;
+
+/// Meshes larger than this have no silhouette edges: finding them takes
+/// memory in proportion.
+const MAX_SILHOUETTE_TRIANGLES: usize = 3_000_000;
+
+/// A mesh edge where the surface can turn away from the viewer: its two
+/// ends, then the normals of the two triangles that share it.
+pub type SilhouetteEdge = [f32; 12];
 
 /// Pick geometry and its association with the worker's OCCT topology index.
 #[derive(Debug, Default)]
@@ -195,6 +213,7 @@ impl Mesh {
             normals,
             indices,
             edges,
+            segment_angles: Vec::new(),
             points,
             topology: MeshTopology::default(),
             bounds,
@@ -202,7 +221,107 @@ impl Mesh {
             edge_bvh: OnceLock::new(),
             vertex_bvh: OnceLock::new(),
             simplified: OnceLock::new(),
+            silhouette_edges: OnceLock::new(),
         }
+    }
+
+    /// The angle of segment `index` (see [`Mesh::segment_angles`]).
+    pub fn segment_angle(&self, index: usize) -> f32 {
+        self.segment_angles
+            .get(index)
+            .copied()
+            .unwrap_or(OUTLINE_ANGLE)
+    }
+
+    /// Interior mesh edges between two triangles that do not lie in one
+    /// plane, found once. Drawn where one of the triangles faces the camera
+    /// and the other does not, they outline curved surfaces, which have no
+    /// B-rep edge there. Corners at the same place are one corner: the
+    /// worker meshes each face with vertices of its own. The triangles'
+    /// normals are those of their corners, oriented as the faces are lit.
+    pub fn silhouette_edges(&self) -> &[SilhouetteEdge] {
+        self.silhouette_edges
+            .get_or_init(|| self.find_silhouette_edges())
+    }
+
+    fn find_silhouette_edges(&self) -> Vec<SilhouetteEdge> {
+        if self.triangle_count() > MAX_SILHOUETTE_TRIANGLES {
+            return Vec::new();
+        }
+        // -0.0 and 0.0 are one place.
+        let place = |p: [f32; 3]| p.map(|c| (c + 0.0).to_bits());
+        let mut places: HashMap<[u32; 3], u32> = HashMap::new();
+        let corner: Vec<u32> = self
+            .positions
+            .iter()
+            .map(|&p| {
+                let next = places.len() as u32;
+                *places.entry(place(p)).or_insert(next)
+            })
+            .collect();
+
+        struct Shared {
+            ends: [u32; 2],
+            normals: [Vec3; 2],
+            triangles: u8,
+        }
+        let mut edges: HashMap<(u32, u32), Shared> = HashMap::new();
+        for triangle in self.indices.as_chunks::<3>().0 {
+            let vertices = triangle.map(|i| i as usize);
+            if vertices.iter().any(|&i| i >= self.positions.len()) {
+                continue;
+            }
+            let position = |i: usize| Vec3::from_array(self.positions[i]);
+            let geometric = (position(vertices[1]) - position(vertices[0]))
+                .cross(position(vertices[2]) - position(vertices[0]));
+            let smooth: Vec3 = vertices
+                .iter()
+                .filter_map(|&i| self.normals.get(i))
+                .map(|&n| Vec3::from_array(n))
+                .sum();
+            // Oriented as lit; the geometric normal where corners have none.
+            let normal = if smooth.length_squared() > 1e-12 {
+                smooth.normalize()
+            } else {
+                geometric.normalize_or_zero()
+            };
+            if normal == Vec3::ZERO || geometric.length_squared() <= 0.0 {
+                continue;
+            }
+            for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+                let (ca, cb) = (corner[vertices[a]], corner[vertices[b]]);
+                if ca == cb {
+                    continue;
+                }
+                let key = (ca.min(cb), ca.max(cb));
+                edges
+                    .entry(key)
+                    .and_modify(|shared| {
+                        if shared.triangles == 1 {
+                            shared.normals[1] = normal;
+                        }
+                        shared.triangles = shared.triangles.saturating_add(1);
+                    })
+                    .or_insert(Shared {
+                        ends: [vertices[a] as u32, vertices[b] as u32],
+                        normals: [normal, Vec3::ZERO],
+                        triangles: 1,
+                    });
+            }
+        }
+        edges
+            .into_values()
+            .filter(|shared| {
+                shared.triangles == 2 && shared.normals[0].dot(shared.normals[1]) < 0.999_99
+            })
+            .map(|shared| {
+                let [a, b] = shared.ends.map(|i| self.positions[i as usize]);
+                let [na, nb] = shared.normals.map(|normal| normal.to_array());
+                [
+                    a[0], a[1], a[2], b[0], b[1], b[2], na[0], na[1], na[2], nb[0], nb[1], nb[2],
+                ]
+            })
+            .collect()
     }
 
     /// A coarser copy for drawing the mesh small, made once: vertices are
@@ -282,7 +401,8 @@ impl Mesh {
         // Edges join the vertices of the cells their ends fall in.
         let mut seen = HashSet::new();
         let mut edges = Vec::new();
-        for segment in self.edges.as_chunks::<2>().0 {
+        let mut segment_angles = Vec::new();
+        for (index, segment) in self.edges.as_chunks::<2>().0.iter().enumerate() {
             let ends = segment.map(|point| {
                 cells
                     .get(&cell_of(point))
@@ -297,15 +417,13 @@ impl Mesh {
                 })
             {
                 edges.extend(ends);
+                segment_angles.push(self.segment_angle(index));
             }
         }
-        Some(Mesh::new(
-            positions,
-            normals,
-            indices,
-            edges,
-            self.points.clone(),
-        ))
+        Some(Mesh {
+            segment_angles,
+            ..Mesh::new(positions, normals, indices, edges, self.points.clone())
+        })
     }
 
     /// Only edges, e.g. for helper lines and grids.
@@ -329,7 +447,8 @@ impl Mesh {
         let integers = self.indices.len()
             + topology.face_indices.len()
             + topology.triangle_faces.len()
-            + topology.segment_edges.len();
+            + topology.segment_edges.len()
+            + self.segment_angles.len();
         points * size_of::<[f32; 3]>() + integers * size_of::<u32>()
     }
 
@@ -473,6 +592,12 @@ impl From<protocol::Mesh> for Mesh {
                 max: Vec3::from_array(max),
             },
         );
+        // One angle per segment, or none.
+        let segment_angles = if mesh.segment_angles.len() * 2 == mesh.edges.len() {
+            mesh.segment_angles
+        } else {
+            Vec::new()
+        };
         let topology = MeshTopology {
             face_positions: mesh.topology.face_positions,
             face_indices: mesh.topology.face_indices,
@@ -484,6 +609,7 @@ impl From<protocol::Mesh> for Mesh {
             // The worker already measured the geometry.
             bounds,
             topology,
+            segment_angles,
             ..Mesh::new(
                 mesh.positions,
                 normals,

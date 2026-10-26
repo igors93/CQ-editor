@@ -155,6 +155,17 @@ strengths, the key light's direction, the highlights, exposure and contrast
 come from `settings::Lighting` (*Preferences > Rendering*) through the
 camera uniform; `lighting_uniform` bounds them, so a damaged settings file
 cannot produce negative light or NaN.
+
+Which edges are drawn is decided on the GPU, so changing the edge style
+uploads nothing. Every segment carries the angle at which the faces of its
+B-rep edge meet, measured by the worker (`edge_angles` in
+`tessellation.py`), and `vs_edge` collapses the segments below the item's
+`edge_filter`. The outline of curved surfaces comes from the triangles:
+`Mesh::silhouette_edges` lists, once, the interior mesh edges between two
+triangles that do not lie in one plane, with both triangles' normals
+(corners at the same place are welded, since the worker meshes each face
+apart). `vs_silhouette` draws one where one triangle faces the camera and
+the other does not; the buffer is made the first time an item needs it.
 Edges and points are camera-facing quads expanded in screen space, which
 gives constant pixel widths at any zoom. Faces get a depth bias so edges
 stay visible on top of them.

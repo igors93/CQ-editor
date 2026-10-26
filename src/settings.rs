@@ -515,11 +515,64 @@ impl Default for Viewer {
     }
 }
 
-/// How the 3D view lights the faces it draws.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+/// How the 3D view lights the faces it draws, and which of their edges it
+/// draws.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Rendering {
     pub lighting: Lighting,
+    /// Which edges the Shaded, X-Ray and Hidden Line modes draw.
+    pub edges: EdgeStyle,
+    /// Edges whose faces meet at less than this many degrees are smooth:
+    /// the Sharp and Outline styles leave them out.
+    pub sharp_angle: f32,
+}
+
+impl Default for Rendering {
+    fn default() -> Self {
+        Self {
+            lighting: Lighting::default(),
+            edges: EdgeStyle::All,
+            sharp_angle: 30.0,
+        }
+    }
+}
+
+/// Which edges of a model are drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum EdgeStyle {
+    /// Every edge of every face, as in earlier releases.
+    #[default]
+    All,
+    /// The edges where faces meet at an angle, and the borders of open
+    /// faces: not those between faces that continue smoothly (a fillet's
+    /// borders, seams of cylinders), which clutter curved and fluted
+    /// models.
+    Sharp,
+    /// The sharp edges plus the outline of curved surfaces seen from the
+    /// camera, as a drawing has them.
+    Outline,
+}
+
+impl EdgeStyle {
+    pub const ALL: [EdgeStyle; 3] = [EdgeStyle::All, EdgeStyle::Sharp, EdgeStyle::Outline];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            EdgeStyle::All => "All edges",
+            EdgeStyle::Sharp => "Sharp edges",
+            EdgeStyle::Outline => "Outline",
+        }
+    }
+
+    /// The smallest angle (degrees) an edge must have to be drawn, with a
+    /// sharp angle of `sharp`.
+    pub fn minimum_angle(self, sharp: f32) -> f32 {
+        match self {
+            EdgeStyle::All => 0.0,
+            EdgeStyle::Sharp | EdgeStyle::Outline => sharp.clamp(0.0, 179.0),
+        }
+    }
 }
 
 /// The lights of the 3D view. They are attached to the camera, as a

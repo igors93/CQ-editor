@@ -91,8 +91,24 @@ impl DisplayMode {
         }
     }
 
-    /// How a scene part is drawn in this mode.
-    fn style(self, look: PartLook, settings: &settings::Viewer) -> Style {
+    /// How a scene part is drawn in this mode. Wireframe draws every edge;
+    /// the other modes draw those the edge style keeps, and the outline of
+    /// curved surfaces with the Outline style. Wires are drawn whole.
+    fn style(
+        self,
+        look: PartLook,
+        settings: &settings::Viewer,
+        rendering: &settings::Rendering,
+    ) -> Style {
+        let filtered = look.has_faces && self != DisplayMode::Wireframe;
+        let (edge_min_angle, silhouettes) = if filtered {
+            (
+                rendering.edges.minimum_angle(rendering.sharp_angle),
+                rendering.edges == settings::EdgeStyle::Outline,
+            )
+        } else {
+            (0.0, false)
+        };
         let edges = match self {
             // The edges are all there is to see.
             DisplayMode::Wireframe | DisplayMode::HiddenLine => true,
@@ -122,6 +138,8 @@ impl DisplayMode {
             clipped: true,
             background_fill: self == DisplayMode::HiddenLine,
             hidden_edges: self == DisplayMode::HiddenLine && settings.hidden_edges,
+            edge_min_angle,
+            silhouettes,
         }
     }
 }
@@ -1114,7 +1132,7 @@ impl Viewer {
                 };
                 let transform = scene.part_transform(part);
                 let mut mesh = &part.mesh;
-                let mut style = self.display_mode.style(look, settings);
+                let mut style = self.display_mode.style(look, settings, input.rendering);
                 if simplify && !selected && !hovered {
                     let bounds = part.mesh.bounds.transformed(transform);
                     let size =
@@ -1157,6 +1175,8 @@ impl Viewer {
                     clipped: true,
                     background_fill: false,
                     hidden_edges: false,
+                    edge_min_angle: 0.0,
+                    silhouettes: false,
                 },
                 layer: Layer::Overlay,
             });
@@ -1235,6 +1255,8 @@ impl Viewer {
                     clipped: false,
                     background_fill: false,
                     hidden_edges: false,
+                    edge_min_angle: 0.0,
+                    silhouettes: false,
                 },
                 layer: Layer::Overlay,
             });
@@ -1559,6 +1581,8 @@ fn line_item(mesh: Arc<Mesh>, color: [f32; 4], width: f32, layer: Layer) -> Draw
             clipped: false,
             background_fill: false,
             hidden_edges: false,
+            edge_min_angle: 0.0,
+            silhouettes: false,
         },
         layer,
     }

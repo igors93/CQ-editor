@@ -32,8 +32,9 @@ from functools import cache
 import numpy as np
 import OCP
 from OCP.BRep import BRep_Tool
-from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Curve2d, BRepAdaptor_Surface
 from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepLProp import BRepLProp_SLProps
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.Bnd import Bnd_Box
 from OCP.BinTools import BinTools, BinTools_FormatVersion
@@ -67,7 +68,11 @@ from .environment import ocp_version
 
 #: Bump whenever a change to this module meshes the same shape with the same
 #: tolerances differently: the version is part of every geometry id.
-MESH_FORMAT = 1
+MESH_FORMAT = 2
+
+#: The angle of an edge with a face on one side only, or none (a wire): an
+#: outline, which the GUI always draws.
+OPEN_EDGE_ANGLE = 180.0
 
 # Never mesh finer than this, whatever the model size (model units).
 MIN_DEFLECTION = 1e-4
@@ -122,6 +127,9 @@ class Mesh:
     # separate pick triangles when ``face_indices`` is set.
     triangle_faces: np.ndarray  # (m / 3,) uint32
     segment_edges: np.ndarray  # (k,) uint32, 1-based OCCT edge ids
+    # Degrees between the faces that meet at each segment's edge (see
+    # ``edge_angles``), so the GUI can leave out smooth edges.
+    segment_angles: np.ndarray  # (k,) float32
     topology_vertices: np.ndarray  # (v, 3) float32, in 1-based id order
 
     def is_empty(self) -> bool:
@@ -149,6 +157,7 @@ class Mesh:
                 self.face_indices,
                 self.triangle_faces,
                 self.segment_edges,
+                self.segment_angles,
                 self.topology_vertices,
             )
         )
@@ -162,6 +171,7 @@ class Mesh:
             "indices": _encode(self.indices, "<u4"),
             "edges": _encode(self.edges, "<f4"),
             "points": _encode(self.points, "<f4"),
+            "segment_angles": _encode(self.segment_angles, "<f4"),
             "topology": {
                 "face_positions": _encode(self.face_positions, "<f4"),
                 "face_indices": _encode(self.face_indices, "<u4"),
@@ -340,6 +350,7 @@ def tessellate(
     edges, segment_edges = _discretize_edges(
         topology.edges, deflection, tolerance.angular
     )
+    segment_angles = edge_angles(topology)[segment_edges - 1]
     mesh = Mesh(
         positions=positions,
         normals=normals,
@@ -350,6 +361,7 @@ def tessellate(
         face_indices=face_indices,
         triangle_faces=triangle_faces,
         segment_edges=segment_edges,
+        segment_angles=segment_angles.astype(np.float32),
         topology_vertices=_topology_vertices(topology.vertices),
     )
     return None if mesh.is_empty() else mesh
@@ -716,6 +728,68 @@ def _topology_faces(
         np.concatenate(indices),
         np.concatenate(identifiers),
     )
+
+
+def edge_angles(topology: TopologyIndex) -> np.ndarray:
+    """The angle in degrees between the faces that meet at each edge of
+    ``topology``, in id order, measured at the middle of the edge.
+
+    0 where they meet smoothly: a fillet's border, a seam, a face split in
+    two. 90 at the corner of a box. :data:`OPEN_EDGE_ANGLE` for an edge of
+    one face only, or of none (a wire), and wherever a normal cannot be
+    found, so that such edges are always drawn. The GUI leaves out the
+    edges below an angle the user chooses.
+    """
+
+    index = ShapeMap()
+    for edge in topology.edges:
+        index.Add(edge)
+    normals: list[list[np.ndarray | None]] = [[] for _ in topology.edges]
+    for raw_face in topology.faces:
+        face = _topods("Face", raw_face)
+        surface = BRepAdaptor_Surface(face)
+        properties = BRepLProp_SLProps(surface, 1, 1e-7)
+        reversed_face = face.Orientation() == TopAbs_REVERSED
+        explorer = TopExp_Explorer(face, TopAbs_EDGE)
+        while explorer.More():
+            identifier = index.FindIndex(explorer.Current())
+            if identifier:
+                edge = _topods("Edge", explorer.Current())
+                normals[identifier - 1].append(
+                    _normal_at_middle(edge, face, properties, reversed_face)
+                )
+            explorer.Next()
+
+    angles = np.full(len(topology.edges), OPEN_EDGE_ANGLE, dtype=np.float32)
+    for position, found in enumerate(normals):
+        # A seam is listed twice by its one face, and is smooth.
+        if len(found) < 2 or any(normal is None for normal in found):
+            continue
+        cosines = [
+            float(np.dot(a, b)) for i, a in enumerate(found) for b in found[i + 1 :]
+        ]
+        angles[position] = np.degrees(np.arccos(np.clip(min(cosines), -1.0, 1.0)))
+    return angles
+
+
+def _normal_at_middle(
+    edge, face, properties: BRepLProp_SLProps, reversed_face: bool
+) -> np.ndarray | None:
+    """The outward normal of ``face`` at the middle of ``edge``, one of its
+    edges, from the edge's curve on the face; ``None`` when it is not
+    defined there (a cone's apex) or cannot be computed."""
+
+    try:
+        curve = BRepAdaptor_Curve2d(edge, face)
+        uv = curve.Value(0.5 * (curve.FirstParameter() + curve.LastParameter()))
+        properties.SetParameters(uv.X(), uv.Y())
+        if not properties.IsNormalDefined():
+            return None
+        normal = properties.Normal()
+    except Exception:  # no curve on the surface, or an unbounded parameter
+        return None
+    vector = np.array((normal.X(), normal.Y(), normal.Z()))
+    return -vector if reversed_face else vector
 
 
 def _discretize_edges(

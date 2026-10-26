@@ -163,6 +163,7 @@ A full mesh:
 | `positions`, `normals` | base64 of little-endian `f32` triples |
 | `indices` | base64 of little-endian `u32`, three per triangle |
 | `edges` | base64 `f32` triples, two points per segment |
+| `segment_angles` | base64 `f32`, one per segment: degrees between the faces that meet at its edge, at the edge's middle (0 smooth, 90 a box corner, 180 an edge of one face or a wire). The GUI's Sharp edges and Outline styles leave out the edges below an angle. Absent in older meshes, which then count as all 180 |
 | `points` | base64 `f32` triples (free vertices) |
 | `bbox` | `[[min x, y, z], [max x, y, z]]` |
 | `topology` | `triangle_faces` (OCCT face id per pick triangle), `segment_edges` (OCCT edge id per segment), `vertices`, and `face_positions` / `face_indices`: separate pick triangles, normally empty so that `triangle_faces` follows the display `indices` |

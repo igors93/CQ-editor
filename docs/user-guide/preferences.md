@@ -64,6 +64,8 @@ in screenshots too.
 | Light height | 33.3° | How far above the line of sight the key light is |
 | Exposure | 0 | Overall brightness in photographic stops: +1 doubles the light |
 | Contrast | 1.00 | Above 1 darkens shadows and brightens lights around middle grey |
+| Edges | All edges | Which edges Shaded, X-Ray and Hidden Line draw, when *3D View > Show edges* is on: **All edges**; **Sharp edges**, without the edges between faces that continue smoothly (a fillet's borders, the seams of cylinders and spheres, faces split in one plane); or **Outline**, the sharp edges plus the outline of curved surfaces as seen from the camera. Wireframe always draws every edge |
+| Sharp edge angle | 30° | Faces meeting at less than this angle continue smoothly: Sharp edges and Outline leave their edge out |
 
 ## Editor
 
