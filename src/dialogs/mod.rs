@@ -388,24 +388,22 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         .export
         .as_mut()
         .and_then(|dialog| export_options(ctx, dialog, selected, visible, everything));
-    if let Some(confirmed) = export_choice {
-        if let Some(options) = state.dialogs.export.take() {
-            if confirmed {
-                state.export_confirmed(options);
-            }
-        }
+    if let Some(confirmed) = export_choice
+        && let Some(options) = state.dialogs.export.take()
+        && confirmed
+    {
+        state.export_confirmed(options);
     }
     let geometry_choice = state
         .dialogs
         .geometry
         .as_ref()
         .and_then(|dialog| geometry_review(ctx, dialog));
-    if let Some(choice) = geometry_choice {
-        if let Some(dialog) = state.dialogs.geometry.take() {
-            if dialog.for_export {
-                state.resolve_geometry_export(choice);
-            }
-        }
+    if let Some(choice) = geometry_choice
+        && let Some(dialog) = state.dialogs.geometry.take()
+        && dialog.for_export
+    {
+        state.resolve_geometry_export(choice);
     }
 
     if let Some(message) = &state.dialogs.message
@@ -513,7 +511,7 @@ fn export_options(
                     ui.add(
                         egui::DragValue::new(&mut options.angular_tolerance)
                             .speed(0.01)
-                            .range(0.0001..=3.14),
+                            .range(0.0001..=std::f64::consts::PI),
                     );
                 });
             }

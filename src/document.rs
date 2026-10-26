@@ -265,6 +265,8 @@ impl Document {
         self.missing_on_disk = false;
     }
 
+    /// The interface shows it through [`Document::display_name`].
+    #[cfg(test)]
     pub fn is_missing_on_disk(&self) -> bool {
         self.missing_on_disk
     }
