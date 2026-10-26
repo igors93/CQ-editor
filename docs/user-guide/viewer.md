@@ -323,6 +323,18 @@ These options live in *Preferences > 3D View*:
 Individual objects can be recolored from the script (`show_object` options)
 or in the Objects panel.
 
+### Lighting
+
+*Preferences > Rendering* sets the lights: a key light, a softer fill
+light, ambient and rim light, the strength and sharpness of highlights,
+where the key light comes from, and the exposure and contrast of the lit
+faces. The lights move with the camera, as a photographer's lights stay
+with the camera around a subject, so every side of the model is lit alike.
+Presets give a starting point: **Default** keeps the crisp look of earlier
+releases, **Studio** is soft and even, **Bright** helps dark colors, and
+**Dramatic** sets one strong light from the side. Edges, points and the
+background are not affected.
+
 ## Large models
 
 Parts outside the view are never drawn, so zooming in on a detail of a big

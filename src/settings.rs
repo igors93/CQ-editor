@@ -22,6 +22,7 @@ const MAX_PROJECTS: usize = 20;
 pub struct Settings {
     pub general: General,
     pub viewer: Viewer,
+    pub rendering: Rendering,
     pub editor: Editor,
     pub objects: Objects,
     pub execution: Execution,
@@ -510,6 +511,128 @@ impl Default for Viewer {
             scale_bar: true,
             units: Units::Millimeters,
             stereo_mode: StereoMode::Anaglyph,
+        }
+    }
+}
+
+/// How the 3D view lights the faces it draws.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Rendering {
+    pub lighting: Lighting,
+}
+
+/// The lights of the 3D view. They are attached to the camera, as a
+/// photographer's lights are to the subject: the model is lit the same way
+/// from every side it is seen from. The defaults are the look of earlier
+/// releases.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lighting {
+    /// The main light, from the upper left.
+    pub key: f32,
+    /// A softer light from the lower right, which keeps shadows readable.
+    pub fill: f32,
+    /// Light from everywhere: the darkest a face can be.
+    pub ambient: f32,
+    /// Light grazing the outline of curved surfaces.
+    pub rim: f32,
+    /// Strength of the highlights of the key light.
+    pub specular: f32,
+    /// Sharpness of the highlights: higher is glossier.
+    pub shininess: f32,
+    /// Where the key light comes from, in degrees: around the line of
+    /// sight (negative is left) and above it.
+    pub azimuth: f32,
+    pub elevation: f32,
+    /// Brightness in photographic stops: +1 doubles the light.
+    pub exposure: f32,
+    /// 1 leaves the lit colors as they are; above 1 darkens the shadows and
+    /// brightens the lights around middle grey.
+    pub contrast: f32,
+}
+
+impl Default for Lighting {
+    fn default() -> Self {
+        LightingPreset::Default.lighting()
+    }
+}
+
+impl Lighting {
+    /// Direction of the key light in the camera's frame: right, up, and
+    /// towards the viewer.
+    pub fn key_direction(&self) -> [f32; 3] {
+        let (azimuth, elevation) = (self.azimuth.to_radians(), self.elevation.to_radians());
+        [
+            elevation.cos() * azimuth.sin(),
+            elevation.sin(),
+            elevation.cos() * azimuth.cos(),
+        ]
+    }
+
+    /// The preset these values are, if any.
+    pub fn preset(&self) -> Option<LightingPreset> {
+        LightingPreset::ALL
+            .into_iter()
+            .find(|preset| preset.lighting() == *self)
+    }
+}
+
+/// Starting points for [`Lighting`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightingPreset {
+    /// The look of earlier releases: crisp, for modeling.
+    Default,
+    /// Soft and even, with gentle highlights, for showing a model.
+    Studio,
+    /// Lighter overall, for dark colors.
+    Bright,
+    /// One strong light from the side, deep shadows, sharp highlights.
+    Dramatic,
+}
+
+impl LightingPreset {
+    pub const ALL: [LightingPreset; 4] = [
+        LightingPreset::Default,
+        LightingPreset::Studio,
+        LightingPreset::Bright,
+        LightingPreset::Dramatic,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LightingPreset::Default => "Default",
+            LightingPreset::Studio => "Studio",
+            LightingPreset::Bright => "Bright",
+            LightingPreset::Dramatic => "Dramatic",
+        }
+    }
+
+    pub fn lighting(self) -> Lighting {
+        let (key, fill, ambient, rim, specular, shininess) = match self {
+            LightingPreset::Default => (0.62, 0.24, 0.24, 0.10, 0.22, 48.0),
+            LightingPreset::Studio => (0.52, 0.34, 0.30, 0.16, 0.28, 64.0),
+            LightingPreset::Bright => (0.70, 0.36, 0.36, 0.10, 0.20, 32.0),
+            LightingPreset::Dramatic => (0.95, 0.08, 0.10, 0.24, 0.45, 96.0),
+        };
+        let (azimuth, elevation, exposure, contrast) = match self {
+            // The key light of earlier releases: (-0.35, 0.55, 0.76).
+            LightingPreset::Default => (-24.7, 33.3, 0.0, 1.0),
+            LightingPreset::Studio => (-35.0, 40.0, 0.15, 1.05),
+            LightingPreset::Bright => (-25.0, 35.0, 0.35, 0.95),
+            LightingPreset::Dramatic => (-60.0, 25.0, 0.0, 1.3),
+        };
+        Lighting {
+            key,
+            fill,
+            ambient,
+            rim,
+            specular,
+            shininess,
+            azimuth,
+            elevation,
+            exposure,
+            contrast,
         }
     }
 }

@@ -233,6 +233,7 @@ pub enum ViewerEvent {
 pub struct ViewInput<'a> {
     pub scene: &'a Scene,
     pub settings: &'a settings::Viewer,
+    pub rendering: &'a settings::Rendering,
     pub colors: &'a ViewerColors,
     /// Shown as a status pill while the worker is busy.
     pub busy: Option<&'a str>,
@@ -537,6 +538,7 @@ impl Viewer {
                     section: self.section.renderer_plane(bounds),
                     pixel_scale: 1.0,
                     eye: self.camera.mono_eye(),
+                    lighting: input.rendering.lighting,
                 };
                 let stereo = (settings.projection == settings::Projection::Stereo)
                     .then_some(settings.stereo_mode);

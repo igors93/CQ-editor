@@ -259,6 +259,30 @@ fn draw_sized(
     pixel_scale: f32,
     background: [f32; 4],
 ) -> Frame {
+    draw_lit(
+        renderer,
+        view,
+        style,
+        section,
+        side,
+        pixel_scale,
+        background,
+        Lighting::default(),
+    )
+}
+
+/// `draw_sized` with `lighting`.
+#[allow(clippy::too_many_arguments)]
+fn draw_lit(
+    renderer: &mut SceneRenderer,
+    view: StandardView,
+    style: Style,
+    section: Option<Section>,
+    side: u32,
+    pixel_scale: f32,
+    background: [f32; 4],
+    lighting: Lighting,
+) -> Frame {
     let mesh = Arc::new(cube(1.0));
     let bounds = mesh.bounds;
     let mut camera = Camera {
@@ -286,6 +310,7 @@ fn draw_sized(
             section: section.and_then(|section| section.renderer_plane(bounds)),
             pixel_scale,
             eye: Eye::Center,
+            lighting,
         })
         .expect("the frame is read back");
     assert_eq!(size, [side, side]);
@@ -356,6 +381,7 @@ fn reference_guides_stay_behind_opaque_models_on_the_gpu() {
                     section: None,
                     pixel_scale: 1.0,
                     eye: Eye::Center,
+                    lighting: Lighting::default(),
                 })
                 .unwrap()
                 .1
@@ -519,6 +545,85 @@ fn display_modes_render_faces_edges_and_fills_as_documented() {
 }
 
 #[test]
+fn the_lights_follow_the_lighting_settings() {
+    with_gpu(|renderer| {
+        // Seen from the iso view: the top face (+Z) at (64, 40), the right
+        // face (+X) at (94, 62) and the left one (-Y) at (34, 62).
+        let iso = |renderer: &mut SceneRenderer, lighting: Lighting| {
+            let frame = draw_lit(
+                renderer,
+                StandardView::Iso,
+                red(),
+                None,
+                SIZE,
+                1.0,
+                BACKGROUND,
+                lighting,
+            );
+            [frame.at(64, 40), frame.at(94, 62), frame.at(34, 62)].map(|p| u32::from(p[0]))
+        };
+        let defaults = Lighting::default();
+        let lit = iso(renderer, defaults);
+
+        // Nothing but ambient light: every face the same, darker red.
+        let flat = iso(
+            renderer,
+            Lighting {
+                key: 0.0,
+                fill: 0.0,
+                rim: 0.0,
+                specular: 0.0,
+                ..defaults
+            },
+        );
+        assert!(flat[0].abs_diff(flat[1]) <= 1 && flat[1].abs_diff(flat[2]) <= 1);
+        assert!(
+            flat.iter().zip(&lit).all(|(f, l)| f < l),
+            "{flat:?} {lit:?}"
+        );
+
+        // One stop more light, or more contrast, changes what is lit.
+        let exposed = iso(
+            renderer,
+            Lighting {
+                exposure: 1.0,
+                ..defaults
+            },
+        );
+        assert!(exposed.iter().zip(&lit).all(|(e, l)| e > l || *l == 255));
+        let contrasted = iso(
+            renderer,
+            Lighting {
+                contrast: 2.0,
+                ..defaults
+            },
+        );
+        assert_ne!(contrasted, lit);
+
+        // The key light moved to the right lights the right face more than
+        // the left one, and the other way round.
+        let from = |renderer: &mut SceneRenderer, azimuth: f32| {
+            iso(
+                renderer,
+                Lighting {
+                    azimuth,
+                    elevation: 0.0,
+                    fill: 0.0,
+                    rim: 0.0,
+                    specular: 0.0,
+                    ..defaults
+                },
+            )
+        };
+        let (left, right) = (from(renderer, -60.0), from(renderer, 60.0));
+        assert!(
+            right[1] > right[2] && left[2] > left[1],
+            "{left:?} {right:?}"
+        );
+    });
+}
+
+#[test]
 fn large_captures_are_drawn_in_tiles_that_match_one_pass() {
     with_gpu(|renderer| {
         let style = in_mode(DisplayMode::Shaded);
@@ -656,6 +761,7 @@ fn parts_out_of_view_are_not_drawn() {
                     section: None,
                     pixel_scale: 1.0,
                     eye: Eye::Center,
+                    lighting: Lighting::default(),
                 })
                 .unwrap()
                 .1;
@@ -716,6 +822,7 @@ fn stereo_modes_compose_on_the_gpu_as_the_reference_does() {
             section: None,
             pixel_scale: 1.0,
             eye: Eye::Center,
+            lighting: Lighting::default(),
         };
 
         // The eyes see the cube from places 5% of the distance apart.
@@ -791,6 +898,7 @@ fn egui_gets_the_same_texels_where_textures_cannot_be_viewed_as_plain() {
                 section: None,
                 pixel_scale: 1.0,
                 eye: Eye::Center,
+                lighting: Lighting::default(),
             })
             .unwrap();
         assert_eq!(srgb.len(), encoded.len());

@@ -3,22 +3,24 @@
 use egui_phosphor::regular as icon;
 
 use crate::commands::Action;
-use crate::settings::{OrbitMethod, Projection, Settings, Theme};
+use crate::settings::{Lighting, LightingPreset, OrbitMethod, Projection, Settings, Theme};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Page {
     #[default]
     General,
     Viewer,
+    Rendering,
     Editor,
     Objects,
     Execution,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [
+    const ALL: [Page; 6] = [
         Page::General,
         Page::Viewer,
+        Page::Rendering,
         Page::Editor,
         Page::Objects,
         Page::Execution,
@@ -28,6 +30,7 @@ impl Page {
         match self {
             Page::General => "General",
             Page::Viewer => "3D View",
+            Page::Rendering => "Rendering",
             Page::Editor => "Editor",
             Page::Objects => "Objects",
             Page::Execution => "Execution",
@@ -38,6 +41,7 @@ impl Page {
         match self {
             Page::General => icon::SLIDERS_HORIZONTAL,
             Page::Viewer => icon::CUBE,
+            Page::Rendering => icon::SUN,
             Page::Editor => icon::CODE,
             Page::Objects => icon::TREE_STRUCTURE,
             Page::Execution => icon::PLAY,
@@ -89,6 +93,7 @@ pub fn window(
                                 .show(ui, |ui| match page {
                                     Page::General => general(ui, settings, actions),
                                     Page::Viewer => viewer(ui, settings),
+                                    Page::Rendering => rendering(ui, settings),
                                     Page::Editor => editor(ui, settings),
                                     Page::Objects => objects(ui, settings),
                                     Page::Execution => execution(ui, settings),
@@ -113,6 +118,7 @@ fn restore_defaults(page: Page, settings: &mut Settings) {
     match page {
         Page::General => settings.general = defaults.general,
         Page::Viewer => settings.viewer = defaults.viewer,
+        Page::Rendering => settings.rendering = defaults.rendering,
         Page::Editor => settings.editor = defaults.editor,
         Page::Objects => settings.objects = defaults.objects,
         Page::Execution => settings.execution = defaults.execution,
@@ -395,6 +401,109 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
                     .max_decimals(3),
             );
         },
+    );
+}
+
+fn rendering(ui: &mut egui::Ui, settings: &mut Settings) {
+    lighting_rows(ui, "lighting", &mut settings.rendering.lighting);
+}
+
+/// The rows of one set of lights, starting with a preset.
+fn lighting_rows(ui: &mut egui::Ui, id: &str, lighting: &mut Lighting) {
+    row(
+        ui,
+        "Lighting",
+        "A starting point; the values below fine-tune it",
+        |ui| {
+            let current = lighting.preset().map_or("Custom", LightingPreset::label);
+            egui::ComboBox::from_id_salt((id, "preset"))
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for preset in LightingPreset::ALL {
+                        if ui
+                            .selectable_label(lighting.preset() == Some(preset), preset.label())
+                            .clicked()
+                        {
+                            *lighting = preset.lighting();
+                        }
+                    }
+                });
+        },
+    );
+    let mut slider = |label: &str, hint: &str, value: &mut f32, range, step: f64| {
+        row(ui, label, hint, |ui| {
+            ui.add(egui::Slider::new(value, range).step_by(step));
+        });
+    };
+    slider(
+        "Key light",
+        "The main light",
+        &mut lighting.key,
+        0.0..=1.5,
+        0.01,
+    );
+    slider(
+        "Fill light",
+        "A softer light from the lower right, which keeps shadows readable",
+        &mut lighting.fill,
+        0.0..=1.0,
+        0.01,
+    );
+    slider(
+        "Ambient light",
+        "Light from everywhere: the darkest a face can be",
+        &mut lighting.ambient,
+        0.0..=1.0,
+        0.01,
+    );
+    slider(
+        "Rim light",
+        "Light grazing the outline of curved surfaces",
+        &mut lighting.rim,
+        0.0..=1.0,
+        0.01,
+    );
+    slider(
+        "Highlights",
+        "Strength of the reflections of the key light",
+        &mut lighting.specular,
+        0.0..=1.0,
+        0.01,
+    );
+    slider(
+        "Shininess",
+        "Higher gives smaller, sharper highlights, as on a glossy surface",
+        &mut lighting.shininess,
+        2.0..=256.0,
+        1.0,
+    );
+    slider(
+        "Light direction",
+        "Where the key light comes from, in degrees around the line of sight: negative is left",
+        &mut lighting.azimuth,
+        -180.0..=180.0,
+        1.0,
+    );
+    slider(
+        "Light height",
+        "How far above the line of sight the key light is, in degrees",
+        &mut lighting.elevation,
+        -90.0..=90.0,
+        1.0,
+    );
+    slider(
+        "Exposure",
+        "Overall brightness in photographic stops: +1 doubles the light",
+        &mut lighting.exposure,
+        -3.0..=3.0,
+        0.05,
+    );
+    slider(
+        "Contrast",
+        "Above 1 darkens the shadows and brightens the lights; below 1 flattens them",
+        &mut lighting.contrast,
+        0.5..=2.0,
+        0.01,
     );
 }
 

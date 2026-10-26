@@ -25,7 +25,7 @@ use super::camera::{Camera, Eye};
 use super::culling::Frustum;
 use super::stereo;
 use crate::scene::Mesh;
-use crate::settings::StereoMode;
+use crate::settings::{Lighting, StereoMode};
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Same texels as `COLOR_FORMAT`, read without sRGB decoding (for egui).
@@ -52,6 +52,9 @@ struct CameraUniform {
     section: [f32; 4],
     cap_corners: [[f32; 4]; 4],
     frame: [f32; 4],
+    key_light: [f32; 4],
+    light_levels: [f32; 4],
+    finish: [f32; 4],
 }
 
 #[repr(C)]
@@ -131,6 +134,7 @@ pub struct FrameInput<'a> {
     pub pixel_scale: f32,
     /// Seen from the camera, or from one eye of the stereo pair.
     pub eye: Eye,
+    pub lighting: Lighting,
 }
 
 /// Mode and eye size of the stereo composition (`stereo.wgsl`).
@@ -921,6 +925,7 @@ impl SceneRenderer {
             background_top: input.background_top,
             background_bottom: input.background_bottom,
             frame: [x, y, image_width, image_height],
+            ..lighting_uniform(&input.lighting)
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
@@ -1066,6 +1071,42 @@ impl SceneRenderer {
         pass.set_bind_group(1, &self.object_bind_group, &[self.object_offset(index)]);
         pass.set_vertex_buffer(0, points.slice(..));
         pass.draw(0..6, 0..mesh.point_count);
+    }
+}
+
+/// The lighting fields of the camera uniform, the others zero. Values stay
+/// in ranges the shader handles: no negative light and no NaN, whatever the
+/// settings file says.
+fn lighting_uniform(lighting: &Lighting) -> CameraUniform {
+    let bounded = |value: f32, min: f32, max: f32, fallback: f32| {
+        if value.is_finite() {
+            value.clamp(min, max)
+        } else {
+            fallback
+        }
+    };
+    let defaults = Lighting::default();
+    let direction = Lighting {
+        azimuth: bounded(lighting.azimuth, -180.0, 180.0, defaults.azimuth),
+        elevation: bounded(lighting.elevation, -90.0, 90.0, defaults.elevation),
+        ..defaults
+    };
+    let [x, y, z] = direction.key_direction();
+    CameraUniform {
+        key_light: [x, y, z, 0.0],
+        light_levels: [
+            bounded(lighting.key, 0.0, 4.0, defaults.key),
+            bounded(lighting.fill, 0.0, 4.0, defaults.fill),
+            bounded(lighting.ambient, 0.0, 4.0, defaults.ambient),
+            bounded(lighting.rim, 0.0, 4.0, defaults.rim),
+        ],
+        finish: [
+            bounded(lighting.specular, 0.0, 4.0, defaults.specular),
+            bounded(lighting.shininess, 1.0, 1024.0, defaults.shininess),
+            2f32.powf(bounded(lighting.exposure, -6.0, 6.0, 0.0)),
+            bounded(lighting.contrast, 0.2, 5.0, 1.0),
+        ],
+        ..CameraUniform::zeroed()
     }
 }
 

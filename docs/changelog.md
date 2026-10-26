@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* New: *Preferences > Rendering* sets the lighting of the 3D view: key,
+  fill, ambient and rim lights, highlights and shininess, the direction of
+  the key light, exposure and contrast, with Default, Studio, Bright and
+  Dramatic presets. Default keeps the earlier look
 * Fixed: one NaN in a `show_object` option or in an object's placement lost
   the whole run, every valid object included, with *ValueError: Out of range
   float values are not JSON compliant*. A non-finite option is now ignored

@@ -165,6 +165,7 @@ fn pressing_the_view_uses_a_closed_hand_cursor_for_navigation() {
                 &ViewInput {
                     scene: &scene,
                     settings: &settings,
+                    rendering: &crate::settings::Rendering::default(),
                     colors: &colors,
                     busy: None,
                     empty_hint: None,
@@ -360,6 +361,7 @@ fn large_models_draw_small_parts_simplified_but_never_the_selection() {
         let input = ViewInput {
             scene,
             settings: &settings,
+            rendering: &crate::settings::Rendering::default(),
             colors: &colors,
             busy: None,
             empty_hint: None,
@@ -415,6 +417,7 @@ fn the_ground_grid_follows_its_setting_and_the_zoom() {
     let input = ViewInput {
         scene: &scene,
         settings: &settings,
+        rendering: &crate::settings::Rendering::default(),
         colors: &colors,
         busy: None,
         empty_hint: None,

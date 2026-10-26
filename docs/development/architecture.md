@@ -150,7 +150,11 @@ next object. Picking applies the same plane to the ray (`ClipPlane::kept_range`)
 and ignores edges and vertices it removes.
 
 `shaders.wgsl` lights faces with a camera-attached three-point setup (key,
-fill, rim) and lights both sides of a face, so open shells look right.
+fill, rim) and lights both sides of a face, so open shells look right. The
+strengths, the key light's direction, the highlights, exposure and contrast
+come from `settings::Lighting` (*Preferences > Rendering*) through the
+camera uniform; `lighting_uniform` bounds them, so a damaged settings file
+cannot produce negative light or NaN.
 Edges and points are camera-facing quads expanded in screen space, which
 gives constant pixel widths at any zoom. Faces get a depth bias so edges
 stay visible on top of them.

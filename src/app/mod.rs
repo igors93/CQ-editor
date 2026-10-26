@@ -337,6 +337,7 @@ impl AppState {
             ViewInput {
                 scene: &self.scene,
                 settings: &self.settings.viewer,
+                rendering: &self.settings.rendering,
                 colors: &colors,
                 busy,
                 empty_hint: hint.as_deref(),

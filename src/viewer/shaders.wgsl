@@ -35,6 +35,13 @@ struct Camera {
     // xy: offset of this pass in the whole image (large captures are drawn
     // in tiles); zw: size of the whole image, in pixels.
     frame: vec4<f32>,
+    // xyz: direction of the key light in the camera's frame (right, up,
+    // towards the viewer).
+    key_light: vec4<f32>,
+    // Strength of the key, fill, ambient and rim lights.
+    light_levels: vec4<f32>,
+    // x: highlight strength; y: shininess; z: exposure factor; w: contrast.
+    finish: vec4<f32>,
 };
 
 struct Object {
@@ -90,22 +97,33 @@ fn facing_normal(normal: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     return n;
 }
 
-// Three-point lighting attached to the camera: key light from the upper
-// left, a dimmer fill from the lower right and a little rim light.
+// Three-point lighting attached to the camera, as the lighting settings
+// say: a key light (from the upper left by default), a dimmer fill from the
+// lower right and a little rim light.
 fn lit(base: vec3<f32>, n: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     var to_eye = -camera.forward.xyz;
     if (camera.eye.w > 0.5) {
         to_eye = normalize(camera.eye.xyz - world);
     }
     let back = -camera.forward.xyz;
-    let key = normalize(-0.35 * camera.right.xyz + 0.55 * camera.up.xyz + 0.76 * back);
+    let key = normalize(
+        camera.key_light.x * camera.right.xyz + camera.key_light.y * camera.up.xyz
+            + camera.key_light.z * back,
+    );
     let fill = normalize(0.65 * camera.right.xyz - 0.25 * camera.up.xyz + 0.72 * back);
-    let diffuse = 0.62 * max(dot(n, key), 0.0) + 0.24 * max(dot(n, fill), 0.0);
-    let rim = 0.10 * pow(1.0 - max(dot(n, to_eye), 0.0), 3.0);
-    let ambient = 0.24;
+    let levels = camera.light_levels;
+    let diffuse = levels.x * max(dot(n, key), 0.0) + levels.y * max(dot(n, fill), 0.0);
+    let rim = levels.w * pow(1.0 - max(dot(n, to_eye), 0.0), 3.0);
     let half_vector = normalize(key + to_eye);
-    let specular = 0.22 * pow(max(dot(n, half_vector), 0.0), 48.0);
-    return base * (ambient + diffuse) + vec3<f32>(specular + rim);
+    let specular = camera.finish.x * pow(max(dot(n, half_vector), 0.0), camera.finish.y);
+    return finished(base * (levels.z + diffuse) + vec3<f32>(specular + rim));
+}
+
+// Exposure, then contrast around middle grey (0.18 in linear light). Both
+// leave the color as it is at their defaults (1 and 1).
+fn finished(color: vec3<f32>) -> vec3<f32> {
+    let exposed = max(color * camera.finish.z, vec3<f32>(0.0));
+    return 0.18 * pow(exposed / 0.18, vec3<f32>(camera.finish.w));
 }
 
 // --- Background ---------------------------------------------------------

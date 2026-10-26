@@ -45,6 +45,26 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Deviation | 0.001 | Display mesh chordal deviation, relative to the object size (1e-5 to 0.05). Smaller is finer. Applies on the next run |
 | Angular deviation | 0.2 rad | 0.02–1.0. Applies on the next run |
 
+## Rendering
+
+How the 3D view lights the model. The lights are attached to the camera,
+so the model is lit the same way from every side; changes show at once,
+in screenshots too.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| Lighting | Default | A preset: **Default** (the crisp look of earlier releases, for modeling), **Studio** (soft and even), **Bright** (for dark colors) or **Dramatic** (one strong side light). Changing a value below shows *Custom* |
+| Key light | 0.62 | The main light |
+| Fill light | 0.24 | A softer light from the lower right that keeps shadows readable |
+| Ambient light | 0.24 | Light from everywhere: the darkest a face can be |
+| Rim light | 0.10 | Light grazing the outline of curved surfaces |
+| Highlights | 0.22 | Strength of the reflections of the key light |
+| Shininess | 48 | Higher gives smaller, sharper highlights |
+| Light direction | −24.7° | Where the key light comes from, around the line of sight: negative is left |
+| Light height | 33.3° | How far above the line of sight the key light is |
+| Exposure | 0 | Overall brightness in photographic stops: +1 doubles the light |
+| Contrast | 1.00 | Above 1 darkens shadows and brightens lights around middle grey |
+
 ## Editor
 
 | Option | Default | Description |
