@@ -81,8 +81,10 @@ back at the next start, and while it is closed the empty 3D view says so.
   **Export** (the selection, or everything when nothing is selected).
 * The property sheet below the tree edits the selected object: visibility,
   **Color** (with **Reset** to go back to the script's colors), **Opacity**,
-  **Edges** (this object's edges in the Shaded and X-Ray modes, with
-  **Reset** to follow the preference), and shows its **Size** and
+  **Edges** (this object's edges in the Shaded, X-Ray and Presentation
+  modes, with **Reset** to follow the preference), **Material** (see
+  [Materials](viewer.md#materials), with **Reset** to go back to the
+  script's), and shows its **Size** and
   **Triangles**. When a face, edge or vertex is
   selected, its id is shown too (for example *Face 6 · part 1*) with its
   exact measurements: the surface or curve type, the **Area** of a face,
@@ -106,7 +108,7 @@ From left to right:
 | Run | Render, Profile, Debug, Step, Step in, Step out, Continue, Stop |
 | Inspect | Inspect CQ object |
 | View | Fit, then Iso, Top, Bottom, Front, Back, Left, Right, Named views |
-| Display | Wireframe, Shaded, X-ray, Hidden line, Section view, Exploded view, Screenshot |
+| Display | Wireframe, Shaded, X-ray, Hidden line, Presentation, Section view, Exploded view, Screenshot |
 | Selection | Auto, Object, Face, Edge or Vertex drop-down |
 
 Buttons that cannot be used right now (for example *Step* when no debugging
@@ -135,7 +137,7 @@ paused, are not offered.
 | **Edit** | Undo · Redo · Toggle Comment · Auto-Complete · Search · Replace · Go to Line… · Copy Selector · Insert Selector · Go to Source · Preferences… |
 | **Tools** | Export as STEP… · Export as STL… · Export as BREP… · Inspect CQ Object · Screenshot… · Upload Model… |
 | **Run** | Render · Set as Main Script / Clear Main Script · Profile · Clear Profile · Debug / Stop Debugging · Step · Step In · Step Out · Continue · Stop · Clear Console · Clear Log · Restart Python |
-| **View** | Command Palette… · Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Maximize Panel · Reset Layout |
+| **View** | Command Palette… · Fit · Zoom to Selection · Iso · Top · Bottom · Front · Back · Left · Right · Named Views · Wireframe · Shaded · X-Ray · Hidden Line · Presentation · Perspective Projection · Section View · Exploded View · Ground Grid · Scale Bar · Isolate Selection / End Isolation · Show All · panel toggles · Maximize Panel · Reset Layout |
 | **Help** | Documentation · CadQuery Documentation · Download CQ-editor *x.y.z*… (when a newer release is out) · Check for Updates · About |
 
 All shortcuts are listed in the [keyboard and mouse reference](shortcuts.md).
