@@ -108,6 +108,8 @@ impl FilePrompt {
 }
 
 pub struct HistoryDialog {
+    /// The tab whose history was opened, independent of the shown tab.
+    pub document: u64,
     pub versions: Vec<RecoverySnapshot>,
     pub selected: usize,
 }
@@ -313,8 +315,9 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         .and_then(|history| local_history(ctx, history));
     match history_choice {
         Some(HistoryChoice::Restore(snapshot)) => {
-            state.dialogs.history = None;
-            state.restore_history(snapshot);
+            if let Some(history) = state.dialogs.history.take() {
+                state.restore_history(history.document, snapshot);
+            }
         }
         Some(HistoryChoice::Close) => state.dialogs.history = None,
         None => {}

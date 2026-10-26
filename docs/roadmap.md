@@ -381,7 +381,7 @@ the code**.
 | Status | Id | Improvement | Fixes | Priority |
 | :---: | --- | --- | --- | --- |
 | ✅ | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
-| | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
+| ✅ | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
 | | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
 | | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
 | | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
@@ -432,8 +432,9 @@ shows the name of that document, not of the shown tab.
 That removes a class of "the user switched tabs meanwhile" bugs that tabs
 (FEAT-D1) made possible.
 
-**Progress.** Done for shortcuts and for the external-change dialog
-(BUG-34). The unsaved-changes dialog already names its documents.
+**Progress.** Done. Modal dialogs gate global shortcuts. External-change,
+unsaved-changes and local-history actions carry document generations; history
+restores the tab that opened it, and refuses a version of another path.
 
 ### REQ-03 · The editor can never be lost
 

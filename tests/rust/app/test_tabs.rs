@@ -662,6 +662,35 @@ fn focus_checks_all_tabs_even_without_automatic_reload() {
 }
 
 #[test]
+fn local_history_restores_the_tab_that_opened_it() {
+    let dir = folder(
+        "history-dialog",
+        &[("a.py", "a = 1\n"), ("b.py", "b = 1\n")],
+    );
+    let mut state = state_in(&dir);
+    open(&mut state, &dir.join("a.py"));
+    let a = state.document_generation;
+    state.recovery.archive(&state.document).unwrap();
+    state.document.text = "a = 2\n".into();
+    state.show_local_history();
+    let history = state.dialogs.history.take().expect("history dialog");
+    assert_eq!(history.document, a);
+    let old = history
+        .versions
+        .into_iter()
+        .find(|version| version.text == "a = 1\n")
+        .unwrap();
+
+    open(&mut state, &dir.join("b.py"));
+    let b = state.document_generation;
+    state.restore_history(a, old);
+    assert_eq!(state.document_generation, a);
+    assert_eq!(state.document.text, "a = 1\n");
+    assert_eq!(state.document_of(b).unwrap().text, "b = 1\n");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn completions_asked_for_in_another_tab_are_dropped() {
     use crate::app::execution::Pending;
     let dir = folder("completions", &[("a.py", "import cadquery as cq\ncq.\n")]);

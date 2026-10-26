@@ -87,7 +87,17 @@ impl AppState {
         }
     }
 
-    pub fn restore_history(&mut self, snapshot: RecoverySnapshot) {
+    pub fn restore_history(&mut self, generation: u64, snapshot: RecoverySnapshot) {
+        if !self.activate(generation) {
+            return;
+        }
+        if self.document.path() != snapshot.path.as_deref() {
+            self.dialogs.error(
+                "Cannot restore local history",
+                "This history belongs to another document.",
+            );
+            return;
+        }
         self.checkpoint_recovery();
         let name = snapshot.display_name();
         // Another version of the same file, like a reload: the model stays.
@@ -530,6 +540,7 @@ impl AppState {
             ),
             Ok(versions) => {
                 self.dialogs.history = Some(HistoryDialog {
+                    document: self.document_generation,
                     versions,
                     selected: 0,
                 });
