@@ -28,6 +28,13 @@ the 3D View preference and asks you to choose when it is *None*. STEP records
 that unit, 3MF records it in the model, and glTF/GLB convert coordinates to
 meters. STL and DXF cannot store a unit; tell the recipient what you chose.
 
+**Geometry check.** Before writing, CQ-editor checks each exported shape for
+invalid topology, open shells and non-manifold edges. If it finds a problem,
+you can cancel, export anyway, or try OpenCascade ShapeFix on an export copy.
+The script and displayed model are unchanged by that repair. **Tools > Check
+Geometry** reports the same findings without exporting, and the Objects
+panel marks checked objects with problems.
+
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the
 file is written.

@@ -12,6 +12,20 @@ use crate::worker::protocol::{
     CompletionTarget, ConsoleSelection, ExportFormat, Request, SelectorCandidate, TopologyReference,
 };
 
+#[derive(Clone)]
+pub(super) struct ExportJob {
+    pub keys: Vec<NodeKey>,
+    pub format: ExportFormat,
+    pub path: String,
+    pub tolerance: f64,
+    pub angular_tolerance: f64,
+    pub step_mode: String,
+    pub step_schema: String,
+    pub stl_ascii: bool,
+    pub flat_parts: bool,
+    pub unit: String,
+}
+
 impl AppState {
     // -- editor services ----------------------------------------------------------
 
@@ -412,12 +426,10 @@ impl AppState {
             );
             return;
         }
-        let path_text = path.display().to_string();
-        if self.send_tracked(Pending::Export, |id| Request::Export {
-            id,
+        self.export_job = Some(ExportJob {
             keys,
             format,
-            path: path_text,
+            path: path.display().to_string(),
             tolerance,
             angular_tolerance,
             step_mode: if options.step_fused {
@@ -430,8 +442,57 @@ impl AppState {
             stl_ascii: options.stl_ascii,
             flat_parts: options.scope == ExportScope::Visible,
             unit: options.unit.export_code().to_owned(),
-        }) {
+        });
+        if self.send_export("check") {
             self.set_status(StatusKind::Info, format!("Exporting {}…", path.display()));
+        }
+    }
+
+    fn send_export(&mut self, on_invalid: &str) -> bool {
+        let Some(job) = self.export_job.clone() else {
+            return false;
+        };
+        let on_invalid = on_invalid.to_owned();
+        self.send_tracked(Pending::Export, |id| Request::Export {
+            id,
+            keys: job.keys,
+            format: job.format,
+            path: job.path,
+            tolerance: job.tolerance,
+            angular_tolerance: job.angular_tolerance,
+            step_mode: job.step_mode,
+            step_schema: job.step_schema,
+            stl_ascii: job.stl_ascii,
+            flat_parts: job.flat_parts,
+            unit: job.unit,
+            on_invalid,
+        })
+    }
+
+    pub(crate) fn resolve_geometry_export(&mut self, choice: crate::dialogs::GeometryChoice) {
+        match choice {
+            crate::dialogs::GeometryChoice::Cancel => self.export_job = None,
+            crate::dialogs::GeometryChoice::ExportAnyway => {
+                self.send_export("ignore");
+            }
+            crate::dialogs::GeometryChoice::TryFix => {
+                self.send_export("fix");
+            }
+        }
+    }
+
+    pub(super) fn check_geometry(&mut self) {
+        let keys = self.objects_to_process();
+        if keys.is_empty() {
+            self.set_status(StatusKind::Warning, "Nothing to check");
+            return;
+        }
+        if self.send_tracked(Pending::Check, |id| Request::Check {
+            id,
+            keys,
+            flat_parts: false,
+        }) {
+            self.set_status(StatusKind::Info, "Checking geometry…");
         }
     }
 

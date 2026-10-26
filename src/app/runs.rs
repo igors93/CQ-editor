@@ -152,6 +152,7 @@ impl AppState {
             // Like the original: the view starts empty and follows the
             // locals of each paused frame.
             let removed = self.scene.clear();
+            self.geometry_checks.clear();
             self.release(removed);
             self.measurements.clear();
             self.selector.clear();
@@ -246,6 +247,7 @@ impl AppState {
                 let count = nodes.len();
                 if self.settings.objects.clear_before_run || result.debug {
                     let removed = self.scene.replace(nodes, preserved.as_ref());
+                    self.geometry_checks.clear();
                     self.release(removed);
                     self.measurements.clear();
                     self.selector.clear();

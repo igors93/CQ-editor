@@ -51,6 +51,18 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                     .response
                     .on_hover_text("Export the selection, or everything when nothing is selected");
                 });
+                if ui
+                    .add_enabled(
+                        !state.scene.is_empty(),
+                        egui::Button::new(format!("{} Check", icon::CHECK_CIRCLE)),
+                    )
+                    .on_hover_text(
+                        "Check selected geometry, or everything when nothing is selected",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::CheckGeometry);
+                }
             });
         });
     ui.separator();
@@ -165,7 +177,18 @@ fn node_row(
             swatch(ui, color, alpha);
         }
         let selected = state.scene.is_selected(&node.key);
-        let mut text = RichText::new(&node.name);
+        let invalid = state
+            .geometry_checks
+            .get(&node.key)
+            .is_some_and(|report| !report.valid);
+        let mut text = RichText::new(if invalid {
+            format!("{} {}", icon::WARNING_CIRCLE, node.name)
+        } else {
+            node.name.clone()
+        });
+        if invalid {
+            text = text.color(ui.visuals().warn_fg_color);
+        }
         if !node.visible || isolated_out {
             text = text.weak();
         }
@@ -260,6 +283,13 @@ fn node_row(
                 ui.close();
             }
             ui.separator();
+            if ui
+                .button(format!("{} Check Geometry", icon::CHECK_CIRCLE))
+                .clicked()
+            {
+                actions.push(Action::CheckGeometry);
+                ui.close();
+            }
             export_menu(ui, actions);
             ui.separator();
             if ui.button(format!("{} Remove", icon::TRASH)).clicked() {

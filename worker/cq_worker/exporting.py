@@ -12,6 +12,7 @@ from OCP.gp import gp_Vec
 from OCP.Interface import Interface_Static
 from OCP.STEPControl import STEPControl_Controller
 
+from .checking import GeometryInvalid, check_registry, check_shape, invalid_reports
 from .scene import Registry, RegistryEntry, to_compound
 
 FORMATS = (
@@ -48,6 +49,7 @@ def export(
     stl_ascii: bool = False,
     flat_parts: bool = False,
     unit: str = "millimeter",
+    on_invalid: str = "check",
 ) -> None:
     """Export the objects behind ``keys`` (with their descendants).
 
@@ -67,9 +69,37 @@ def export(
         raise ValueError(f"Unsupported STEP schema {step_schema!r}")
     if unit not in UNITS:
         raise ValueError("Choose the model unit before exporting")
+    if on_invalid not in ("check", "ignore", "fix"):
+        raise ValueError(f"Unsupported invalid-geometry action {on_invalid!r}")
+    bad = invalid_reports(check_registry(registry, keys, flat_parts))
+    if bad and on_invalid == "check":
+        raise GeometryInvalid(bad)
+    repaired: dict[str, cq.Shape] = {}
+    if bad and on_invalid == "fix":
+        still_bad = []
+        for report in bad:
+            key = report["key"]
+            shape = registry.get(key).shape
+            fixed = shape.fix()
+            checked = check_shape(fixed)
+            if checked["valid"]:
+                repaired[key] = fixed
+            else:
+                still_bad.append(
+                    {
+                        **report,
+                        **checked,
+                        "issues": [
+                            *checked["issues"],
+                            "ShapeFix did not resolve this geometry",
+                        ],
+                    }
+                )
+        if still_bad:
+            raise GeometryInvalid(still_bad)
 
     if file_format in ("step", "gltf", "glb", "vrml", "vtkjs", "xbf"):
-        assembly = export_assembly(registry, keys, flat_parts)
+        assembly = export_assembly(registry, keys, flat_parts, repaired)
         if file_format == "step":
             STEPControl_Controller.Init_s()
             previous = Interface_Static.CVal_s("write.step.schema")
@@ -114,11 +144,8 @@ def export(
                     raise
         return
 
-    shapes = (
-        [registry.get(key).shape for key in keys if registry.get(key).shape is not None]
-        if flat_parts
-        else registry.subtree_shapes(keys)
-    )
+    parts = _export_parts(registry, keys, flat_parts)
+    shapes = [repaired.get(key, entry.shape) for key, entry in parts]
     compound = to_compound(shapes)
     if file_format == "stl":
         compound.exportStl(
@@ -138,7 +165,7 @@ def export(
             angular_tolerance,
             opt={"unit": unit},
         )
-        _decorate_3mf(path, _export_parts(registry, keys, flat_parts))
+        _decorate_3mf(path, [entry for _, entry in parts])
     else:
         cq.exporters.export(
             compound,
@@ -150,7 +177,10 @@ def export(
 
 
 def export_assembly(
-    registry: Registry, keys: list[str], flat_parts: bool = False
+    registry: Registry,
+    keys: list[str],
+    flat_parts: bool = False,
+    repaired: dict[str, cq.Shape] | None = None,
 ) -> cq.Assembly:
     """The requested nodes, with world placement, names and display colors.
 
@@ -158,6 +188,7 @@ def export_assembly(
     descendants prevents a duplicated solid in the resulting STEP file.
     """
 
+    repaired = repaired or {}
     descendants: set[str] = set()
 
     def mark_children(key: str) -> None:
@@ -182,13 +213,15 @@ def export_assembly(
             name = f"{original} ({index})"
             index += 1
         used_names.add(name)
-        if flat_parts and entry.shape is not None:
+        if repaired and not flat_parts:
+            _add_repaired_node(result, registry, key, name, repaired)
+        elif flat_parts and entry.shape is not None:
             color = (
                 entry.display_color
                 or (entry.obj.color if isinstance(entry.obj, cq.Assembly) else None)
                 or entry.inherited_color
             )
-            result.add(entry.shape, name=name, color=color)
+            result.add(repaired.get(key, entry.shape), name=name, color=color)
         elif isinstance(entry.obj, cq.Assembly):
             result.add(placed_assembly(entry), name=name)
         elif entry.shape is not None:
@@ -196,6 +229,34 @@ def export_assembly(
     if not result.children:
         raise ValueError("No exportable geometry in the chosen objects")
     return result
+
+
+def _add_repaired_node(
+    parent: cq.Assembly,
+    registry: Registry,
+    key: str,
+    name: str,
+    repaired: dict[str, cq.Shape],
+) -> None:
+    """Rebuild just the export copy from world shapes, retaining hierarchy."""
+    entry = registry.get(key)
+    color = (
+        entry.display_color
+        or (entry.obj.color if isinstance(entry.obj, cq.Assembly) else None)
+        or entry.inherited_color
+    )
+    if entry.children:
+        group = cq.Assembly(name=name, color=color)
+        if entry.shape is not None:
+            group.add(repaired.get(key, entry.shape), name=f"{name} body", color=color)
+        for child in entry.children:
+            child_entry = registry.get(child)
+            _add_repaired_node(
+                group, registry, child, child_entry.name or child, repaired
+            )
+        parent.add(group, name=name, color=color)
+    elif entry.shape is not None:
+        parent.add(repaired.get(key, entry.shape), name=name, color=color)
 
 
 def _scale_assembly(assembly: cq.Assembly, factor: float) -> None:
@@ -217,9 +278,9 @@ def _scale_assembly(assembly: cq.Assembly, factor: float) -> None:
 
 def _export_parts(
     registry: Registry, keys: list[str], flat_parts: bool
-) -> list[RegistryEntry]:
+) -> list[tuple[str, RegistryEntry]]:
     """The individual displayed shapes in the order used by 3MF export."""
-    parts: list[RegistryEntry] = []
+    parts: list[tuple[str, RegistryEntry]] = []
     seen: set[str] = set()
 
     def visit(key: str) -> None:
@@ -228,7 +289,7 @@ def _export_parts(
         seen.add(key)
         entry = registry.get(key)
         if entry.shape is not None:
-            parts.append(entry)
+            parts.append((key, entry))
         if not flat_parts:
             for child in entry.children:
                 visit(child)

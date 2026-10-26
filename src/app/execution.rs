@@ -68,6 +68,7 @@ pub enum Pending {
     },
     Console,
     Export,
+    Check,
     Upload,
     /// `automatic` checks, once a day, stay silent unless a newer
     /// CQ-editor is out.

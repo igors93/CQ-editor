@@ -257,6 +257,15 @@ fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
 
 fn tools_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     let has_objects = !state.scene.is_empty();
+    item_enabled(
+        ui,
+        actions,
+        icon::CHECK_CIRCLE,
+        "Check Geometry",
+        Action::CheckGeometry,
+        has_objects,
+    );
+    ui.separator();
     for format in ExportFormat::ALL {
         item_enabled(
             ui,

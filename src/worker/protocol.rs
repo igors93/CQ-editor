@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 pub type RequestId = u64;
 
@@ -114,6 +114,12 @@ pub enum Request {
         stl_ascii: bool,
         flat_parts: bool,
         unit: String,
+        on_invalid: String,
+    },
+    Check {
+        id: RequestId,
+        keys: Vec<String>,
+        flat_parts: bool,
     },
     Upload {
         id: RequestId,
@@ -248,6 +254,17 @@ pub struct SceneSettings {
     pub units: String,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeometryReport {
+    pub key: String,
+    pub name: String,
+    pub valid: bool,
+    pub solids: usize,
+    pub open_shells: usize,
+    pub non_manifold_edges: usize,
+    pub issues: Vec<String>,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
@@ -328,6 +345,14 @@ pub enum Message {
     ExportFinished {
         id: RequestId,
         path: String,
+    },
+    GeometryChecked {
+        id: RequestId,
+        reports: Vec<GeometryReport>,
+    },
+    GeometryInvalid {
+        id: RequestId,
+        reports: Vec<GeometryReport>,
     },
     UploadFinished {
         id: RequestId,

@@ -33,6 +33,7 @@ mod worker_events;
 
 pub use tabs::TabInfo;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,6 +63,7 @@ use crate::worker::protocol::{Request, RequestId, Variable};
 use crate::worker::{self, Worker};
 
 use execution::{Execution, Pending, Phase};
+use services::ExportJob;
 use tabs::EditorTabs;
 use watching::WatchKey;
 
@@ -133,6 +135,8 @@ pub struct AppState {
     pub log_view: LogView,
     pub status: Option<Status>,
     pub dialogs: Dialogs,
+    pub geometry_checks: HashMap<String, crate::worker::protocol::GeometryReport>,
+    export_job: Option<ExportJob>,
     ctx: egui::Context,
     execution: Execution,
     actions: Vec<Action>,
@@ -584,6 +588,7 @@ impl AppState {
             Action::CommandPalette => self.dialogs.palette = Some(Default::default()),
 
             Action::Export(format) => self.export(format),
+            Action::CheckGeometry => self.check_geometry(),
             Action::ToggleInspect => self.toggle_inspect(),
             Action::Screenshot => self.dialogs.capture.open = true,
             Action::SaveImage => self.save_image(),
@@ -653,12 +658,14 @@ impl AppState {
             Action::RemoveSelected => {
                 let keys = self.scene.selected_top_level();
                 let removed = self.scene.remove_top_level(&keys);
+                self.geometry_checks.clear();
                 self.release(removed);
                 self.request_topology_results();
                 self.refresh_inspector();
             }
             Action::ClearObjects => {
                 let removed = self.scene.clear();
+                self.geometry_checks.clear();
                 self.release(removed);
                 self.measurements.clear();
                 self.selector.clear();
@@ -842,6 +849,8 @@ impl CqEditorApp {
             log_view: LogView::default(),
             status: None,
             dialogs,
+            geometry_checks: HashMap::new(),
+            export_job: None,
             execution: Execution::default(),
             actions: Vec::new(),
             watcher: FileWatcher::default(),

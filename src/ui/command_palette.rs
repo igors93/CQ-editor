@@ -100,6 +100,7 @@ pub fn menu_commands() -> Vec<Command> {
         c("Run", "Continue", Action::Debug(DebugAction::Continue)),
         c("Run", "Stop", Action::Stop),
         c("Run", "Clear Console", Action::ClearConsole),
+        c("Tools", "Check Geometry", Action::CheckGeometry),
         c("Run", "Reset Console", Action::ResetConsole),
         c("Run", "Clear Log", Action::ClearLog),
         c("Run", "Restart Python", Action::RestartPython),

@@ -133,6 +133,7 @@ pub enum Action {
     CommandPalette,
     // Tools
     Export(ExportFormat),
+    CheckGeometry,
     ToggleInspect,
     /// Opens the screenshot and animation options.
     Screenshot,

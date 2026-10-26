@@ -17,7 +17,7 @@ use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
 use crate::settings::Units;
 use crate::worker::Problem;
-use crate::worker::protocol::ExportFormat;
+use crate::worker::protocol::{ExportFormat, GeometryReport};
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -135,6 +135,18 @@ pub struct ExportDialog {
     pub unit: Units,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeometryChoice {
+    Cancel,
+    ExportAnyway,
+    TryFix,
+}
+
+pub struct GeometryDialog {
+    pub reports: Vec<GeometryReport>,
+    pub for_export: bool,
+}
+
 impl ExportDialog {
     pub fn new(format: ExportFormat, tolerance: f64, angular_tolerance: f64, unit: Units) -> Self {
         Self {
@@ -185,6 +197,7 @@ pub struct Dialogs {
     pub palette: Option<crate::ui::command_palette::Palette>,
     pub history: Option<HistoryDialog>,
     pub export: Option<ExportDialog>,
+    pub geometry: Option<GeometryDialog>,
     /// A file that is not UTF-8, waiting for permission to read it as
     /// Windows-1252.
     pub legacy_encoding: Option<PathBuf>,
@@ -205,6 +218,7 @@ impl Dialogs {
             || self.palette.is_some()
             || self.history.is_some()
             || self.export.is_some()
+            || self.geometry.is_some()
             || self.legacy_encoding.is_some()
             || self.message.is_some()
     }
@@ -381,6 +395,18 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             }
         }
     }
+    let geometry_choice = state
+        .dialogs
+        .geometry
+        .as_ref()
+        .and_then(|dialog| geometry_review(ctx, dialog));
+    if let Some(choice) = geometry_choice {
+        if let Some(dialog) = state.dialogs.geometry.take() {
+            if dialog.for_export {
+                state.resolve_geometry_export(choice);
+            }
+        }
+    }
 
     if let Some(message) = &state.dialogs.message
         && message_box(ctx, message)
@@ -523,6 +549,73 @@ fn export_options(
         });
     if response.should_close() {
         choice = Some(false);
+    }
+    choice
+}
+
+fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<GeometryChoice> {
+    let mut choice = None;
+    let response = egui::Modal::new(egui::Id::new("geometry_review"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(470.0);
+            ui.heading(if dialog.for_export {
+                "Geometry needs review"
+            } else {
+                "Geometry check"
+            });
+            let invalid: Vec<_> = dialog
+                .reports
+                .iter()
+                .filter(|report| !report.valid)
+                .collect();
+            if invalid.is_empty() {
+                ui.label(format!(
+                    "{} object(s) checked; no geometry problems found.",
+                    dialog.reports.len()
+                ));
+            } else {
+                ui.label(format!(
+                    "{} object(s) have geometry problems:",
+                    invalid.len()
+                ));
+                egui::ScrollArea::vertical()
+                    .max_height(250.0)
+                    .show(ui, |ui| {
+                        for report in invalid {
+                            ui.label(RichText::new(&report.name).strong());
+                            ui.weak(report.issues.join(" · "));
+                            ui.small(format!(
+                                "{} solid(s) · {} open shell(s) · {} non-manifold edge(s)",
+                                report.solids, report.open_shells, report.non_manifold_edges
+                            ));
+                        }
+                    });
+            }
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(if dialog.for_export {
+                        "Cancel export"
+                    } else {
+                        "Close"
+                    })
+                    .clicked()
+                {
+                    choice = Some(GeometryChoice::Cancel);
+                }
+                if dialog.for_export {
+                    if ui.button("Try ShapeFix").clicked() {
+                        choice = Some(GeometryChoice::TryFix);
+                    }
+                    if ui.button("Export anyway").clicked() {
+                        choice = Some(GeometryChoice::ExportAnyway);
+                    }
+                }
+            });
+        });
+    if response.should_close() {
+        choice = Some(GeometryChoice::Cancel);
     }
     choice
 }

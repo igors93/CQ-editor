@@ -70,6 +70,8 @@ pub(crate) fn test_state(text: &str) -> AppState {
         log_view: LogView::default(),
         status: None,
         dialogs: Dialogs::default(),
+        geometry_checks: std::collections::HashMap::new(),
+        export_job: None,
         execution: Execution::default(),
         actions: Vec::new(),
         watcher: FileWatcher::default(),
@@ -891,6 +893,34 @@ fn a_result_too_large_to_transfer_ends_the_run_and_restarts_python() {
     assert_eq!(message.title, "Cannot show the result");
     assert!(message.text.contains("too large to transfer"));
     assert_ne!(state.worker.problem(), Some(worker::Problem::NoCadQuery));
+}
+
+#[test]
+fn invalid_geometry_stops_export_for_a_user_decision() {
+    use crate::worker::protocol::{GeometryReport, Message};
+    let mut state = test_state("");
+    state.execution.track(17, Pending::Export);
+    state.handle_message(Message::GeometryInvalid {
+        id: 17,
+        reports: vec![GeometryReport {
+            key: "n1".into(),
+            name: "open shell".into(),
+            valid: false,
+            solids: 0,
+            open_shells: 1,
+            non_manifold_edges: 0,
+            issues: vec!["1 open shell(s)".into()],
+        }],
+    });
+    assert!(
+        state
+            .dialogs
+            .geometry
+            .as_ref()
+            .is_some_and(|dialog| dialog.for_export)
+    );
+    assert!(!state.geometry_checks["n1"].valid);
+    assert!(state.dialogs.modal_open());
 }
 
 #[test]

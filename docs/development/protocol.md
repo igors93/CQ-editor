@@ -1,4 +1,4 @@
-# Worker protocol (version 7)
+# Worker protocol (version 8)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":7,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":8,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -76,7 +76,8 @@ The worker handles one request at a time, in arrival order.
 | `selector` | `id`, `selections` of one object, part and kind | `selector` |
 | `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `display` for each result, `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
-| `export` | `id`, `keys`, `format` (`step`, `stl`, `brep`), `path`, `tolerance`, `angular_tolerance` | `export_finished` |
+| `export` | `id`, `keys`, `format` (see Export dialog), `path`, tolerances, STEP mode/schema, STL ASCII, `flat_parts`, `unit`, `on_invalid` (`check`, `fix`, `ignore`) | `export_finished` or `geometry_invalid` |
+| `check` | `id`, `keys`, `flat_parts` | `geometry_checked` |
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
 | `check_updates` | `id`, `editor` (the GUI's version: list CQ-editor's newer releases), `cadquery` (also list CadQuery's; true when missing) | `updates` |
 | `imports` | `id`, `path` | `imports` (local module files imported by the script) |
@@ -88,7 +89,7 @@ The worker handles one request at a time, in arrival order.
 `reload_imported_modules` (booleans, see [Preferences](../user-guide/preferences.md#execution)).
 
 **SceneSettings:** `linear_tolerance`, `angular_tolerance` (display mesh),
-`merge_assemblies`.
+`merge_assemblies`, `units`.
 
 ## Messages
 
@@ -112,6 +113,8 @@ The worker handles one request at a time, in arrival order.
 | `display` | `id`, `text`, `image` (null, or `format`: `png` or `jpeg`, `data`: base64) | A console result: the value of an expression, or each argument of `display()`. See [Rich console results](#rich-console-results) |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
+| `geometry_checked` | `id`, `reports` | Validity, solid and open-shell counts, non-manifold edges and issues by object key and name |
+| `geometry_invalid` | `id`, `reports` | Export wrote nothing and awaits the user's decision |
 | `upload_finished` | `id`, `status`, `body` | HTTP status and response body |
 | `updates` | `id`, `current`, `newer`, `editor` | CadQuery release tags newer than `current` (empty when not asked); with `editor`, CQ-editor's newer releases (`current`, `newer`: `tag`, `name`, `url`, newest first, drafts and pre-releases left out) |
 | `imports` | `id`, `paths` | |
@@ -248,7 +251,7 @@ GUI                                   worker
  │ ◄─────────────────────────────────── │
 ```
 
-While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `selector`, `export`,
+While paused, only `complete`, `inspect`, `inspect_geometry`, `measure`, `selector`, `export`, `check`,
 `imports`, `release` and `check_updates` are served. Anything else is
 answered with an `error` (*Not available while debugging; continue or stop
 first*).

@@ -5,6 +5,35 @@ from cq_worker import network
 BOX = "part = cq.Workplane().box(1, 2, 3)\nshow_object(part)"
 
 
+def test_check_and_export_share_the_geometry_report(conversation, tmp_path):
+    script = (
+        "box = cq.Workplane().box(1, 1, 1).val()\n"
+        "open_shell = cq.Shell.makeShell(box.Faces()[:-1])\n"
+        "show_object(open_shell)"
+    )
+    path = tmp_path / "shell.step"
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {"cmd": "check", "id": 2, "keys": ["n1"]},
+        {"cmd": "export", "id": 3, "keys": ["n1"], "format": "step", "path": str(path)},
+        {
+            "cmd": "export",
+            "id": 4,
+            "keys": ["n1"],
+            "format": "step",
+            "path": str(path),
+            "on_invalid": "ignore",
+        },
+    )
+    talk.serve()
+    report = talk.of_type("geometry_checked")[0]["reports"][0]
+    invalid = talk.of_type("geometry_invalid")[0]["reports"][0]
+    assert report["name"] == invalid["name"]
+    assert report["open_shells"] == invalid["open_shells"] == 1
+    assert talk.of_type("export_finished")[0]["id"] == 4
+    assert path.stat().st_size > 100
+
+
 def test_successful_run_then_failed_run_retains_previous_scene(conversation):
     talk = conversation(
         {"cmd": "run", "id": 1, "script": BOX},

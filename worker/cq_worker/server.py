@@ -21,6 +21,7 @@ import cadquery as cq
 
 from . import (
     completion,
+    checking,
     exporting,
     inspector,
     measurement,
@@ -74,6 +75,7 @@ _ALLOWED_WHILE_PAUSED = {
     "measure",
     "selector",
     "export",
+    "check",
     "imports",
     "release",
     "check_updates",
@@ -158,6 +160,7 @@ class Server:
             "console": self.run_console,
             "console_reset": self.reset_console,
             "export": self.export,
+            "check": self.check,
             "upload": self.upload,
             "check_updates": self.check_updates,
             "imports": self.imports,
@@ -501,20 +504,34 @@ class Server:
 
     # -- files and network -------------------------------------------------
 
+    def check(self, request: Message) -> Message:
+        return {
+            "type": "geometry_checked",
+            "reports": checking.check_registry(
+                self.registry,
+                request.get("keys", []),
+                bool(request.get("flat_parts", False)),
+            ),
+        }
+
     def export(self, request: Message) -> Message:
-        exporting.export(
-            self.registry,
-            request.get("keys", []),
-            request["format"],
-            request["path"],
-            float(request.get("tolerance", 0.1)),
-            float(request.get("angular_tolerance", 0.1)),
-            step_mode=request.get("step_mode", "default"),
-            step_schema=request.get("step_schema", "ap242"),
-            stl_ascii=bool(request.get("stl_ascii", False)),
-            flat_parts=bool(request.get("flat_parts", False)),
-            unit=request.get("unit", "millimeter"),
-        )
+        try:
+            exporting.export(
+                self.registry,
+                request.get("keys", []),
+                request["format"],
+                request["path"],
+                float(request.get("tolerance", 0.1)),
+                float(request.get("angular_tolerance", 0.1)),
+                step_mode=request.get("step_mode", "default"),
+                step_schema=request.get("step_schema", "ap242"),
+                stl_ascii=bool(request.get("stl_ascii", False)),
+                flat_parts=bool(request.get("flat_parts", False)),
+                unit=request.get("unit", "millimeter"),
+                on_invalid=request.get("on_invalid", "check"),
+            )
+        except checking.GeometryInvalid as error:
+            return {"type": "geometry_invalid", "reports": error.reports}
         return {"type": "export_finished", "path": request["path"]}
 
     def upload(self, request: Message) -> Message:

@@ -385,7 +385,7 @@ the code**.
 | ✅ | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
 | ✅ | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
 | ✅ | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
-| | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
+| ✅ | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
 | | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
 | | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
 | | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
@@ -532,6 +532,12 @@ edges and solids that are not closed. A badge marks invalid objects.
 **How it helps the code.** The worker gains a `check` request that
 measurement, export and CI ([REQ-10](#req-10--headless-build-and-check))
 share.
+
+**Progress.** Done. The worker checks each exported shape for OCCT validity,
+open shells and non-manifold edges before opening an output file. The user
+can cancel, export anyway, or try ShapeFix; an unsuccessful repair is
+refused. **Check Geometry** in Objects and Tools uses the same request and
+marks invalid nodes until their scene is replaced. The protocol is version 8.
 
 ### REQ-07 · Show everything the CadQuery API can specify
 

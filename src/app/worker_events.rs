@@ -241,6 +241,7 @@ impl AppState {
                 };
                 self.attach_run_script(id, &mut nodes);
                 let removed = self.scene.replace(nodes, None);
+                self.geometry_checks.clear();
                 self.release(removed);
                 self.measurements.clear();
                 self.selector.clear();
@@ -381,7 +382,33 @@ impl AppState {
             }
             Message::ExportFinished { id, path } => {
                 self.execution.answer(id);
+                self.export_job = None;
                 self.set_status(StatusKind::Success, format!("Exported {path}"));
+            }
+            Message::GeometryChecked { id, reports } => {
+                if matches!(self.execution.answer(id), Some(Pending::Check)) {
+                    for report in &reports {
+                        self.geometry_checks
+                            .insert(report.key.clone(), report.clone());
+                    }
+                    self.dialogs.geometry = Some(crate::dialogs::GeometryDialog {
+                        reports,
+                        for_export: false,
+                    });
+                }
+            }
+            Message::GeometryInvalid { id, reports } => {
+                if matches!(self.execution.answer(id), Some(Pending::Export)) {
+                    for report in &reports {
+                        self.geometry_checks
+                            .insert(report.key.clone(), report.clone());
+                    }
+                    self.dialogs.geometry = Some(crate::dialogs::GeometryDialog {
+                        reports,
+                        for_export: true,
+                    });
+                    self.set_status(StatusKind::Warning, "Export waits for a geometry decision");
+                }
             }
             Message::UploadFinished { id, status, body } => {
                 self.execution.answer(id);
@@ -471,7 +498,11 @@ impl AppState {
                 self.console.push(EntryKind::Error, &format!("{message}\n"));
                 self.console.busy = false;
             }
-            Some((_, Pending::Export)) => self.dialogs.error("Export failed", message),
+            Some((_, Pending::Export)) => {
+                self.export_job = None;
+                self.dialogs.error("Export failed", message);
+            }
+            Some((_, Pending::Check)) => self.dialogs.error("Geometry check failed", message),
             Some((_, Pending::Upload)) => {
                 if let Some(upload) = &mut self.dialogs.upload {
                     upload.failed(&message);
