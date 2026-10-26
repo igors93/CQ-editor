@@ -26,6 +26,7 @@ interactive console and exporters.
 | [Debugging and inspection](user-guide/debugging.md) | Breakpoints, stepping, the CQ Inspector |
 | [Console, variables and logs](user-guide/console.md) | Interactive Python, Variables, Traceback and Log panels |
 | [Exporting and sharing](user-guide/exporting.md) | STEP, STL, BREP, screenshots, model upload |
+| [Headless build and check](user-guide/headless.md) | Export and validate models from a terminal or CI |
 | [Preferences](user-guide/preferences.md) | Every option with its default value |
 | [Keyboard and mouse reference](user-guide/shortcuts.md) | All shortcuts on one page |
 | [Troubleshooting](user-guide/troubleshooting.md) | Python not found, slow models, display problems, where files are stored |

@@ -389,7 +389,7 @@ the code**.
 | ✅ | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
 | ✅ | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
 | ✅ | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
-| | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
+| ✅ | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
 | | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
 | | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
 | | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |

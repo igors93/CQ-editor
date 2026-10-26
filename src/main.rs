@@ -14,6 +14,7 @@ mod editor;
 mod embedded;
 mod environments;
 mod file_watcher;
+mod headless;
 mod logging;
 mod panels;
 mod parameters;
@@ -33,6 +34,8 @@ use std::path::PathBuf;
 use app::{CqEditorApp, StartupOptions};
 
 const USAGE: &str = "Usage: cq-editor [--python PATH] [FILE]
+       cq-editor [--python PATH] build FILE --export OUTPUT [--set NAME=VALUE]... [--unit UNIT] [--json]
+       cq-editor [--python PATH] check FILE [--set NAME=VALUE]... [--json]
 
   FILE            CadQuery script to open
   --python PATH   Python interpreter with CadQuery (overrides the preferences)";
@@ -43,7 +46,12 @@ pub const APP_ID: &str = "cq-editor";
 fn main() -> eframe::Result {
     logging::init();
 
-    let options = match parse_args(std::env::args().skip(1)) {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if let Some(status) = headless::run(&args) {
+        std::process::exit(status);
+    }
+
+    let options = match parse_args(args.into_iter()) {
         Ok(options) => options,
         Err(message) => {
             show_cli_message(&format!("{message}\n\n{USAGE}"), true);
