@@ -101,7 +101,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | ✅ | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
 | ✅ | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
 | ✅ | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
-| | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
+| ✅ | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
 | | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
 | ✅ | [BUG-41](#bug-41--the-local-history-depends-on-how-a-path-is-written) | The local history depends on how a path is written | P3 |
 
@@ -293,6 +293,17 @@ it in `running_document`. `Execution::abandon` already handles the paused
 case.
 
 ### BUG-39 · A model too large to transfer is reported as missing CadQuery
+
+✅ **Resolved.** The reader thread reports an oversized message as
+`Event::ProtocolError`, which `Worker::poll` does not treat as a failed
+start. `AppState::worker_protocol_failed` explains it in a dialog (for a mesh
+reply: *the model is too large to transfer: raise Deviation in
+Preferences > 3D View, or show fewer objects*) and restarts the worker,
+which also ends the waiting run; the model shown before stays. Tests:
+`an_unreadable_message_is_not_a_failed_start`,
+`a_result_too_large_to_transfer_ends_the_run_and_restarts_python`. Sending
+meshes per part, so that no limit is reached at all, stays in
+[REQ-09](#req-09--large-and-unusual-results-travel-safely).
 
 *Evidence: test.* **Where:** `src/worker/mod.rs` (reader thread,
 `oversized_message`, `Worker::poll`).

@@ -855,6 +855,22 @@ fn a_layout_saved_without_the_editor_gets_it_back() {
 }
 
 #[test]
+fn a_result_too_large_to_transfer_ends_the_run_and_restarts_python() {
+    let mut state = test_state("");
+    // No process is started in tests.
+    state.python_override = Some("no-such-python-for-tests".into());
+    state.execution.started(5, false);
+    assert!(state.is_busy());
+
+    state.worker_protocol_failed("Python sent a message too large to transfer".into());
+    assert!(!state.is_busy(), "the run no longer waits for an answer");
+    let message = state.dialogs.message.as_ref().expect("told why");
+    assert_eq!(message.title, "Cannot show the result");
+    assert!(message.text.contains("too large to transfer"));
+    assert_ne!(state.worker.problem(), Some(worker::Problem::NoCadQuery));
+}
+
+#[test]
 fn the_empty_view_says_when_the_editor_is_closed() {
     let mut state = test_state("");
     assert_eq!(state.empty_view_hint(), "Press F5 to render the script");

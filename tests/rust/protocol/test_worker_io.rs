@@ -84,6 +84,37 @@ fn a_large_unknown_or_malformed_message_keeps_the_control_limit() {
 }
 
 #[test]
+fn an_unreadable_message_is_not_a_failed_start() {
+    let mut worker = Worker::new(egui::Context::default());
+    worker.generation = 1;
+    let ready: Message = serde_json::from_str(
+        r#"{"type":"ready","protocol":7,"python":"3.12","cadquery":"2.8.0",
+            "ocp":"7.9","executable":"python","completion":true,"pid":1}"#,
+    )
+    .unwrap();
+    worker.events_tx.send((1, Event::Message(ready))).unwrap();
+    worker.poll();
+    assert!(worker.is_ready());
+
+    let message = oversized_message(MAX_MESH_MESSAGE_BYTES + 1, MAX_MESH_MESSAGE_BYTES);
+    worker
+        .events_tx
+        .send((1, Event::ProtocolError(message.clone())))
+        .unwrap();
+    let events = worker.poll();
+    assert!(matches!(&events[..], [Event::ProtocolError(m)] if *m == message));
+    // CadQuery is not said to be missing: the app restarts the worker.
+    assert!(worker.is_ready());
+    assert_eq!(worker.problem(), None);
+    assert!(message.contains("too large to transfer"), "{message}");
+    assert!(message.contains("Deviation"), "{message}");
+    assert!(message.contains("512.0 MiB, over its 512 MiB"), "{message}");
+
+    let control = oversized_message(3 * 1024 * 1024, MAX_CONTROL_MESSAGE_BYTES);
+    assert!(!control.contains("Deviation"), "{control}");
+}
+
+#[test]
 fn a_failed_start_says_whether_python_or_cadquery_is_missing() {
     // The Microsoft Store placeholder for python.exe exits with 9009.
     let expected = if cfg!(windows) {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Fixed: a model too large to transfer from Python (over 512 MiB of mesh,
+  about ten million triangles) was reported as *CadQuery is not
+  available*, and the run never finished. It is now explained, with how to
+  coarsen the mesh, and Python is restarted with the previous model kept
+  on screen (BUG-39)
 * Fixed: closing the tab of a script paused in the debugger left the
   session paused on a document that was gone; it now stops it (BUG-38)
 * Fixed: a part or sub-assembly selected inside an assembly and exported to

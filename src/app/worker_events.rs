@@ -114,6 +114,11 @@ impl AppState {
             match event {
                 Event::Message(message) => self.handle_message(message),
                 Event::Stderr(line) => logging::push(Level::Warn, "python", &line),
+                Event::ProtocolError(message) => {
+                    // The rest of these events are the old process's.
+                    self.worker_protocol_failed(message);
+                    break;
+                }
                 Event::Exited => {
                     let reason = match self.worker.status() {
                         worker::Status::Failed(reason) => reason.clone(),
@@ -143,6 +148,16 @@ impl AppState {
         // References in a response are only valid while its request runs.
         let execution = &self.execution;
         self.scene.release_geometry(|id| execution.is_pending(id));
+    }
+
+    /// The worker sent what cannot be read, such as a model too large to
+    /// transfer. Nothing more can be read from that process: a new one
+    /// takes over, the run that was waiting ends, and the model shown
+    /// before stays. Python and CadQuery are fine, and the user is told why.
+    pub(super) fn worker_protocol_failed(&mut self, message: String) {
+        log::error!("{message}");
+        self.dialogs.error("Cannot show the result", message);
+        self.start_worker();
     }
 
     pub(super) fn handle_message(&mut self, message: Message) {

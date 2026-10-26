@@ -181,8 +181,11 @@ The line transport has explicit memory ceilings. Ordinary control messages
 are limited to 2 MiB; the four replies that may carry mesh arrays
 (`run_finished`, `debug_paused`, `inspection_geometry` and `scene_add`) have
 a separate 512 MiB limit. The reader drains an oversized line without
-retaining more than its limit and reports a protocol failure. Native stderr
-lines retain at most 256 KiB and are marked when truncated.
+retaining more than its limit and reports it as `Event::ProtocolError`,
+which is not a failed start: nothing later from that process is read, so
+the GUI ends the waiting run, says what happened (for a mesh reply, that the
+model is too large and how to coarsen it) and starts a new worker. Native
+stderr lines retain at most 256 KiB and are marked when truncated.
 
 Captured `stdout` and `stderr` are flushed in chunks of 64 Ki characters,
 even without a newline, and keep at most 1 MiB per stream and request. A

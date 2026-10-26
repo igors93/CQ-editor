@@ -78,6 +78,10 @@ pub enum Event {
     Message(Message),
     /// A line the worker printed on stderr (native library warnings, crashes).
     Stderr(String),
+    /// The worker sent a message that cannot be read, larger than its
+    /// limit. Nothing it sends afterwards is read, so it must be
+    /// restarted; this is not a failed start.
+    ProtocolError(String),
     /// The process ended (or its stdout closed).
     Exited,
 }
@@ -306,7 +310,7 @@ impl Worker {
                             if line.len() > limit {
                                 let _ = tx.send((
                                     generation,
-                                    Event::Message(oversized_message(line.len(), limit)),
+                                    Event::ProtocolError(oversized_message(line.len(), limit)),
                                 ));
                                 ctx.request_repaint();
                                 protocol_failed = true;
@@ -335,7 +339,7 @@ impl Worker {
                             if !protocol_failed {
                                 let _ = tx.send((
                                     generation,
-                                    Event::Message(oversized_message(
+                                    Event::ProtocolError(oversized_message(
                                         MAX_MESH_MESSAGE_BYTES + 1,
                                         MAX_MESH_MESSAGE_BYTES,
                                     )),
@@ -477,13 +481,21 @@ fn worker_message_limit(line: &[u8]) -> usize {
     }
 }
 
-fn oversized_message(actual: usize, limit: usize) -> Message {
-    Message::Fatal {
-        message: "The Python worker sent an oversized protocol message".into(),
-        detail: Some(format!(
-            "Received at least {actual} bytes; this message type is limited to {limit} bytes"
-        )),
-    }
+/// What the user is told about a message over its limit. Mesh replies are
+/// the large ones: a finer tolerance or more objects make them grow.
+fn oversized_message(actual: usize, limit: usize) -> String {
+    const MIB: usize = 1024 * 1024;
+    let advice = if limit >= MAX_MESH_MESSAGE_BYTES {
+        "; the model is too large to transfer: raise Deviation in \
+         Preferences > 3D View, or show fewer objects"
+    } else {
+        ""
+    };
+    format!(
+        "Python sent a message of at least {:.1} MiB, over its {} MiB limit{advice}",
+        actual as f64 / MIB as f64,
+        limit / MIB
+    )
 }
 
 #[cfg(test)]
