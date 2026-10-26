@@ -358,6 +358,7 @@ impl AppState {
             format,
             self.settings.objects.stl_tolerance,
             self.settings.objects.stl_angular_tolerance,
+            self.settings.viewer.units,
         );
         if !self.scene.selected_roots().is_empty() {
             options.scope = crate::dialogs::ExportScope::Selection;
@@ -428,6 +429,7 @@ impl AppState {
             step_schema: if options.step_ap242 { "ap242" } else { "ap214" }.into(),
             stl_ascii: options.stl_ascii,
             flat_parts: options.scope == ExportScope::Visible,
+            unit: options.unit.export_code().to_owned(),
         }) {
             self.set_status(StatusKind::Info, format!("Exporting {}…", path.display()));
         }

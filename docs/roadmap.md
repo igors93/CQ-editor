@@ -384,7 +384,7 @@ the code**.
 | ✅ | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
 | ✅ | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
 | ✅ | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
-| | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
+| ✅ | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
 | | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
 | | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
 | | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
@@ -509,6 +509,12 @@ the dialog asks.
 
 **How it helps the code.** Units become a setting the worker receives with
 every export (`SceneSettings`), not a label known only to the view.
+
+**Progress.** Done. The Export dialog requires a model unit, defaulting to
+the 3D View preference. STEP sets the OCCT output unit and restores its
+previous setting afterward; 3MF records the unit in the model XML; glTF/GLB
+scale coordinates to meters. STL and DXF show that their formats carry no
+unit metadata. Tests read the resulting STEP, 3MF and glTF files back.
 
 ### REQ-06 · Geometry is validated before it leaves
 

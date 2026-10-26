@@ -113,6 +113,7 @@ pub enum Request {
         step_schema: String,
         stl_ascii: bool,
         flat_parts: bool,
+        unit: String,
     },
     Upload {
         id: RequestId,
@@ -244,6 +245,7 @@ pub struct SceneSettings {
     pub linear_tolerance: f64,
     pub angular_tolerance: f64,
     pub merge_assemblies: bool,
+    pub units: String,
 }
 
 #[derive(Deserialize, Debug)]

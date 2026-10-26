@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 import cadquery as cq
+from OCP.gp import gp_Vec
 from OCP.Interface import Interface_Static
 from OCP.STEPControl import STEPControl_Controller
 
@@ -27,6 +28,12 @@ FORMATS = (
     "svg",
     "dxf",
 )
+UNITS = {
+    "millimeter": ("MM", 0.001),
+    "centimeter": ("CM", 0.01),
+    "meter": ("M", 1.0),
+    "inch": ("INCH", 0.0254),
+}
 
 
 def export(
@@ -40,6 +47,7 @@ def export(
     step_schema: str = "ap242",
     stl_ascii: bool = False,
     flat_parts: bool = False,
+    unit: str = "millimeter",
 ) -> None:
     """Export the objects behind ``keys`` (with their descendants).
 
@@ -57,20 +65,32 @@ def export(
         raise ValueError(f"Unsupported STEP mode {step_mode!r}")
     if step_schema not in ("ap214", "ap242"):
         raise ValueError(f"Unsupported STEP schema {step_schema!r}")
+    if unit not in UNITS:
+        raise ValueError("Choose the model unit before exporting")
 
     if file_format in ("step", "gltf", "glb", "vrml", "vtkjs", "xbf"):
         assembly = export_assembly(registry, keys, flat_parts)
         if file_format == "step":
             STEPControl_Controller.Init_s()
             previous = Interface_Static.CVal_s("write.step.schema")
+            previous_unit = Interface_Static.CVal_s("write.step.unit")
+            previous_source = Interface_Static.CVal_s("xstep.cascade.unit")
             schema = "AP242DIS" if step_schema == "ap242" else "AP214IS"
             if not Interface_Static.SetCVal_s("write.step.schema", schema):
                 raise RuntimeError(f"Cannot select STEP schema {schema}")
             try:
+                if not Interface_Static.SetCVal_s("xstep.cascade.unit", "MM"):
+                    raise RuntimeError("Cannot set the STEP source unit")
+                if not Interface_Static.SetCVal_s("write.step.unit", UNITS[unit][0]):
+                    raise RuntimeError(f"Cannot set the STEP output unit to {unit}")
                 assembly.export(path, "STEP", mode=step_mode)
             finally:
                 Interface_Static.SetCVal_s("write.step.schema", previous)
+                Interface_Static.SetCVal_s("write.step.unit", previous_unit)
+                Interface_Static.SetCVal_s("xstep.cascade.unit", previous_source)
         else:
+            if file_format in ("gltf", "glb"):
+                _scale_assembly(assembly, UNITS[unit][1])
             assembly.export(
                 path,
                 "GLTF" if file_format == "gltf" else file_format.upper(),
@@ -116,6 +136,7 @@ def export(
             "3MF",
             tolerance,
             angular_tolerance,
+            opt={"unit": unit},
         )
         _decorate_3mf(path, _export_parts(registry, keys, flat_parts))
     else:
@@ -175,6 +196,23 @@ def export_assembly(
     if not result.children:
         raise ValueError("No exportable geometry in the chosen objects")
     return result
+
+
+def _scale_assembly(assembly: cq.Assembly, factor: float) -> None:
+    """Convert a private export copy from model units to glTF meters."""
+    for _, node in assembly.traverse():
+        if node.obj is not None:
+            node.obj = to_compound(node.obj).scale(factor)
+        transform = node.loc.wrapped.Transformation()
+        translation = transform.TranslationPart()
+        transform.SetTranslationPart(
+            gp_Vec(
+                translation.X() * factor,
+                translation.Y() * factor,
+                translation.Z() * factor,
+            )
+        )
+        node.loc = cq.Location(transform)
 
 
 def _export_parts(

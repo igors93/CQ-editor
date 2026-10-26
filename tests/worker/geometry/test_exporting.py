@@ -1,5 +1,6 @@
 """Exports put shapes where the view shows them."""
 
+import json
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
@@ -160,3 +161,50 @@ def test_3mf_carries_each_shown_name_and_color(tmp_path):
         if node.find(f"{core}mesh") is not None
     ]
     assert {node.get("name") for node in objects} == {"base", "pin"}
+
+
+@pytest.mark.parametrize(
+    "unit,millimeters,meters",
+    [
+        ("millimeter", 1.0, 0.001),
+        ("centimeter", 10.0, 0.01),
+        ("meter", 1000.0, 1.0),
+        ("inch", 25.4, 0.0254),
+    ],
+)
+def test_units_reach_step_3mf_and_gltf(tmp_path, unit, millimeters, meters):
+    registry, nodes = build(cq.Workplane().box(1, 1, 1))
+    key = nodes[0]["key"]
+    step = tmp_path / "part.step"
+    three_mf = tmp_path / "part.3mf"
+    gltf = tmp_path / "part.gltf"
+    exporting.export(registry, [key], "step", str(step), unit=unit)
+    exporting.export(registry, [key], "3mf", str(three_mf), unit=unit)
+    exporting.export(registry, [key], "gltf", str(gltf), unit=unit)
+
+    assert cq.importers.importStep(str(step)).val().BoundingBox().xlen == pytest.approx(
+        millimeters
+    )
+    with ZipFile(three_mf) as archive:
+        model = ET.fromstring(archive.read("3D/3dmodel.model"))
+    assert model.get("unit") == unit
+    accessors = json.loads(gltf.read_text())["accessors"]
+    x_coordinates = [
+        bound[0]
+        for accessor in accessors
+        for bound in (accessor.get("min", []), accessor.get("max", []))
+        if len(bound) == 3
+    ]
+    assert max(x_coordinates) - min(x_coordinates) == pytest.approx(meters)
+
+
+def test_export_requires_a_known_model_unit(tmp_path):
+    registry, nodes = build(cq.Workplane().box(1, 1, 1))
+    with pytest.raises(ValueError, match="Choose the model unit"):
+        exporting.export(
+            registry,
+            [nodes[0]["key"]],
+            "step",
+            str(tmp_path / "part.step"),
+            unit="none",
+        )

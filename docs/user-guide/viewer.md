@@ -303,9 +303,10 @@ of the point the camera looks at; in perspective, nearer things look larger
 than the bar says. With the grid shown it also gives the grid's spacing,
 for example *50 mm · grid 10 mm*.
 
-CadQuery has no units; *Units* in *Preferences > 3D View* only names them
-(millimeters by default, as most tools read STEP and STL files; centimeters,
-meters, inches, or plain numbers). The grid and the scale bar appear in
+CadQuery has no units. *Units* in *Preferences > 3D View* says what one model
+unit means (millimeters by default, centimeters, meters, inches, or plain
+numbers). The Export dialog uses this choice for files that support units;
+STL and DXF have no unit metadata. The grid and the scale bar appear in
 screenshots and animations too.
 
 ## Appearance

@@ -38,7 +38,7 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Hidden edges | on | Faint dashed edges behind faces in the Hidden Line display mode |
 | Ground grid | off | A grid on the XY plane, also in View > Ground Grid |
 | Scale bar | on | A round length at the bottom right of the view, also in View > Scale Bar |
-| Units | Millimeters | What a model unit is called in the scale bar: millimeters, centimeters, meters, inches or none |
+| Units | Millimeters | What one model unit means in the scale bar and export dialog: millimeters, centimeters, meters, inches or none |
 | Large models | Automatic | Draw parts that are small on screen with a simplified mesh: from 2 million triangles shown, always, or never (see [Large models](viewer.md#large-models)) |
 | Edge color | black | |
 | Edge width | 1.5 px | 0.5–5 |

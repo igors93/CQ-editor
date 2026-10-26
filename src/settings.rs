@@ -202,6 +202,7 @@ impl Settings {
             linear_tolerance: self.viewer.linear_tolerance,
             angular_tolerance: self.viewer.angular_tolerance,
             merge_assemblies: self.objects.merge_assemblies,
+            units: self.viewer.units.export_code().to_owned(),
         }
     }
 }
@@ -406,8 +407,8 @@ pub struct Viewer {
     pub stereo_mode: StereoMode,
 }
 
-/// What a model unit is: CadQuery has no units, but STEP and STL exports
-/// are read as millimeters by most tools.
+/// What a model unit is: CadQuery has no units, so the editor supplies this
+/// interpretation to exports and measurement labels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Units {
     #[default]
@@ -445,6 +446,16 @@ impl Units {
             Units::Meters => "m",
             Units::Inches => "in",
             Units::None => "",
+        }
+    }
+
+    pub fn export_code(self) -> &'static str {
+        match self {
+            Units::Millimeters => "millimeter",
+            Units::Centimeters => "centimeter",
+            Units::Meters => "meter",
+            Units::Inches => "inch",
+            Units::None => "none",
         }
     }
 }

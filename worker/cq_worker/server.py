@@ -513,6 +513,7 @@ class Server:
             step_schema=request.get("step_schema", "ap242"),
             stl_ascii=bool(request.get("stl_ascii", False)),
             flat_parts=bool(request.get("flat_parts", False)),
+            unit=request.get("unit", "millimeter"),
         )
         return {"type": "export_finished", "path": request["path"]}
 

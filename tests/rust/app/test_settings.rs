@@ -77,6 +77,7 @@ fn execution_and_scene_settings_are_sent_to_worker() {
             linear_tolerance: 0.005,
             angular_tolerance: 0.4,
             merge_assemblies: true,
+            units: "millimeter".into(),
         }
     );
 }

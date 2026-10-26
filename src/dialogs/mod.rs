@@ -15,6 +15,7 @@ use crate::app::AppState;
 use crate::commands::Action;
 use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
+use crate::settings::Units;
 use crate::worker::Problem;
 use crate::worker::protocol::ExportFormat;
 
@@ -131,10 +132,11 @@ pub struct ExportDialog {
     pub stl_ascii: bool,
     pub tolerance: f64,
     pub angular_tolerance: f64,
+    pub unit: Units,
 }
 
 impl ExportDialog {
-    pub fn new(format: ExportFormat, tolerance: f64, angular_tolerance: f64) -> Self {
+    pub fn new(format: ExportFormat, tolerance: f64, angular_tolerance: f64, unit: Units) -> Self {
         Self {
             format,
             scope: ExportScope::Everything,
@@ -143,6 +145,7 @@ impl ExportDialog {
             stl_ascii: false,
             tolerance,
             angular_tolerance,
+            unit,
         }
     }
 }
@@ -413,6 +416,25 @@ fn export_options(
                     }
                 });
             ui.separator();
+            egui::ComboBox::from_label("Model unit")
+                .selected_text(options.unit.label())
+                .show_ui(ui, |ui| {
+                    for unit in Units::ALL.into_iter().filter(|unit| *unit != Units::None) {
+                        ui.selectable_value(&mut options.unit, unit, unit.label());
+                    }
+                });
+            if options.unit == Units::None {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "Choose the unit represented by one model unit.",
+                );
+            }
+            if matches!(options.format, ExportFormat::Stl | ExportFormat::Dxf) {
+                ui.weak(
+                    "This file format has no unit metadata. Tell the recipient the model unit.",
+                );
+            }
+            ui.separator();
             ui.label("Objects");
             ui.add_enabled_ui(selected > 0, |ui| {
                 ui.radio_value(
@@ -488,7 +510,13 @@ fn export_options(
                 if ui.button("Cancel").clicked() {
                     choice = Some(false);
                 }
-                if ui.button("Choose file…").clicked() {
+                if ui
+                    .add_enabled(
+                        options.unit != Units::None,
+                        egui::Button::new("Choose file…"),
+                    )
+                    .clicked()
+                {
                     choice = Some(true);
                 }
             });

@@ -23,6 +23,11 @@ or AP242. Other formats preserve the properties their file format supports;
 the dialog calls out limitations before export. A broken or empty VTK.js
 archive is reported as an error.
 
+**Model units.** Choose what one number in the script means. The dialog uses
+the 3D View preference and asks you to choose when it is *None*. STEP records
+that unit, 3MF records it in the model, and glTF/GLB convert coordinates to
+meters. STL and DXF cannot store a unit; tell the recipient what you chose.
+
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the
 file is written.

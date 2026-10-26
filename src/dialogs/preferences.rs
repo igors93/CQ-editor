@@ -342,7 +342,7 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
     row(
         ui,
         "Units",
-        "What a model unit is called in the scale bar; CadQuery itself has no units",
+        "What one model unit means in the scale bar and exported files; CadQuery itself has no units",
         |ui| {
             egui::ComboBox::from_id_salt("units")
                 .selected_text(viewer.units.label())

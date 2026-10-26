@@ -154,6 +154,7 @@ fn serializes_run_request_with_worker_settings() {
             linear_tolerance: 0.001,
             angular_tolerance: 0.2,
             merge_assemblies: false,
+            units: "millimeter".into(),
         },
         known_geometry: vec!["abc".into()],
         profile: true,
@@ -301,6 +302,7 @@ fn console_commands_carry_the_selection_for_selected() {
             linear_tolerance: 0.001,
             angular_tolerance: 0.2,
             merge_assemblies: false,
+            units: "millimeter".into(),
         },
         known_geometry: Vec::new(),
         selection: ConsoleSelection {
