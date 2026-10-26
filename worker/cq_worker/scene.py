@@ -194,6 +194,11 @@ class RegistryEntry:
     sources: list[PartSource] = field(default_factory=list)
     #: Entity features per (part, kind), computed once for selectors.
     selector_features: dict[tuple[int, str], Any] = field(default_factory=dict)
+    #: For a node below the top of an assembly: where its parents place it
+    #: (world space) and the color it inherits from them. An export of the
+    #: node alone puts it where the view shows it.
+    parent_location: cq.Location | None = None
+    inherited_color: cq.Color | None = None
 
     def subshape(self, part: int, kind: str, identifier: int) -> cq.Shape:
         try:
@@ -374,7 +379,9 @@ class SceneBuilder:
         if isinstance(obj, cq.Assembly):
             if self.merge_assemblies:
                 return self._merged_assembly_node(name, obj, options)
-            return self._assembly_node(name, obj, options, cq.Location(), None)
+            return self._assembly_node(
+                name, obj, options, cq.Location(), None, top=True
+            )
 
         shape = to_compound(obj)
         topology = TopologyIndex.build(shape.wrapped)
@@ -398,6 +405,7 @@ class SceneBuilder:
         options: DisplayOptions,
         parent_location: cq.Location,
         inherited_color: cq.Color | None,
+        top: bool = False,
     ) -> dict | None:
         location = parent_location * assembly.loc
         color = assembly.color if assembly.color is not None else inherited_color
@@ -439,6 +447,8 @@ class SceneBuilder:
             children=[c["key"] for c in children],
             topologies=topologies,
             sources=sources,
+            parent_location=None if top else parent_location,
+            inherited_color=None if top else inherited_color,
         )
         key = self.registry.add(entry)
         message = self._message(key, name, assembly, options, parts, children)

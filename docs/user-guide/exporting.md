@@ -15,7 +15,10 @@ the right-click menu of an object.
 **all objects** when nothing is selected. Several objects are fused into one
 compound. A single selected `cq.Assembly` exported to STEP is written with
 CadQuery's assembly exporter instead, so other programs see the parts by
-name and color.
+name and color. Every format puts the shapes where the view shows them: a
+part or sub-assembly selected inside an assembly keeps its place in the
+whole, and parts are written in the color they inherit from their parents,
+as they are drawn.
 
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the

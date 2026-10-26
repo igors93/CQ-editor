@@ -99,7 +99,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | ✅ | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
 | ✅ | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
 | ✅ | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
-| | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
+| ✅ | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
 | | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
 | | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
 | | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
@@ -240,6 +240,16 @@ has both the Editor and the 3D View; today only the 3D View is required.
 See [REQ-03](#req-03--the-editor-can-never-be-lost).
 
 ### BUG-37 · STEP export of a sub-assembly loses its placement
+
+✅ **Resolved.** The registry keeps, for each node below the top of an
+assembly, its parents' world location and the color it inherits
+(`RegistryEntry.parent_location`, `inherited_color`). `placed_assembly`
+exports a copy placed with that location. Fixing it also showed that
+CadQuery's STEP writer colors only nodes that have their own color, while
+the view draws children in their parents' color: the copy gives every node
+its inherited color, for whole assemblies too. The script's assembly is not
+changed. Tests in `tests/worker/geometry/test_exporting.py` compare STEP
+with BREP at every level and read the colors back.
 
 *Evidence: script.* **Where:** `worker/cq_worker/exporting.py` (`export`).
 

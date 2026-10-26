@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Fixed: a part or sub-assembly selected inside an assembly and exported to
+  STEP lost the placement of its parents (STL and BREP were right), and
+  parts lost the color inherited from their parents, which the view shows
+  but CadQuery's STEP writer leaves out (BUG-37)
 * Fixed: with the Editor panel closed, opening a file or going to a
   traceback line showed it in an editor nobody could see, and the closed
   panel was restored that way at every start. The Editor now comes back,
