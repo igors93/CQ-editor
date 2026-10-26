@@ -610,15 +610,17 @@ fewer compatibility shims.
 **Why it is required.** The release workflow builds the Windows `.exe` and
 macOS `.pkg` without signing them. Windows SmartScreen and macOS Gatekeeper
 warn about, or block, unsigned installers. A tool that runs code on the
-user's machine has to be verifiable.
+user's machine has to be verifiable. Releases already publish
+`SHA256SUMS.txt` and each installer's resolved lockfile; a checksum proves a
+download intact, not who made it.
 
-**What changes.** Authenticode signing on Windows, Developer ID signing and
-notarization on macOS, published checksums, and the constructor lockfile
-attached to each release as its bill of materials.
+**What changes.** Authenticode signing on Windows, and Developer ID signing
+and notarization on macOS, in `release.yml`, with the certificates kept as
+repository secrets.
 
-**How it helps the code.** Releases become reproducible artifacts with a
-known origin, and the update check
-([FEAT-E5](#completed)) can point to verifiable downloads.
+**How it helps the code.** Releases get a known origin that the operating
+systems check by themselves, and the update check
+([FEAT-E5](#completed)) leads to downloads that install without warnings.
 
 ### REQ-13 · Tests at the seams
 
