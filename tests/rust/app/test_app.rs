@@ -88,6 +88,7 @@ pub(crate) fn test_state(text: &str) -> AppState {
         applied_theme: None,
         applied_scale: 1.0,
         logo: None,
+        editor_panel_open: true,
     }
 }
 
@@ -800,6 +801,69 @@ impl eframe::Storage for MemoryStorage {
     }
 
     fn flush(&mut self) {}
+}
+
+#[test]
+fn a_closed_editor_comes_back_whenever_a_file_or_a_line_is_shown() {
+    let dir = std::env::temp_dir().join(format!("cq-editor-editor-panel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.py"), "a = 1\n").unwrap();
+    let mut app = test_app();
+    app.state.recovery = RecoveryStore::new(dir.join(".recovery"));
+
+    for action in [
+        Action::OpenPath(dir.join("a.py")),
+        Action::NewFile,
+        Action::PreviousTab,
+        Action::GoToLine(1),
+    ] {
+        app.execute(Action::TogglePanel(Tab::Editor));
+        assert!(!panels_shown(&app).contains(&Tab::Editor));
+        app.execute(action.clone());
+        assert!(panels_shown(&app).contains(&Tab::Editor), "{action:?}");
+    }
+    // Next to the 3D view, not inside its panel.
+    let editor = app.dock.find_tab(&Tab::Editor).unwrap();
+    let viewer = app.dock.find_tab(&Tab::Viewer).unwrap();
+    assert_ne!(editor.node_path(), viewer.node_path());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_layout_saved_without_the_editor_gets_it_back() {
+    let without = |tabs: &[Tab]| {
+        let mut dock = panels::default_layout();
+        for tab in tabs {
+            let path = dock.find_tab(tab).unwrap();
+            dock.remove_tab(path);
+        }
+        dock
+    };
+    let restored = restored_layout(Some(without(&[Tab::Editor, Tab::Console])));
+    assert!(restored.find_tab(&Tab::Editor).is_some());
+    assert!(
+        restored.find_tab(&Tab::Console).is_none(),
+        "the rest of the layout is kept"
+    );
+    // Without the 3D view, or without a saved layout: the default one.
+    for saved in [Some(without(&[Tab::Viewer])), None] {
+        let restored = restored_layout(saved);
+        assert!(restored.find_tab(&Tab::Viewer).is_some());
+        assert!(restored.find_tab(&Tab::Console).is_some());
+    }
+}
+
+#[test]
+fn the_empty_view_says_when_the_editor_is_closed() {
+    let mut state = test_state("");
+    assert_eq!(state.empty_view_hint(), "Press F5 to render the script");
+    state.editor_panel_open = false;
+    assert!(
+        state
+            .empty_view_hint()
+            .ends_with("the editor is closed: View > Editor")
+    );
 }
 
 #[test]

@@ -27,6 +27,12 @@ panel to stack it, or close it. **View** lists all panels as toggles, and
 **View > Reset Layout** restores the arrangement above. The layout is saved
 between sessions.
 
+The Editor panel can be closed too, for example to write the script in
+another editor with automatic reload. It comes back, left of the 3D view,
+as soon as a file or a line is shown: opening or creating a file, switching
+tabs, a traceback line, *Go to Source*. A layout saved without it gets it
+back at the next start, and while it is closed the empty 3D view says so.
+
 * **Double-click a panel's tab** (or **View > Maximize Panel**, Ctrl+Shift+M,
   for the panel you last clicked in) to let it fill the window, for example
   the editor while you write or the 3D view while you inspect a model.

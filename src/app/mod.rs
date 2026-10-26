@@ -153,6 +153,8 @@ pub struct AppState {
     applied_theme: Option<settings::Theme>,
     applied_scale: f32,
     logo: Option<egui::TextureHandle>,
+    /// Whether the layout has the Editor panel, for the empty view's hint.
+    editor_panel_open: bool,
 }
 
 impl AppState {
@@ -355,9 +357,9 @@ impl AppState {
     }
 
     /// What an empty view and Objects panel suggest: after a failed run,
-    /// pressing F5 again is not the answer.
+    /// pressing F5 again is not the answer, and a closed editor is named.
     pub fn empty_view_hint(&self) -> String {
-        match &self.traceback {
+        let hint = match &self.traceback {
             Some(error) => {
                 let location = error
                     .line
@@ -365,6 +367,11 @@ impl AppState {
                 format!("The last run failed{location}; see the Traceback panel")
             }
             None => "Press F5 to render the script".to_owned(),
+        };
+        if self.editor_panel_open {
+            hint
+        } else {
+            format!("{hint} · the editor is closed: View > Editor")
         }
     }
 
@@ -717,6 +724,32 @@ pub struct CqEditorApp {
     state: AppState,
 }
 
+/// Adds the Editor panel when `dock` has none, where the default layout
+/// puts it: left of the 3D view. The script is the model; a layout
+/// without its editor is never kept.
+fn ensure_editor(dock: &mut DockState<Tab>) {
+    if dock.find_tab(&Tab::Editor).is_some() {
+        return;
+    }
+    let tree = dock.main_surface_mut();
+    match tree.find_tab(&Tab::Viewer) {
+        Some((node, _)) => {
+            tree.split_left(node, 0.45, vec![Tab::Editor]);
+        }
+        None => dock.push_to_focused_leaf(Tab::Editor),
+    }
+}
+
+/// The layout of the last session, when it has the 3D view, with its
+/// Editor back if it was closed; else the default layout.
+fn restored_layout(saved: Option<DockState<Tab>>) -> DockState<Tab> {
+    let mut dock = saved
+        .filter(|dock| dock.find_tab(&Tab::Viewer).is_some())
+        .unwrap_or_else(panels::default_layout);
+    ensure_editor(&mut dock);
+    dock
+}
+
 /// Names of the panel tabs' own menu that a newcomer understands.
 fn label_tab_menus(dock: &mut DockState<Tab>) {
     let menu = &mut dock.translations.tab_context_menu;
@@ -733,11 +766,10 @@ impl CqEditorApp {
             .storage
             .and_then(|storage| eframe::get_value(storage, SETTINGS_KEY))
             .unwrap_or_default();
-        let dock = cc
-            .storage
-            .and_then(|storage| eframe::get_value::<DockState<Tab>>(storage, LAYOUT_KEY))
-            .filter(|dock| dock.find_tab(&Tab::Viewer).is_some())
-            .unwrap_or_else(panels::default_layout);
+        let dock = restored_layout(
+            cc.storage
+                .and_then(|storage| eframe::get_value::<DockState<Tab>>(storage, LAYOUT_KEY)),
+        );
 
         let cache_dir = eframe::storage_dir(crate::APP_ID).unwrap_or_else(std::env::temp_dir);
         let recovery = RecoveryStore::new(cache_dir.join("recovery"));
@@ -801,6 +833,7 @@ impl CqEditorApp {
             applied_theme: None,
             applied_scale: 1.0,
             logo: None,
+            editor_panel_open: true,
         };
         startup_errors.extend(state.restore_session(options.file));
         if !startup_errors.is_empty() {
@@ -880,17 +913,29 @@ impl CqEditorApp {
         }
     }
 
-    /// Brings the editor's panel to the front.
+    /// Brings the editor's panel to the front, adding it back when it was
+    /// closed: a file or a line is never shown in an editor nobody sees.
     fn show_editor_panel(&mut self) {
         if self.dock.find_tab(&Tab::Editor).is_none() {
             self.restore_layout();
         }
+        ensure_editor(&mut self.dock);
         if let Some(path) = self.dock.find_tab(&Tab::Editor) {
             let _ = self.dock.set_active_tab(path);
         }
     }
 
     fn execute(&mut self, action: Action) {
+        let shown = self.state.document_generation;
+        self.execute_action(action);
+        // New, Open, examples, tabs, recovered work…: another document is
+        // shown, so its editor must be on screen.
+        if self.state.document_generation != shown {
+            self.show_editor_panel();
+        }
+    }
+
+    fn execute_action(&mut self, action: Action) {
         match action {
             Action::TogglePanel(tab) => {
                 self.restore_layout();
@@ -945,6 +990,7 @@ impl eframe::App for CqEditorApp {
 
         let layout = self.maximized.as_ref().unwrap_or(&self.dock);
         let open_panels: Vec<Tab> = layout.iter_all_tabs().map(|(_, tab)| *tab).collect();
+        self.state.editor_panel_open = open_panels.contains(&Tab::Editor);
         let bar = |margin_y: i8| {
             egui::Frame::NONE
                 .fill(palette.window)

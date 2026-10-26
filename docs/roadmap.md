@@ -98,7 +98,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | ✅ | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
 | ✅ | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
 | ✅ | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
-| | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
+| ✅ | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
 | | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
 | | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
 | | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
@@ -207,6 +207,17 @@ and inode elsewhere), for example with the `same-file` crate. Otherwise
 refuse, as for any existing name.
 
 ### BUG-36 · A closed Editor panel never comes back
+
+✅ **Resolved.** `ensure_editor` adds the Editor left of the 3D view when the
+layout has none. `show_editor_panel` uses it, and `CqEditorApp::execute`
+calls it after every action that changes the shown document (New, Open,
+examples, recent files, tabs, recovered work). The saved layout goes
+through `restored_layout`, which keeps the user's arrangement and adds the
+Editor back. While the panel is closed, the empty view's hint ends with
+*the editor is closed: View > Editor*. Tests:
+`a_closed_editor_comes_back_whenever_a_file_or_a_line_is_shown`,
+`a_layout_saved_without_the_editor_gets_it_back`,
+`the_empty_view_says_when_the_editor_is_closed`.
 
 *Evidence: test; seen (a session restored without the Editor panel).*
 **Where:** `src/app/mod.rs` (`CqEditorApp::show_editor_panel`,
@@ -397,6 +408,9 @@ external editor and autoreload. The view's empty state then says
 **How it helps the code.** One `ensure_panel(Tab)` replaces the ad-hoc
 `show_editor_panel` and `show_project_panel`, and covers the Traceback and
 Console panels the same way when an action needs them.
+
+**Progress.** Done for the Editor (BUG-36: `ensure_editor`, `restored_layout`
+and the empty view's hint). A general `ensure_panel` remains.
 
 ### REQ-04 · Exports keep what the code built
 

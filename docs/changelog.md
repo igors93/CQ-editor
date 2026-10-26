@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Fixed: with the Editor panel closed, opening a file or going to a
+  traceback line showed it in an editor nobody could see, and the closed
+  panel was restored that way at every start. The Editor now comes back,
+  left of the 3D view, whenever a file or a line is shown and at start-up,
+  and the empty view says when it is closed (BUG-36)
 * Fixed: in a folder where case matters (Linux, case-sensitive macOS
   volumes or Windows folders), renaming `part.py` to `Part.py` in the
   Project panel replaced an existing `Part.py`; it is now refused, while
