@@ -856,6 +856,28 @@ fn a_layout_saved_without_the_editor_gets_it_back() {
 }
 
 #[test]
+fn required_panels_return_to_their_workspace() {
+    let mut app = test_app();
+    for tab in [Tab::Console, Tab::Traceback, Tab::Project] {
+        if let Some(path) = app.dock.find_tab(&tab) {
+            app.dock.remove_tab(path);
+        }
+        app.show_panel(tab);
+        assert!(app.dock.find_tab(&tab).is_some());
+    }
+    let console = app.dock.find_tab(&Tab::Console).unwrap();
+    let traceback = app.dock.find_tab(&Tab::Traceback).unwrap();
+    assert_eq!(console.node_path(), traceback.node_path());
+    let project = app.dock.find_tab(&Tab::Project).unwrap();
+    let editor = app.dock.find_tab(&Tab::Editor).unwrap();
+    assert_ne!(project.node_path(), editor.node_path());
+
+    app.execute(Action::TogglePanel(Tab::Console));
+    app.execute(Action::ResetConsole);
+    assert!(app.dock.find_tab(&Tab::Console).is_some());
+}
+
+#[test]
 fn a_result_too_large_to_transfer_ends_the_run_and_restarts_python() {
     let mut state = test_state("");
     // No process is started in tests.

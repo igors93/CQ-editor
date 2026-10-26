@@ -730,19 +730,40 @@ pub struct CqEditorApp {
     state: AppState,
 }
 
-/// Adds the Editor panel when `dock` has none, where the default layout
-/// puts it: left of the 3D view. The script is the model; a layout
-/// without its editor is never kept.
-fn ensure_editor(dock: &mut DockState<Tab>) {
-    if dock.find_tab(&Tab::Editor).is_some() {
+/// Recreates a panel where it belongs in the default workspace. Actions
+/// can rely on this even after the user closed the panel or maximized one.
+fn ensure_panel(dock: &mut DockState<Tab>, tab: Tab) {
+    if dock.find_tab(&tab).is_some() {
         return;
     }
     let tree = dock.main_surface_mut();
-    match tree.find_tab(&Tab::Viewer) {
-        Some((node, _)) => {
-            tree.split_left(node, 0.45, vec![Tab::Editor]);
+    match tab {
+        Tab::Editor => match tree.find_tab(&Tab::Viewer) {
+            Some((node, _)) => {
+                tree.split_left(node, 0.45, vec![tab]);
+            }
+            None => tree.push_to_focused_leaf(tab),
+        },
+        Tab::Project => match tree.find_tab(&Tab::Editor) {
+            Some((node, _)) => {
+                tree.split_left(node, 0.25, vec![tab]);
+            }
+            None => tree.push_to_focused_leaf(tab),
+        },
+        Tab::Console | Tab::Traceback | Tab::Log => {
+            let sibling = [Tab::Console, Tab::Traceback, Tab::Log]
+                .into_iter()
+                .find_map(|other| tree.find_tab(&other).map(|(node, _)| node));
+            if let Some(node) = sibling {
+                tree.set_focused_node(node);
+                tree.push_to_focused_leaf(tab);
+            } else if let Some((node, _)) = tree.find_tab(&Tab::Viewer) {
+                tree.split_below(node, 0.74, vec![tab]);
+            } else {
+                tree.push_to_focused_leaf(tab);
+            }
         }
-        None => dock.push_to_focused_leaf(Tab::Editor),
+        _ => tree.push_to_focused_leaf(tab),
     }
 }
 
@@ -752,7 +773,7 @@ fn restored_layout(saved: Option<DockState<Tab>>) -> DockState<Tab> {
     let mut dock = saved
         .filter(|dock| dock.find_tab(&Tab::Viewer).is_some())
         .unwrap_or_else(panels::default_layout);
-    ensure_editor(&mut dock);
+    ensure_panel(&mut dock, Tab::Editor);
     dock
 }
 
@@ -862,7 +883,7 @@ impl CqEditorApp {
             state,
         };
         if app.state.project.is_some() {
-            app.show_project_panel();
+            app.show_panel(Tab::Project);
         }
         app
     }
@@ -901,33 +922,13 @@ impl CqEditorApp {
         }
     }
 
-    /// Shows the Project panel, to the left of the editor when it was
-    /// closed.
-    fn show_project_panel(&mut self) {
-        if self.dock.find_tab(&Tab::Project).is_none() {
+    /// Shows a panel required by an action, recreating it if closed.
+    fn show_panel(&mut self, tab: Tab) {
+        if self.dock.find_tab(&tab).is_none() {
             self.restore_layout();
         }
-        if let Some(path) = self.dock.find_tab(&Tab::Project) {
-            let _ = self.dock.set_active_tab(path);
-            return;
-        }
-        let tree = self.dock.main_surface_mut();
-        match tree.find_tab(&Tab::Editor) {
-            Some((node, _)) => {
-                tree.split_left(node, 0.25, vec![Tab::Project]);
-            }
-            None => self.dock.push_to_focused_leaf(Tab::Project),
-        }
-    }
-
-    /// Brings the editor's panel to the front, adding it back when it was
-    /// closed: a file or a line is never shown in an editor nobody sees.
-    fn show_editor_panel(&mut self) {
-        if self.dock.find_tab(&Tab::Editor).is_none() {
-            self.restore_layout();
-        }
-        ensure_editor(&mut self.dock);
-        if let Some(path) = self.dock.find_tab(&Tab::Editor) {
+        ensure_panel(&mut self.dock, tab);
+        if let Some(path) = self.dock.find_tab(&tab) {
             let _ = self.dock.set_active_tab(path);
         }
     }
@@ -938,7 +939,7 @@ impl CqEditorApp {
         // New, Open, examples, tabs, recovered work…: another document is
         // shown, so its editor must be on screen.
         if self.state.document_generation != shown {
-            self.show_editor_panel();
+            self.show_panel(Tab::Editor);
         }
     }
 
@@ -959,7 +960,7 @@ impl CqEditorApp {
                 self.dock = panels::default_layout();
                 label_tab_menus(&mut self.dock);
                 if self.state.project.is_some() {
-                    self.show_project_panel();
+                    self.show_panel(Tab::Project);
                 }
             }
             Action::GoToSource { .. }
@@ -971,14 +972,22 @@ impl CqEditorApp {
             | Action::OpenFileAt { .. } => {
                 // The file or line is shown in the editor, wherever its
                 // panel is.
-                self.show_editor_panel();
+                self.show_panel(Tab::Editor);
                 self.state.execute(action);
             }
             Action::OpenFolder | Action::OpenFolderPath(_) => {
                 self.state.execute(action);
                 if self.state.project.is_some() {
-                    self.show_project_panel();
+                    self.show_panel(Tab::Project);
                 }
+            }
+            Action::ConsoleSubmit(source) => {
+                self.show_panel(Tab::Console);
+                self.state.execute(Action::ConsoleSubmit(source));
+            }
+            Action::ResetConsole => {
+                self.show_panel(Tab::Console);
+                self.state.execute(Action::ResetConsole);
             }
             other => self.state.execute(other),
         }
@@ -987,7 +996,11 @@ impl CqEditorApp {
 
 impl eframe::App for CqEditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let had_traceback = self.state.traceback.is_some();
         self.state.logic(ctx);
+        if !had_traceback && self.state.traceback.is_some() {
+            self.show_panel(Tab::Traceback);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

@@ -382,7 +382,7 @@ the code**.
 | :---: | --- | --- | --- | --- |
 | ✅ | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
 | ✅ | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
-| | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
+| ✅ | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
 | | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
 | | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
 | | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
@@ -452,8 +452,10 @@ external editor and autoreload. The view's empty state then says
 `show_editor_panel` and `show_project_panel`, and covers the Traceback and
 Console panels the same way when an action needs them.
 
-**Progress.** Done for the Editor (BUG-36: `ensure_editor`, `restored_layout`
-and the empty view's hint). A general `ensure_panel` remains.
+**Progress.** Done. `ensure_panel` restores the Editor, Project, Console,
+Traceback or another panel when an action needs it. Restored layouts always
+have an Editor and a 3D View. Opening a document shows the Editor, console
+actions show the Console, and a new run error shows Traceback.
 
 ### REQ-04 · Exports keep what the code built
 
