@@ -103,6 +103,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
 | | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
 | | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
+| ✅ | [BUG-41](#bug-41--the-local-history-depends-on-how-a-path-is-written) | The local history depends on how a path is written | P3 |
 
 ### BUG-33 · Saving replaces a newer version on disk without a word
 
@@ -280,6 +281,25 @@ option. The same holds for a NaN alpha given in `rgba`.
 **Fix:** `DisplayOptions.parse` rejects non-finite numbers with the existing
 "Ignoring invalid display option" warning. A node that cannot be encoded is
 dropped and named in the log instead of failing the reply.
+
+### BUG-41 · The local history depends on how a path is written
+
+✅ **Resolved.** *Evidence: test (found while fixing BUG-33:
+`renaming_or_deleting_files_keeps_the_tabs_in_step` failed on Windows on the
+unchanged tree).* **Where:** `src/recovery.rs` (`document_folder`).
+
+A document's history folder was named after a hash of its path's raw
+bytes. On Windows `C:/x/part.py` and `C:\x\part.py` are the same file but
+got two folders, so versions saved under one spelling were missing from
+**File > Local History…** under the other. A path that went through a
+rename (`project::relocated` joins with `\`) and a path typed with `/` on
+the command line could thus lose sight of each other's history.
+
+**Resolution:** the path is rebuilt from its components before it is
+hashed, so `/` and `\` (and `.` components) give one folder. Paths written
+with `\`, which the system's file dialogs return, keep the folders of
+earlier releases. Tests: `a_file_has_one_history_however_its_path_is_written`,
+`folder_names_are_stable_across_releases`.
 
 ---
 
@@ -528,8 +548,8 @@ known origin, and the update check
 
 ### REQ-13 · Tests at the seams
 
-**Why it is required.** The eight bugs above sit at seams the current tests
-do not cover: keyboard focus under dialogs, the dock layout, the file
+**Why it is required.** The bugs above sit at seams the current tests do
+not cover: keyboard focus under dialogs, the dock layout, the file
 system shared with other programs, the pipe between the processes, tabs
 combined with the debugger, and exported files read back by another
 program. The throwaway tests of this review show that each can be tested

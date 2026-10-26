@@ -250,16 +250,36 @@ fn each_document_keeps_its_history_in_its_own_folder() {
 
 #[test]
 fn folder_names_are_stable_across_releases() {
-    assert_eq!(
-        document_folder(Some(Path::new("scripts/part.py"))),
-        "doc-58d2002fe837b7f2"
-    );
+    // The paths of the system's file dialogs, as earlier releases hashed them.
+    #[cfg(not(windows))]
+    let (native, folder) = ("scripts/part.py", "doc-58d2002fe837b7f2");
+    #[cfg(windows)]
+    let (native, folder) = ("scripts\\part.py", "doc-d3fbd233f36653b9");
+    assert_eq!(document_folder(Some(Path::new(native))), folder);
     assert_eq!(document_folder(None), "untitled");
     assert_eq!(
         version_timestamp("version-1700000000000-3.json"),
         Some(1_700_000_000_000)
     );
     assert_eq!(version_timestamp("notes.json"), None);
+}
+
+#[test]
+fn a_file_has_one_history_however_its_path_is_written() {
+    let written = Path::new("scripts").join("part.py");
+    assert_eq!(
+        document_folder(Some(Path::new("scripts/part.py"))),
+        document_folder(Some(&written))
+    );
+    assert_eq!(
+        document_folder(Some(Path::new("scripts/./part.py"))),
+        document_folder(Some(&written))
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        document_folder(Some(Path::new(r"C:/Users/me/part.py"))),
+        document_folder(Some(Path::new(r"C:\Users\me\part.py")))
+    );
 }
 
 #[test]

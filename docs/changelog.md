@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Fixed: on Windows, the local history of a file depended on whether its
+  path was written with `/` or `\`, so some versions could be missing from
+  File > Local History (BUG-41)
 * Fixed: saving replaced a version of the file that another program had
   written since it was opened or saved: with automatic reload off (the
   default), a Ctrl+S could undo a `git pull`. Saving now asks first, with

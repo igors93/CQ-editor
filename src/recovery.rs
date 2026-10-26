@@ -420,10 +420,16 @@ fn prune_document(directory: &Path) -> io::Result<()> {
 
 /// Folder name of a document's history: a hash of its path that does not
 /// change between releases (unlike `DefaultHasher`, whose algorithm may).
+///
+/// The path is rebuilt from its components first, so the same file gets
+/// one folder however its path is written: on Windows `/` and `\` both
+/// separate, and are hashed as `\`, which the paths of the system's file
+/// dialogs, and so the folders of earlier releases, already use.
 fn document_folder(path: Option<&Path>) -> String {
     let Some(path) = path else {
         return UNTITLED_FOLDER.to_owned();
     };
+    let path: PathBuf = path.components().collect();
     // FNV-1a, 64 bits.
     let hash = path
         .as_os_str()
