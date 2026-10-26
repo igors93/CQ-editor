@@ -1,25 +1,42 @@
 # Roadmap
 
-This page is the plan for CQ-editor after the Rust rewrite. It lists the
-**bugs and problems** found in the current code, the **gaps** in the
-experience, and the **features** that would make CQ-editor clearly more
-capable than the original PyQt editor, without losing what made it useful.
+This is the plan for CQ-editor after `0.8.0`. It comes from a review of the
+whole source tree (commit `74c1535`, October 2026) and of the libraries it
+builds on, checked with CadQuery 2.7 / OCP 7.8 (the development
+environment; the installers ship CadQuery 2.8 / OCP 7.9). It has four
+parts:
 
-Every item is based on the current source tree (`0.8.0`). Bugs say how
-they were found:
+1. **[Bugs](#1-bugs-and-problems)**: defects that were reproduced, not
+   suspected. Each one was confirmed by running code against the current
+   tree. A suspicion that did not reproduce is not listed.
+2. **[Required improvements](#2-required-improvements)**: work that follows
+   from what CQ-editor is, an IDE whose product is CAD data made by code, or
+   from a maintenance duty. These are not optional.
+3. **[Suggested improvements](#3-suggested-improvements)**: work that fits the
+   code and would make it better, but that the program can live without.
+4. **[Direction](#4-direction)**: where CQ-editor can go to become the
+   reference tool for building 3D objects with code, based on what CadQuery
+   and OpenCascade already offer.
 
-* **seen**: reproduced in the running application (several are visible in
-  the screenshots of these docs);
-* **code**: found by reading the code; the reasoning is in the item;
-* **CI**: reported by the continuous integration checks.
+The items of the previous roadmap (BUG-01…BUG-32, PERF-01…PERF-04 and the
+finished FEAT items) are all resolved. They are summarized under
+[Completed](#completed), and described in the [changelog](changelog.md). Items
+that were still open have moved into the sections below.
 
-Priorities: **P1** fix before the next release · **P2** should fix soon ·
-**P3** maintenance or polish.
+**Evidence** says how each bug was confirmed:
 
-Status: **✅** resolved · blank: still open.
+* **test**: a throwaway Rust test, run against the tree. It asserted the
+  faulty behaviour and passed. Each bug says what the test did, so it can
+  become the regression test of the fix, with its assertion turned around.
+* **script**: a Python script run against the worker package, with
+  CadQuery 2.7 / OCP 7.8.
+* **seen**: observed in the running application.
+
+**Priorities:** **P1** fix before the next release · **P2** should fix soon ·
+**P3** fix when the code is touched.
 
 Want to help? Pick an item, open an issue that mentions its id (for example
-`BUG-03`), and see [Contributing](development/contributing.md).
+`REQ-04`), and see [Contributing](development/contributing.md).
 
 ## Guiding principles
 
@@ -39,26 +56,38 @@ builds 3D models**. Everything on this roadmap has to respect that:
    The [compatibility matrix](development/compatibility.md) distinguishes
    tested equivalence, intentional changes and open gaps.
 4. **Never block, never lose work.** Python runs in its own process. Saves
-   are atomic. Unsaved work is recoverable.
+   are atomic. Unsaved work is recoverable, and no file is replaced with
+   contents the user has not seen.
+5. **What leaves the editor is right.** An exported file carries the shapes,
+   placements, names, colors and units the code produced, or the editor says
+   what it could not keep.
 
 ## Where we are
 
-The core modeling workflow is implemented and substantially tested, but full
-functional equivalence is not claimed. Scripts, the `show_object` contract,
-legacy shortcuts and mouse bindings have automated compatibility coverage.
-No compatibility row is a gap any more; the stereo QuadBuffer fallback and
-the console's plain-text HTML are documented changes, and some native GUI
-interactions still require an end-to-end test.
-Several areas are enhanced (topology picking, assembly instancing, crash
-recovery, local history and conflict-safe autoreload; see the
-[changelog](changelog.md)).
+The modeling workflow is complete and well tested. Scripts run in an
+isolated worker. The view picks faces, edges and vertices exactly, and the
+GUI writes selectors, parameters and measurements back as code. Projects
+with several files, crash recovery and local history are in place. The
+weak points found by this review are at the seams: the file system shared
+with other programs, keyboard focus under dialogs, the pipe between the two
+processes, and the export of what the view shows.
 
-| Check | Status |
+The libraries offer much more than the editor uses. This table was checked
+against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
+
+| Capability of CadQuery / OCP | In CQ-editor today |
 | --- | --- |
-| Compatibility inventory | Enforced by `compatibility_matrix_is_complete_and_evidenced` |
-| Legacy projects | All eight pre-rewrite examples run in the worker suite |
-| Rust and worker suites | See the latest CI run; counts are not hand-maintained |
-| Format and lint | `cargo fmt`, clippy and `black` are required by CI |
+| `Workplane`, `Shape`, `Sketch`, `Assembly` display, nested assemblies, instancing | ✅ Shown, picked, measured |
+| Free-function API (`cadquery.func`: `box`, `extrude`, `loft`, `sweep`, `fillet`, `offset`, `text`, `imprint`, `split`, `fill`, `cap`, `check`, `closest`…) | Usable in scripts; no snippets or help of its own |
+| Per-face names, colors and layers (`Assembly.addSubshape`) | ❌ Ignored by the view ([REQ-07](#req-07--show-everything-the-cadquery-api-can-specify)) |
+| Materials (`cq.Material`: name, density, visual material) | ❌ Ignored |
+| Assembly constraints (`constrain`, `solve`, casadi) and sketch constraints (nlopt) | Only the solved result is shown |
+| Assembly export: STEP (default or fused), OCAF XBF/XML, glTF/GLB, VRML, VTK.js, STL | STEP, only when one assembly is exported alone |
+| Shape export: STEP, STL, BREP, 3MF, AMF, SVG and DXF (2D), VRML, VTP, TJS, BIN | STEP, STL, BREP |
+| Import: STEP (also as an assembly with names and colors), BREP, BIN, DXF | Through code only |
+| `cqgi` script interface (`describe_parameter`, typed parameters) used by `cq-cli` and servers | ❌ `describe_parameter` is not defined in scripts |
+| OCP: `BRepExtrema` (distances) | ✅ Measurements |
+| OCP: `BRepGProp` (mass properties), `BRepCheck` / `ShapeFix` (validity, healing), `HLRBRep` (hidden-line projection), `XCAFDimTolObjects` (PMI in STEP AP242), `TNaming` (topological naming), `BRepFeat`, `GeomPlate` | Not used |
 
 ---
 
@@ -66,442 +95,648 @@ recovery, local history and conflict-safe autoreload; see the
 
 | Status | Id | Problem | Priority |
 | :---: | --- | --- | --- |
-| ✅ | [BUG-01](#bug-01--object-keys-collide-after-python-restarts) | Object keys collide after Python restarts | P1 |
-| ✅ | [BUG-02](#bug-02--objects-panel-the-property-sheet-overlaps-the-tree) | Objects panel: the property sheet overlaps the tree | P1 |
-| ✅ | [BUG-03](#bug-03--ci-format-check-fails) | CI format check fails | P1 |
-| ✅ | [BUG-04](#bug-04--breakpoints-do-not-follow-edits) | Breakpoints do not follow edits | P1 |
-| ✅ | [BUG-05](#bug-05--worker-events-wait-for-the-window-to-repaint) | Worker events wait for the window to repaint | P2 |
-| ✅ | [BUG-06](#bug-06--icons-in-dialog-titles-show-as-empty-boxes) | Icons in dialog titles show as empty boxes | P2 |
-| ✅ | [BUG-07](#bug-07--wrong-shortcut-in-the-search-bar-tooltip) | Wrong shortcut in the search bar tooltip | P2 |
-| ✅ | [BUG-08](#bug-08--help--documentation-opens-the-old-wiki) | Help > Documentation opens the old wiki | P2 |
-| ✅ | [BUG-09](#bug-09--imported-modules-are-watched-only-once) | Imported modules are watched only once | P2 |
-| ✅ | [BUG-10](#bug-10--variables-values-are-unreadable) | Variables: values are unreadable | P2 |
-| ✅ | [BUG-11](#bug-11--misleading-hints-after-a-failed-run) | Misleading hints after a failed run | P2 |
-| ✅ | [BUG-12](#bug-12--the-view-keeps-the-previous-files-objects) | The view keeps the previous file's objects | P2 |
-| ✅ | [BUG-13](#bug-13--debug-in-the-console-loses-the-variable-name) | `debug()` in the console loses the variable name | P2 |
-| ✅ | [BUG-14 … BUG-20](#p3-maintenance-and-polish) | Maintenance and polish | P3 |
-| ✅ | [BUG-21 … BUG-32](#found-in-the-october-2026-review) | Found in the October 2026 reviews | P1–P3 |
-| ✅ | [PERF-01 … PERF-04](#performance) | Performance | |
-
-### P1: fix before the next release
-
-#### BUG-01 · Object keys collide after Python restarts
-
-✅ **Resolved.** *Evidence: code; the fix was checked in the app.*
-
-**Where:** `src/app/worker_events.rs` (`start_worker`,
-`reset_execution_state`), `src/app/runs.rs` (`finish_run`),
-`src/scene.rs` (`replace`, `append`),
-`worker/cq_worker/scene.py` (`Registry`).
-
-After **Run > Stop**, **Run > Restart Python** or a worker crash, the scene
-keeps its objects. Their keys (`n1`, `n2`, …) belong to the old process. The
-new worker numbers its objects from `n1` again. On the first run after the
-restart:
-
-1. the worker registers the new objects as `n1`, …;
-2. `finish_run` replaces the scene and sends `release` for the *old* keys,
-   which are the same strings;
-3. the new worker frees its *new* objects.
-
-As a result, the CQ Inspector, Export and Upload fail for that run with
-*Unknown object 'n1'; it may have been cleared*. Objects added from the
-console after a restart can also duplicate keys already in the scene.
-
-**Resolution:** keys are now unique per worker process. The GUI passes its
-worker generation in the `CQ_EDITOR_SESSION` environment variable
-(`src/worker/mod.rs`), and the worker prefixes its keys with it (`s1-n1`,
-then `s2-n1` after a restart; `Registry` in `worker/cq_worker/scene.py`).
-Releasing the keys of a previous process is now a harmless no-op. The CQ
-Inspector state is also reset when Python restarts (`start_worker` in
-`src/app/worker_events.rs`). Objects of the old process stay visible. Exporting them
-before rendering again reports that they *come from a previous Python
-session (render again)*.
-
-Regression tests: `test_prefixed_registries_never_share_keys`,
-`test_restarted_worker_keeps_objects_when_stale_keys_are_released` and
-`test_worker_namespaces_scene_keys_with_the_gui_session`. Checked in the
-app: render, *Run > Restart Python*, render, select the object; the CQ
-Inspector shows its construction stack.
-
-#### BUG-02 · Objects panel: the property sheet overlaps the tree
-
-✅ **Resolved.** *Evidence: seen; the fix was checked in the app.*
-
-**Where:** `src/panels/objects.rs`.
-
-When the Objects pane is short, the property sheet (Type, Visible, Color,
-Opacity, Size, Triangles) grows over the *CQ models* tree. The texts overlap
-and nothing scrolls.
-
-**Resolution:** the sheet is laid out by `property_sheet` in
-`src/panels/objects.rs`. Its contents scroll instead of growing the panel,
-and its height is capped so the tree keeps at least 80 points (or 60 % of a
-very short pane). The tree's scroll area no longer insists on its default
-64-point minimum, which made it spill over the sheet.
-
-Regression tests (`tests/rust/panels/test_objects.rs`) lay out a sheet much
-taller than the pane with a headless `egui::Context` and check that the tree
-keeps its room above the sheet. Both fail with the previous layout. Checked
-in the app: with a short Objects pane, the sheet shows a scroll bar and the
-tree stays readable above it.
-
-#### BUG-03 · CI format check fails
-
-✅ **Resolved.** *Evidence: CI.*
-
-**Where:** `worker/cq_worker/tessellation.py`,
-`tests/worker/geometry/test_scene.py`,
-`tests/worker/geometry/test_tessellation.py`.
-
-`black --check worker tests/worker` reports these three files, so the
-*worker / Format* step of `.github/workflows/ci.yml` fails on every push.
-
-**Resolution:** the three files were reformatted with black 26.10.1, the
-version CI installs; `black --check worker tests/worker` now passes. A
-pre-commit hook would keep it that way.
-
-#### BUG-04 · Breakpoints do not follow edits
-
-✅ **Resolved.** *Evidence: code.*
-
-**Where:** `src/editor/mod.rs` (`breakpoints: BTreeSet<usize>`).
-
-Breakpoints are plain line numbers. Inserting or deleting lines above a
-breakpoint moves the code but not the dot. The debugger then stops on a
-different statement than the one marked.
-
-**Resolution:** the editor remembers the text its line markers refer to
-and, whenever the text changes (typing, editor commands, reloads, restored
-versions), moves breakpoints, the error line and the debug line with
-`text_ops::LineMap` (`CodeEditor::sync_markers` in `src/editor/mod.rs`).
-Lines before the edited block keep their number, lines after it shift,
-lines inside it map by position, and a breakpoint on a deleted line is
-removed. Runs and debugger steps sync first, so Python always receives the
-current line numbers.
-
-Regression tests in `tests/rust/editor/test_text_ops.rs` (inserting,
-splitting, merging, deleting and indenting lines) and
-`tests/rust/editor/test_editor.rs` (breakpoints and the error line through
-edits, and a fresh document after a reset).
-
-### P2: should fix soon
-
-#### BUG-05 · Worker events wait for the window to repaint
-
-✅ **Resolved.** *Evidence: code.*
-
-**Where:** `src/app/mod.rs`, where `begin_frame` (called from `ui()`) ran
-`process_worker_events`, `poll_watcher` and `poll_recovery`.
-
-All worker traffic, automatic reload and recovery checkpoints ran as part
-of drawing a frame. When the window was minimized and the platform stopped
-drawing it, runs appeared to stall and replies piled up until it was
-restored.
-
-**Resolution:** these steps moved to `AppState::logic`, called from
-eframe's `App::logic` (eframe 0.36). eframe calls it before every frame and,
-while the window is minimized or hidden, whenever a repaint is requested,
-without running a UI pass. The worker's reader and stderr threads request a
-repaint for every message, and the watcher and recovery timers schedule
-theirs, so all of them keep running. Only theming and shortcuts stay in
-`begin_frame`. eframe throttles repaints of hidden windows to 100 ms, which
-bounds the latency. Checked in the app: a three-second script rendered and
-then minimized at once was finished, logged and shown at the time it ended,
-not when the window was restored.
-
-#### BUG-06 · Icons in dialog titles show as empty boxes
-
-✅ **Resolved.** *Evidence: seen; regression test.*
-
-**Where:** `src/theme.rs` (`fonts`).
-
-The semibold font family was cloned from the proportional family *before*
-the Phosphor icon font was added. Text in that family (window titles use the
-heading style) therefore had no icon glyphs: *Preferences* showed `□` before
-its title, and *Upload Model* used the same code path.
-
-**Resolution:** the semibold family is built after
-`egui_phosphor::add_to_fonts`, so it has the icons while its letters still
-come from Inter SemiBold. `headings_render_icons_like_body_text`
-(`tests/rust/app/test_theme.rs`) loads the fonts into a headless context and
-checks that headings find the icon glyphs. Checked in the app: the
-Preferences title shows its gear icon.
-
-#### BUG-07 · Wrong shortcut in the search bar tooltip
-
-✅ **Resolved.** *Evidence: code and regression test.*
-
-**Where:** `src/editor/mod.rs` (`CodeEditor::search_bar`).
-
-The *Previous match* button says *Shift+F3*. The actual shortcut is
-**Alt+F3** (`src/commands.rs`), and **Shift+F3 is the Top view**.
-
-**Resolution:** both search-button tooltips now derive their platform-formatted
-text from `commands::shortcut()` instead of duplicating the binding. The
-command test protects Alt+F3 for Previous and F3 for Next, so the tooltip and
-command cannot drift independently.
-
-#### BUG-08 · Help > Documentation opens the old wiki
-
-✅ **Resolved.** *Evidence: code; regression test.*
-
-**Where:** `src/app/mod.rs` (`Action::Documentation`).
-
-The menu opened `https://github.com/CadQuery/CQ-editor/wiki`, which
-describes the PyQt editor (installation with conda, PyQt preferences).
-
-**Resolution:** it opens `docs/README.md` in the repository
-(`DOCUMENTATION_URL`, built from `CARGO_PKG_REPOSITORY`), checked by
-`the_documentation_link_points_to_these_docs`. The wiki itself is outside
-the repository: a maintainer still needs to add a note there pointing to
-these docs.
-
-#### BUG-09 · Imported modules are watched only once
-
-✅ **Resolved.** *Evidence: code.*
-
-**Where:** `src/app/watching.rs` (`sync_watcher`), `src/app/worker_events.rs`
-(handling of `Message::Imports`).
-
-With *Autoreload: watch imported modules*, the list of local imports was
-computed only when autoreload, that option or the file path changed. A
-module imported later was not watched until one of those changed. The
-merged list was also de-duplicated with `Vec::dedup` without sorting, so a
-path could be watched twice, and modules no longer imported stayed watched.
-
-**Resolution:** `request_imports` asks the worker again after every save and
-every successful run, besides when watching starts. The answer is tagged
-with the script it is for (`Pending::Imports(path)`) and ignored if the
-document or the watch settings changed meanwhile. The watched set is then
-replaced by the script plus its current imports, collected in a `BTreeSet`.
-
-#### BUG-10 · Variables: values are unreadable
-
-✅ **Resolved.** *Evidence: seen; regression test.*
-
-**Where:** `src/panels/variables.rs`.
-
-The *Value* column got only the space left after the fixed 120-point *Name*
-and 90-point *Type* columns, so in the default layout every value showed as
-`…`.
-
-**Resolution:** the name and type columns take a share of the panel width
-(`column_widths`), the value column keeps at least 80 points, and all
-columns stay resizable (under a new table id, so the widths remembered from
-the old layout do not apply). Clicking a row opens a resizable detail view
-below the table with the whole value, wrapped, selectable and with a copy
-button; × closes it, and a context menu copies a row's value or name. The
-worker now sends up to 2000 characters per value instead of 300. In a short
-pane the table and the detail view both scroll instead of growing over each
-other, and the cell labels are not selectable, so a click on their text
-selects the row (see BUG-28). Tests: `the_value_column_keeps_room_in_narrow_panes`,
-`clicking_the_text_of_a_row_selects_it` and
-`the_rows_stay_above_the_detail_view_in_a_short_pane`. Checked in the app with
-the default layout.
-
-#### BUG-11 · Misleading hints after a failed run
-
-✅ **Resolved.** *Evidence: seen; regression test.*
-
-**Where:** `src/app/mod.rs` (`empty_view_hint`), `src/panels/mod.rs`
-(`empty_state`).
-
-* After a failed run with nothing on screen, the view said *Press F5 to
-  render the script*, although F5 had just been pressed. The view and the
-  Objects panel now say *The last run failed at line N; see the Traceback
-  panel*.
-* Empty-state texts were laid out justified, so wrapped lines got uneven
-  word spacing (*Select  a  workplane  in  Objects…*). They are now laid out
-  as centered rows of natural width;
-  `empty_state_rows_are_centered_with_natural_spacing` compares them with
-  plain and justified layouts. Both checked in the app.
-
-#### BUG-12 · The view keeps the previous file's objects
-
-✅ **Resolved.** *Evidence: seen.*
-
-**Where:** `src/app/documents.rs` (`set_document`).
-
-Opening another file reset the editor and the traceback, but the 3D view,
-Objects panel, selection and CQ Inspector still showed the previous file's
-model until the next successful run. With a failing new script, the stale
-model looked like the result of that script.
-
-**Resolution:** New, Open, Open Recent, examples and a restored session now
-clear the scene (releasing its worker objects), measurements, the inspector
-and the variables. A run still going for the previous file is marked stale:
-its result is discarded and its objects released, and a paused or later
-pausing debugging session of that file is stopped. Restoring a local-history
-version of the *same* file keeps the model, like a reload. Rendering on open
-was not added: a script may be slow or have side effects, and F5 is one key
-away. Checked in the app: opening an example after rendering another file
-leaves an empty view, Objects tree and Variables panel.
-
-#### BUG-13 · `debug()` in the console loses the variable name
-
-✅ **Resolved.** *Evidence: code; regression test.*
-
-**Where:** `worker/cq_worker/console.py`.
-
-`ShownObjects.debug` finds the variable name two frames up, which is right
-for the script wrapper. The console bound the method directly, so the lookup
-landed in the interpreter's internals and the object got a generic name
-(*Workplane 1*) instead of its variable name.
-
-**Resolution:** the console wraps it (`ConsoleSession._debug`) the way it
-wraps `show_object`, and no longer rebinds it after each command.
-`test_console_names_shown_and_debugged_objects_after_their_variables` fails
-with the former binding.
-
-### P3: maintenance and polish
-
-| Status | Id | Problem | Where | Resolution |
-| :---: | --- | --- | --- | --- |
-| ✅ | BUG-14 *(code)* | `--help` and command-line errors printed nothing in Windows release builds, which have no console | `src/main.rs` | `show_cli_message` writes to redirected output as before; otherwise it attaches to the console of the parent shell (`AttachConsole`) and writes to `CONOUT$`, or shows a message box when started without one. Checked with the release executable in a `cmd` console (usage and the error of an unknown option are printed) and started without a console (message box) |
-| ✅ | BUG-15 *(code)* | Every worker version extracted a new `worker-<hash>/` folder in the data directory; old ones were never removed | `src/embedded.rs` | After a successful extraction, the folders of other versions (and interrupted extractions) are removed. A running older instance loses nothing: its worker has imported all modules, and a restart extracts them again. Test: `extracting_a_new_worker_removes_the_other_versions` |
-| ✅ | BUG-16 *(code)* | Each recovery checkpoint (every 5 s while modified) read and parsed **every** history file of **every** document. History of deleted or renamed files was never pruned, and all untitled buffers shared one bucket | `src/recovery.rs` | One folder per document (stable FNV-1a hash of the path); version file names carry their timestamps, so a checkpoint lists one folder of at most 20 files and parses no JSON. Once per session, versions older than 90 days and the oldest beyond 64 MB are removed, and the flat history of earlier releases is migrated. Untitled buffers keep one shared folder on purpose: they have no identity across sessions, and their drafts stay findable. Tests in `tests/rust/editor/test_recovery.rs` |
-| ✅ | BUG-17 *(code)* | Files that are not UTF-8 could not be opened at all | `src/document.rs`, `src/dialogs/mod.rs` | A *Not a UTF-8 file* dialog offers **Open as Windows-1252** (WHATWG mapping, never fails); the file is untouched until saved, saving writes UTF-8, and the status bar shows *Windows-1252 → UTF-8* meanwhile. The file watcher keeps reading the file in its encoding. Tests: `windows_1252_files_open_on_request_and_are_saved_as_utf8` and others |
-| ✅ | BUG-18 *(code)* | The Windows `.exe` had no embedded icon or version information | `build.rs` | `winresource` compiles the icon and version strings with `rc.exe` (MSVC) or `windres` (GNU). Without a resource compiler the build warns; release CI sets `CQ_EDITOR_REQUIRE_RESOURCES=1` to make it an error. Checked with `windres` from MSYS2: Explorer's details show *CQ-editor 0.8.0* and the icon |
-| ✅ | BUG-19 *(code)* | Building with the Windows GNU toolchain needed MinGW binutils and a hand-made `libshlwapi.a` | `Cargo.toml`, `src/app/mod.rs` | eframe is used without its `links` feature, which removes `webbrowser` (and `shlwapi`) from the dependency tree; links of egui widgets are taken from the platform output and opened with `open`. binutils (`dlltool`) are still required by the `windows` crates. Test: `links_clicked_in_widgets_are_taken_from_the_platform_output` |
-| ✅ | BUG-20 *(code)* | The Log panel lived only in memory: after a GUI panic or crash, the messages that explained it were gone | `src/logging.rs` | Every entry is also appended to `logs/cq-editor.log` in the data folder (warnings and errors immediately, other lines within a second, by a flushing thread even when nothing else is logged), rotated at 2 MB to `cq-editor.1.log`. A panic hook records the panic and its backtrace without waiting for the log lock. Bug reports and Troubleshooting mention the file |
-
-### Performance
-
-| Status | Id | Problem | Where | Suggested fix |
-| :---: | --- | --- | --- | --- |
-| ✅ | PERF-01 | Resolved: per-face counts propose the display-triangle mapping, then OCCT triangulation bounds and sampled centroids validate every face group before it is picked directly; separate pick triangles remain the fallback for count or geometry mismatches. On the 324-hole benchmark the validated path takes 1.49 s total, including 65 ms for validation, versus 2.2 s for the former extraction, while retaining its 34% smaller message | `worker/cq_worker/tessellation.py` | Covered by independent face-centroid equivalence on ten shape kinds, explicit equal-count face-reordering fault injection, and the OCP 7.8/7.9/8.0 matrix |
-| ✅ | PERF-02 | Resolved as far as OCCT allows: `RWGltf_CafWriter` (OCCT 7.8 through OCP) can only write files, so the glTF still passes through disk. Measured on the 324-hole plate, the file handling costs about 1 ms of the writer's 95 ms (and its parallel mode gains nothing), so the round trip now reuses one scratch folder per worker process. That also fixed a leak: a worker stopped while meshing left its `cq-editor-*.glb` files in the temporary folder, and the next worker now removes leftovers older than a day | `tessellation.py` (`_scratch_path`) | Tests: `test_glb_round_trips_leave_only_an_empty_scratch_directory`, `test_scratch_left_by_killed_workers_is_removed_once_stale` |
-| ✅ | PERF-03 | Resolved: a retained scene-part BVH prefilters parts and per-mesh BVHs prune edges and vertices in screen space; hover picking already pauses while dragging or when the pointer is still | `src/viewer/picking.rs`, `src/spatial.rs` | Covered by linear-scan equivalence tests and the `pick_latency_on_growing_assemblies` benchmark |
-| ✅ | PERF-04 | Resolved: the `measure` request resolves selected ids through `RegistryEntry.subshape` and calculates against live OCCT geometry | `worker/cq_worker/measurement.py`, `protocol.rs` | Covered by exact numeric worker and protocol tests |
-
-### Found in the October 2026 review
-
-A full review of the code for this roadmap, and a later architecture
-review, found these problems, which were not listed before. All are
-resolved, each with a regression test unless noted.
-
-| Status | Id | Problem | Where | Resolution |
-| :---: | --- | --- | --- | --- |
-| ✅ | BUG-21 *(P1, code)* | Quitting with **Don't save** brought the discarded edits back: eframe's final `save` wrote a new recovery checkpoint, and the next start offered *Unsaved work can be recovered* | `src/app/documents.rs` (`checkpoint_recovery`) | No checkpoint once quitting was confirmed (`allow_close`) |
-| ✅ | BUG-22 *(P2, code)* | **Stop debugging** raised `DebugStop`, an `Exception`, so a script's own `except Exception` swallowed it and the session went on | `worker/cq_worker/debugger.py` | `DebugStop` derives from `BaseException`, like `KeyboardInterrupt`. Test: `test_stop_is_not_swallowed_by_the_scripts_exception_handlers` |
-| ✅ | BUG-23 *(P1, code)* | The editor could panic (and close) when an edit, such as a reload, left the completion popup's anchor inside a multi-byte character: `close_popups_if_left` sliced the text without checking character boundaries | `src/editor/mod.rs` | `typed_text` checks both boundaries. Test: `completion_survives_edits_that_move_its_anchor_inside_a_character` |
-| ✅ | BUG-24 *(P2, code)* | A link in an upload service's JSON reply was opened with the system handler, which also opens local files and starts programs | `src/app/mod.rs` (`open_url`) | Only `http` and `https` URLs without control characters are opened. Test: `only_web_links_are_opened` |
-| ✅ | BUG-25 *(P3, code)* | A long status message (typically an error) took the whole status bar and pushed the Python state, cursor position and encoding out of it | `src/ui/status_bar.rs` | The fixed indicators are laid out first; the message is truncated to what remains and shows its full text on hover. Checked in the app |
-| ✅ | BUG-26 *(P3, code)* | The Log filter lowercased the text but not the source, so typing a source such as `OCP` matched nothing | `src/panels/log.rs` | Both are compared in lowercase. Test: `the_filter_ignores_case_in_sources_too` |
-| ✅ | BUG-27 *(P3, code)* | When a run's scene could not be decoded, `finish_run` returned early and also dropped the run's variables and a queued render; a run request that failed in the worker left the debugger arrow on screen and dropped a queued render | `src/app/runs.rs` (`finish_run`, `run_failed`) | The scene error is reported and the rest of the result still applies; a failed run clears the debug line and starts the queued render. Test: `a_failed_run_still_starts_the_render_queued_behind_it` (the run state machine); the scene decoding path still needs a running eframe context |
-| ✅ | BUG-28 *(P3, seen)* | Clicking the text of a Traceback row (the file name, line or code) did nothing: egui labels are selectable by default and took the click from the row, so only the empty part of a cell jumped to the line | `src/panels/traceback.rs` | Cell labels are not selectable; the Variables table has the same fix and test. Checked in the app: clicking the file name of a frame moves the cursor to its line |
-| ✅ | BUG-29 *(P1, code)* | Worker dependency versions were unbounded and the current CadQuery development branch could not import because OCP 8 moved generated collection classes and removed `TopoDS.*_s` downcasts | `worker/pyproject.toml`, `tessellation.py`, `.github/workflows/ci.yml` | Explicit supported ranges, OCP 7/8 name adapters, blocking released-version lanes and an upstream-development early-warning lane. `test_compatibility.py` performs a real topology-aware tessellation in every environment |
-| ✅ | BUG-30 *(P1, code)* | A script writing forever without a newline grew `OutputStream._pending` indefinitely, and Rust's JSON/stderr `lines()` readers had no maximum line size | `worker/cq_worker/protocol.py`, `src/worker/mod.rs` | Output flushes every 64 Ki characters and is truncated after 1 MiB per stream/request; logging records stop at 256 Ki characters each and 1 MiB per request. A bounded reader retains at most 2 MiB for control, 512 MiB for mesh-bearing replies and 256 KiB for native stderr. Regression tests inject newline-free output and oversized lines |
-| ✅ | BUG-31 *(P2, code)* | A mesh id hashed only the shape's BREP and the tolerances, but the GUI keeps meshes across Python restarts: after switching to another environment, or upgrading OCP, the new worker could answer with a reference to a mesh made by the previous mesher. The worker also reported OCP as `unknown` for conda installs, which carry no pip metadata | `worker/cq_worker/tessellation.py` (`GeometryCache`), `environment.py` | Ids also hash the mesh generator: `MESH_FORMAT`, the OCP version and the installed OCP binary (`mesh_generator`); the OCP version falls back to the bindings' own `__version__`. Tests: `test_geometry_ids_name_the_mesher_that_made_them`, `test_ocp_version_is_known_without_pip_metadata` |
-| ✅ | BUG-32 *(P3, code)* | The CQ inspector drew the construction geometry of a reply that arrived after another workplane, or another step, was selected | `src/app/worker_events.rs` (`Message::InspectionGeometry`) | The pending request remembers its workplane and entry, and replies for anything but the current selection are ignored. Covered by `every_reply_is_routed_once` for the routing; the overlay itself needs a running eframe context |
+| | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
+| | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
+| | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
+| | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
+| | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
+| | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
+| | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
+| | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
+
+### BUG-33 · Saving replaces a newer version on disk without a word
+
+*Evidence: test.* **Where:** `src/document.rs` (`Document::save`, `write`),
+`src/app/documents.rs` (`AppState::save`).
+
+Automatic reload is off by default (`Editor::autoreload`). In that state
+nothing compares the file on disk with what the editor loaded. When another
+program changes the file (a `git pull` or `checkout`, VS Code, a formatter),
+**File > Save** writes the editor's older text over it. It does so even when
+the buffer was never edited, so a habitual Ctrl+S is enough. The overwritten
+version is not archived in the local history. This contradicts the user
+guide ("CQ-editor never silently throws away your edits").
+
+**Reproduce:** open `part.py`, change it with another program, press Ctrl+S
+in CQ-editor. The other program's change is gone. The test also checked
+that `RecoveryStore::history` holds no copy of it.
+
+**Fix:** the document remembers a fingerprint of the file it loaded or
+saved: length, modification time and the hash it already keeps. `save`
+reads the disk version first. If it differs from the saved baseline, save
+does not write. It opens the **File changed on disk** dialog (Keep mine and
+overwrite, Reload, Save a copy, Compare) and archives the disk version with
+`RecoveryStore::archive_path` before any overwrite. A file deleted since it
+was opened gets the same question. See [REQ-01](#req-01--saving-checks-the-disk-first).
+
+### BUG-34 · Shortcuts act behind modal dialogs, and a conflict can vanish
+
+*Evidence: test.* **Where:** `src/commands.rs` (`collect_shortcuts`, called
+from `begin_frame` before the dialogs), `src/dialogs/mod.rs` (`show`,
+`external_change`), `src/app/documents.rs` (`resolve_external_change`).
+
+An egui `Modal` keeps the pointer away from the rest of the window, but
+global shortcuts are read from the input before any dialog is drawn. So
+every shortcut still runs while a modal dialog is open: Ctrl+Tab, Ctrl+W,
+Ctrl+N, F5, Ctrl+Q. A test drew a `Modal` and pressed Ctrl+Tab, and
+`NextTab` was queued.
+
+The **File changed on disk** dialog then breaks. It describes
+`state.document`, the tab that is shown now, not the file in conflict. After
+Ctrl+Tab it names the other file and compares its text with the conflicting
+file's disk version. **Reload from disk** and **Keep my version** reach
+`resolve_external_change`, which returns early because the shown path
+differs. The dialog closes, nothing is reloaded, and the conflict is
+forgotten. The test confirmed this: the buffer kept its edits, and no dialog
+or queued conflict was left. A later save then overwrites the other
+program's change (BUG-33).
+
+**Fix:** ignore global shortcuts while a modal dialog is open (a
+`Dialogs::modal_open()` check in `collect_shortcuts`; Escape stays with the
+dialog). `ExternalChange` carries the document's generation, and the dialog
+and its resolution act on that document, whichever tab is shown. See
+[REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document).
+
+### BUG-35 · Renaming a file only by case replaces another file
+
+*Evidence: test, in a folder made case-sensitive with
+`fsutil file setCaseSensitiveInfo`.* **Where:** `src/project.rs` (`rename`).
+
+To allow `part.py` → `Part.py` on Windows and macOS, `rename` skips the
+"already exists" check whenever the old and new names differ only by case.
+It assumes the file system ignores case. On Linux, on case-sensitive macOS
+volumes and in case-sensitive Windows folders, both files can exist. The
+Project panel's **Rename…** then calls `std::fs::rename`, which replaces the
+existing `Part.py`. The test created `part.py` ("lower") and `Part.py`
+("UPPER, another file") and renamed the first. One file was left, holding
+"lower".
+
+**Fix:** skip the check only when the target is the same file as the
+source: compare file identities (volume and file index on Windows, device
+and inode elsewhere), for example with the `same-file` crate. Otherwise
+refuse, as for any existing name.
+
+### BUG-36 · A closed Editor panel never comes back
+
+*Evidence: test; seen (a session restored without the Editor panel).*
+**Where:** `src/app/mod.rs` (`CqEditorApp::show_editor_panel`,
+`CqEditorApp::new`), `src/panels/mod.rs` (`is_closeable`).
+
+The Editor panel can be closed like any other, and the layout without it is
+saved and restored at the next start. Opening a file, a traceback line,
+*Go to Source* and *Go to Line* call `show_editor_panel`, which only brings
+an **existing** Editor tab to the front. With the panel closed, the file is
+opened into an editor nobody can see. The test closed the panel, opened
+`a.py` and went to a line: `a.py` became the shown document and the dock
+still had no Editor. The only way back is **View > Editor** or
+**View > Reset Layout**, and nothing on screen hints at it. The view keeps
+saying *Press F5 to render the script* about a script the user cannot see.
+
+**Fix:** when the Editor is missing, `show_editor_panel` adds it back where
+the default layout has it (left of the 3D view). **File > Open**, **New**
+and the examples do the same. The saved layout is accepted only when it
+has both the Editor and the 3D View; today only the 3D View is required.
+See [REQ-03](#req-03--the-editor-can-never-be-lost).
+
+### BUG-37 · STEP export of a sub-assembly loses its placement
+
+*Evidence: script.* **Where:** `worker/cq_worker/exporting.py` (`export`).
+
+When exactly one key is exported to STEP and it holds a `cq.Assembly`,
+`export` calls `obj.export(path, "STEP")` on it. A key below the top of an
+assembly holds the child `Assembly`, whose `loc` is relative to its parent.
+The STEP file therefore places it without its parents' locations and
+without the color it inherits. STL and BREP use the registry's world-space
+shapes and are right. With a sub-assembly at `y = 500` inside its parent,
+STEP gave `y = −5…5` and BREP `y = 495…505`. The same selection exported to
+two formats ends up in two places.
+
+**Fix:** export a wrapper assembly whose only child is the sub-assembly,
+with the accumulated location and inherited color. Better, build every
+STEP export as an assembly with world placements (see
+[REQ-04](#req-04--exports-keep-what-the-code-built)).
+
+### BUG-38 · Closing the tab of a paused script leaves the debugger paused
+
+*Evidence: test.* **Where:** `src/app/tabs.rs` (`forget_document`,
+`running_document`), `src/app/execution.rs` (`Phase::running_id`).
+
+`forget_document` should end a debugging session of the document being
+closed. It asks `running_document()`, which uses `Phase::running_id()`, and
+that is `None` while the session is **paused**. A paused session is the
+usual state while debugging. Closing that tab therefore leaves the session
+paused on a document that no longer exists. The test confirmed the phase
+stayed `Paused` after the tab closed. The debug toolbar stays active.
+**Continue** sends no breakpoints, because the editor is gone, and the run
+finishes into the scene with its error line lost.
+
+**Fix:** give `Phase` a `run_id()` that includes the paused state and use
+it in `running_document`. `Execution::abandon` already handles the paused
+case.
+
+### BUG-39 · A model too large to transfer is reported as missing CadQuery
+
+*Evidence: test.* **Where:** `src/worker/mod.rs` (reader thread,
+`oversized_message`, `Worker::poll`).
+
+A reply above the transport limit (512 MiB for mesh replies, about ten
+million triangles) is turned into `Message::Fatal`. `Worker::poll` treats
+every `Fatal` as a failed start and sets `Problem::NoCadQuery`. The test
+made the worker ready, then fed it the oversized message. The status became
+`Failed` and the first-run popup says **CadQuery is not available. Install
+CadQuery in that environment**, which is false. The reader then ignores
+every later message while the process lives. The run never finishes, and
+the view shows *Running script…* until Stop restarts Python.
+
+**Fix:** report oversized and unreadable messages as their own event. Say
+that the model is too large to transfer and suggest a coarser tolerance or
+the large-model mode. Restart the worker cleanly. See
+[REQ-09](#req-09--large-and-unusual-results-travel-safely).
+
+### BUG-40 · One invalid display option loses the whole run
+
+*Evidence: script.* **Where:** `worker/cq_worker/scene.py`
+(`DisplayOptions.parse`), `worker/cq_worker/protocol.py` (`Channel.send`,
+`allow_nan=False`).
+
+`show_object(part, options={"alpha": math.nan})` passes through
+`DisplayOptions.parse`, because `min(max(nan, 0), 1)` is `nan`. The
+`run_finished` reply then cannot be encoded. The whole run, every valid
+object included, is replaced by the error *ValueError: Out of range float
+values are not JSON compliant*, which does not name the object or the
+option. The same holds for a NaN alpha given in `rgba`.
+
+**Fix:** `DisplayOptions.parse` rejects non-finite numbers with the existing
+"Ignoring invalid display option" warning. A node that cannot be encoded is
+dropped and named in the log instead of failing the reply.
 
 ---
 
-## 2. Gaps in the everyday experience
+## 2. Required improvements
 
-Small, concrete improvements to what already exists:
+These follow from what CQ-editor is. A code-CAD IDE must not lose files, it
+must hand over correct CAD data, and it must work on supported platforms.
+Each item says **why it is required**, **what changes** and **how it helps
+the code**.
 
-| Status | Improvement |
-| :---: | --- |
-| ✅ | **Undo/Redo in the Edit menu.** Done: Edit > Undo/Redo with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z. The editor keeps its own history (`src/editor/history.rs`): `TextEdit`'s grouped by time, counted caret moves and outlived the document, so undo after opening another file brought back the previous file's text. Typing is grouped while it continues at the caret; indent, comment, completion, *Replace all* and a reload are one step each. Tests: `indent_comment_and_completion_are_undone_as_one_step_each`, `undo_never_brings_back_another_document`, `tests/rust/editor/test_history.rs` |
-| ✅ | **Completion while typing names.** Done: after 3 characters of a name by default (*Preferences > Editor > Complete names after*, 0 turns it off); these automatic requests never put a message in the status bar. Test: `completion_is_offered_once_a_name_reaches_the_threshold` |
-| ✅ | **Go to line** (Ctrl+G, `line` or `line:column`), **Replace** (Ctrl+H; *Replace* and *Replace all*, one undo step) and **whole word** search. Done; the first Enter or F3 after typing a query also skipped the first match, and now goes to the first match after the caret. Tests: `whole_word_search_skips_parts_of_longer_names`, `the_first_search_step_goes_to_the_first_match_after_the_caret`, `replace_takes_the_selected_match_and_replace_all_is_one_step`, `go_to_line_accepts_a_line_and_an_optional_column` |
-| ✅ | **Hover documentation.** Done: resting the pointer on a name shows its signatures and docstring, or the type of a variable (`describe` request, jedi `help`/`infer`). Tests: `test_documentation_gives_signatures_and_docstrings`, `test_description_of_the_name_under_the_pointer`, `documentation_is_shown_only_for_the_name_still_under_the_pointer` |
-| ✅ | **Remember breakpoints** per file across sessions. Done for the last 100 files; each breakpoint keeps the text of its line and returns to it if the file changed meanwhile. Tests: `breakpoints_are_found_again_by_their_line_text`, `breakpoints_are_relocated_by_the_text_of_their_line`, `breakpoints_are_remembered_per_file_and_bounded` |
-| ✅ | **Object property sheet.** Done: a selected face, edge or vertex shows its geometry type, area or length, radius and center (position for a vertex) from the exact measurement. Test: `the_property_sheet_finds_the_measurement_of_its_selection` |
-| ✅ | **Better first-run experience.** Done: the dialog tells *Python was not found* (including the Windows Store placeholder) from *CadQuery is not available*, lists the interpreters found on this computer, and offers **Choose interpreter…** and **Installation guide** (also in the Help menu). Tests: `a_failed_start_says_whether_python_or_cadquery_is_missing`, `conda_environments_are_listed_after_the_base_interpreter` |
+| Status | Id | Improvement | Fixes | Priority |
+| :---: | --- | --- | --- | --- |
+| | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
+| | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
+| | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
+| | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
+| | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
+| | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
+| | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
+| | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
+| | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
+| | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
+| | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
+| | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
+| | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |
+
+### REQ-01 · Saving checks the disk first
+
+**Why it is required.** Scripts live in folders shared with other tools:
+git, other editors, formatters, sync clients. An editor that writes without
+looking destroys their work (BUG-33). Principle 4 promises it never happens.
+
+**What changes.** `Document` keeps a disk fingerprint (length, modification
+time, content hash) from load and save. `save` compares it with the disk.
+On a difference, save does not write. It shows the conflict dialog the
+watcher already uses, and archives the disk version before any overwrite.
+The same check runs when the window gets focus back, even with automatic
+reload off. That is how other editors notice changes. A tab whose file was
+deleted or moved says so in its title.
+
+**How it helps the code.** One conflict path (`ExternalChange`) for the
+watcher, save and focus, instead of a protection that exists only while
+autoreload is on. `Document::save` gets a precondition the tests can state.
+
+### REQ-02 · Dialogs own the keyboard and their document
+
+**Why it is required.** A confirmation is only worth something if nothing
+else happens while it is asked. Today keys act behind every modal (BUG-34).
+
+**What changes.** `Dialogs::modal_open()` gates `collect_shortcuts`. Each
+dialog that concerns a document stores its generation and acts on that
+document: external change, unsaved changes, local history. The dialog
+shows the name of that document, not of the shown tab.
+
+**How it helps the code.** Dialog outcomes stop depending on the shown tab.
+That removes a class of "the user switched tabs meanwhile" bugs that tabs
+(FEAT-D1) made possible.
+
+### REQ-03 · The editor can never be lost
+
+**Why it is required.** In a code-CAD IDE the code is the model, and the
+editor is where it is written. A layout without it is not a valid state of
+the program (BUG-36).
+
+**What changes.** The saved layout is validated to contain the Editor and
+the 3D View. Everything that shows a file or a line re-adds the Editor when
+it is missing. Closing the Editor panel can stay possible, to work with an
+external editor and autoreload. The view's empty state then says
+*The editor is hidden — View > Editor*.
+
+**How it helps the code.** One `ensure_panel(Tab)` replaces the ad-hoc
+`show_editor_panel` and `show_project_panel`, and covers the Traceback and
+Console panels the same way when an action needs them.
+
+### REQ-04 · Exports keep what the code built
+
+**Why it is required.** For a CAD tool, the exported file is the product.
+Today, exporting several shown objects to STEP fuses them into one
+anonymous compound. Checked by script: objects shown as `base` (steelblue)
+and `pin` (red) come back from the STEP file as `1` and `2` without colors.
+A sub-assembly loses its placement (BUG-37). Downstream tools (CAM, PDM,
+other CAD) need the parts, names, colors and hierarchy.
+
+**What changes.**
+
+* STEP is written as an assembly made of what is exported: one child per
+  shown object or assembly node, with its name, color and world placement.
+  `merge_assemblies` and STEP's `fused` mode are offered as options, not
+  imposed.
+* An **Export dialog** replaces the bare file picker: format, STEP mode and
+  schema (AP214 or AP242), STL ASCII or binary and tolerances, and what to
+  export (selection, visible objects or everything).
+* The formats CadQuery 2.7 already writes, without new dependencies:
+  **3MF** (units and colors, the printing format), **glTF/GLB** (web,
+  rendering), **AMF**, **VRML**, **VTK.js**, OCAF **XBF** (lossless,
+  reopens with names and colors), **SVG** (a hidden-line projection) and
+  **DXF** (a section or planar faces). This closes the former FEAT-D3.
+
+**How it helps the code.** `exporting.py` gets one path built on
+`cq.Assembly` instead of two (fused compound, or a single assembly). The
+registry's world placements, already used by STL and BREP, become the
+single source of placement for every format.
+
+### REQ-05 · Units reach the exported files
+
+**Why it is required.** *Preferences > 3D View > Units* labels the grid and
+the scale bar (for example in inches). Every STEP file is still written in
+millimeters, because neither CadQuery nor the editor sets
+`write.step.unit`. A part modeled and checked in inches is imported 25.4
+times too small. The documentation says Units "only names them". In a CAD
+program that is a trap, not a feature.
+
+**What changes.** Exports write the chosen unit where the format has one:
+STEP (`write.step.unit`), 3MF (`unit`) and glTF (a scale to meters). STL
+and DXF have no unit, so the export dialog states it. With *Units: none*,
+the dialog asks.
+
+**How it helps the code.** Units become a setting the worker receives with
+every export (`SceneSettings`), not a label known only to the view.
+
+### REQ-06 · Geometry is validated before it leaves
+
+**Why it is required.** OpenCascade operations can produce invalid solids
+(self-intersections, open shells, bad tolerances) that still display.
+Exported to STL or STEP, they break slicers and CAM silently. The user only
+learns about it far away from the code that caused it.
+
+**What changes.** Exports run `BRepCheck_Analyzer` (`Shape.isValid()`) on
+what they write. They warn with the object's name, and offer to export
+anyway or to try `ShapeFix` (`Shape.fix()`). The Objects panel gets an
+on-demand **Check geometry**, which also reports open shells, non-manifold
+edges and solids that are not closed. A badge marks invalid objects.
+
+**How it helps the code.** The worker gains a `check` request that
+measurement, export and CI ([REQ-10](#req-10--headless-build-and-check))
+share.
+
+### REQ-07 · Show everything the CadQuery API can specify
+
+**Why it is required.** Principle 1: the view shows what the code says.
+CadQuery 2.7 lets scripts name and color individual faces
+(`Assembly.addSubshape(face, name=, color=, layer=)`) and attach materials
+(`cq.Material`, with a density and a visual material). Checked by script:
+a red face named "top face" is drawn in the part's gray, and its name
+exists nowhere in the scene. Yet a STEP export of the same assembly keeps
+both. The view and the file disagree.
+
+**What changes.** Scene parts carry per-face colors, as a color per
+triangle group, which the face ids already provide, and per-face names.
+Picking reports *top face* instead of *Face 6*, and selectors and *Copy as
+code* can use the name. Materials give the part its visual color and their
+density to measurements (see [SUG-10](#3-suggested-improvements)).
+
+**How it helps the code.** `MeshTopology` gains attributes per face rather
+than one color per part. The same structure later carries PMI and
+inspection highlights.
+
+### REQ-08 · Debugging and profiling cover the whole project
+
+**Why it is required.** Projects with several files are first-class
+(FEAT-D1), but the debugger traces only the editor buffer. Breakpoints in
+an imported module can be set in its tab's gutter and are silently
+ignored. The user guide admits it ("breakpoints in modules are ignored").
+Closing a paused script's tab does not end the session (BUG-38).
+
+**What changes.** The debugger traces files of the project folder too, with
+the breakpoints of their open tabs (`Request::Debug` carries breakpoints
+per path). Pausing in a module shows its tab at the line. The profiler
+reports module lines in their tabs' gutters. A paused session ends when its
+script closes.
+
+**How it helps the code.** Breakpoints become per document instead of "the
+run target's", which removes the special case that BUG-38 slipped through.
+
+### REQ-09 · Large and unusual results travel safely
+
+**Why it is required.** Large assemblies are where a CAD viewer is judged.
+Today a reply above 512 MiB is fatal and misreported (BUG-39). One bad
+number loses a whole run (BUG-40).
+
+**What changes.** Mesh replies are sent per part, as `run_part` messages
+followed by `run_finished`, so no single line grows with the model. The GUI
+decodes parts as they arrive and can draw them progressively. The size
+limit then applies per part and can be explained. Protocol encoding errors
+name the object they belong to. Worker results are checked for finite
+numbers at the source.
+
+**How it helps the code.** Bounded memory on both sides of the pipe, and an
+error model in which "the transport failed" and "CadQuery is missing" are
+different things.
+
+### REQ-10 · Headless build and check
+
+**Why it is required.** The main promise of code-CAD over GUI CAD is
+reproducibility: the same script gives the same part, on any machine, in
+CI. That needs a way to build without a window. This is the former
+FEAT-D2.
+
+**What changes.**
+`cq-editor build part.py --export out.step --set width=40` runs the worker
+without the GUI, with the same settings and `show_object` semantics, and
+writes any format of REQ-04. `cq-editor check part.py` exits non-zero on an
+error or invalid geometry ([REQ-06](#req-06--geometry-is-validated-before-it-leaves))
+and prints the traceback as text or JSON. Parameter names follow `cq-cli`
+and `cqgi`, so scripts can move between tools.
+
+**How it helps the code.** It separates the run logic from egui (the
+`Execution` state machine and the worker client already are), which also
+makes [REQ-13](#req-13--tests-at-the-seams) easier.
+
+### REQ-11 · A supported Python window
+
+**Why it is required.** Python 3.10 reached its end of life in October 2026
+(PEP 619). The worker still declares `requires-python = ">=3.10"`, a CI
+lane runs 3.10, and the development environment of this repository is 3.10.
+Libraries following the scientific Python support schedule (SPEC 0) have
+already dropped it.
+
+**What changes.** A written support policy: the Python versions still
+receiving security fixes, and the last two CadQuery minor releases with
+their OCP. `requires-python` moves to `>=3.11`, and the CadQuery 2.7 lane
+moves to 3.11 or is retired. The development setup described in the docs
+moves too. The installer already bundles Python 3.12.
+
+**How it helps the code.** Newer syntax (`except*`, `tomllib`,
+`contextlib.chdir`, which `execution.working_directory` emulates), and
+fewer compatibility shims.
+
+### REQ-12 · Signed installers
+
+**Why it is required.** The release workflow builds the Windows `.exe` and
+macOS `.pkg` without signing them. Windows SmartScreen and macOS Gatekeeper
+warn about, or block, unsigned installers. A tool that runs code on the
+user's machine has to be verifiable.
+
+**What changes.** Authenticode signing on Windows, Developer ID signing and
+notarization on macOS, published checksums, and the constructor lockfile
+attached to each release as its bill of materials.
+
+**How it helps the code.** Releases become reproducible artifacts with a
+known origin, and the update check
+([FEAT-E5](#completed)) can point to verifiable downloads.
+
+### REQ-13 · Tests at the seams
+
+**Why it is required.** The eight bugs above sit at seams the current tests
+do not cover: keyboard focus under dialogs, the dock layout, the file
+system shared with other programs, the pipe between the processes, tabs
+combined with the debugger, and exported files read back by another
+program. The throwaway tests of this review show that each can be tested
+without a window.
+
+**What changes.**
+
+* A regression test per bug of section 1, starting from the probe
+  described in each.
+* Headless UI tests of dialogs, the dock and keyboard flows, for example
+  with `egui_kittest` (former ENG-03).
+* Golden protocol messages read by both the Rust and the Python suites
+  (former ENG-02), including oversized and non-finite cases.
+* `ruff`, a type checker and coverage for the worker (former ENG-01).
+
+**How it helps the code.** Each seam gets a harness, so the next change
+there is checked by a test instead of found by a review.
 
 ---
 
-## 3. Features to implement
+## 3. Suggested improvements
 
-Labels: 🟢 mostly for beginners · 🔵 mostly for advanced users · ⚪ both.
+Worth doing, not required. Labels: 🟢 mostly for beginners · 🔵 mostly for
+advanced users · ⚪ both.
 
-### A. Learn by doing (beginner path)
+### Learning and writing code
 
-| Status | Id | Feature | Why it keeps the original idea |
+| Status | Id | Suggestion | Why it fits |
 | :---: | --- | --- | --- |
-| | FEAT-A1 🟢 | **Start page** with *New from template*, recent files and an examples gallery with thumbnails | Every template is a commented script; you always start from code |
-| | FEAT-A2 🟢 | **Guided lessons**: a track of examples where each step explains one CadQuery concept and checks the result (for example the expected volume) | Learning happens by editing and running real code |
-| | FEAT-A3 🟢 | **Friendly errors**: translate common OpenCascade failures (`StdFail_NotDone`, `BRep_API: command not done`) into hints such as *the fillet radius may be larger than the edge allows*, with a link to the line | Same traceback, plus advice |
-| | FEAT-A4 🟢 | **Selector preview**: put the cursor on `.faces(">Z")` or `.edges("\|Z")` and the matching entities light up in the view | Makes the hardest concept for beginners visible, without leaving the code |
-| | FEAT-A5 🟢 | **Snippets** for frequent patterns (box with fillets, hole pattern, revolve, assembly) available from completion | Inserts ordinary code |
-| | FEAT-A6 ⚪ | **Translations** of the interface (starting with Portuguese and Spanish) | Lowers the entry barrier; the API stays English |
+| | SUG-01 🟢 | **Friendly kernel errors** (former FEAT-A3): translate `StdFail_NotDone`, `BRep_API: command not done` and similar into the likely cause, such as *the fillet radius may be larger than the edge allows*, and show the `Workplane` step that failed in the CQ Inspector | The most common dead end of CadQuery beginners. The traceback stays, with advice added |
+| | SUG-02 🟢 | **Selector preview** (former FEAT-A4): with the caret on `.faces(">Z")`, the matching entities light up in the view | The worker already evaluates selectors exactly (FEAT-B1); this runs it the other way |
+| | SUG-03 🟢 | **Start page** (former FEAT-A1) with templates, recent files and projects, and an examples gallery with thumbnails | Every template is code; thumbnails come from the screenshot code (FEAT-C5) |
+| | SUG-04 🟢 | **Snippets** (former FEAT-A5) for frequent patterns, including the free-function API (`cadquery.func`) and `cq.Sketch` | Inserts ordinary code |
+| | SUG-05 🟢 | **Guided lessons** (former FEAT-A2): steps that each explain one concept and check the result, such as the expected volume | Learning by editing and running real code |
+| | SUG-06 ⚪ | **Translations** (former FEAT-A6), starting with Portuguese and Spanish | Lowers the entry barrier; the API stays English |
+| | SUG-07 🔵 | **Outline and go to definition**: the script's functions, classes and parameters in a panel; F12 with jedi `goto`; `@symbol` in the command palette | Navigation in multi-file projects |
+| | SUG-08 🟢 | **Warn when `show_object` reuses a name**: in a loop such as `for i in …: part = …; show_object(part)`, each object replaces the previous one, as documented and as in the original editor. A log line could suggest `name=f"part{i}"` | Explains a frequent surprise without breaking compatibility |
 
-### B. Code ↔ model link (the core differentiator)
+### Code and model
 
-| Status | Id | Feature | Notes |
+| Status | Id | Suggestion | Why it fits |
 | :---: | --- | --- | --- |
-| ✅ | FEAT-B1 ⚪ | **Selection to code**: after picking faces or edges, *Copy selector* / *Insert selector* generates a CadQuery expression such as `.faces(">Z")` or `.edges("\|Z and >Y")`, with an index-based fallback when no simple selector matches | Done: direction, type, rank and inclined-direction selectors combined with `and`/`or`/`exc`, simplest first; every candidate is verified with CadQuery on the script's own object (assembly parts in their own coordinates). Ctrl+click gathers up to 64 entities. Tests: `test_every_entity_gets_a_selector_that_selects_exactly_it`, `test_simple_selectors_are_evaluated_exactly_as_cadquery_does` |
-| ✅ | FEAT-B2 🔵 | **Picked entities in the console**: `selected()` returns the selected `cq.Face` / `cq.Edge` objects for measurement and experiments | Done: every console command carries the GUI's selection, resolved when `selected()` runs: picked entities in pick order and placed as shown, else the selected objects' shapes; stale picks raise a `LookupError` that says why. Tests: `test_console_selected_returns_the_picked_entities_and_objects`, `test_picked_entities_resolve_to_live_shapes_placed_as_shown` |
-| ✅ | FEAT-B3 ⚪ | **Parameter panel**: top-level numeric assignments (`width = 40`) appear as spin boxes and sliders. Changing one rewrites that line and re-renders | Done: only plain top-level assignments of a number literal (skipping blocks, brackets, strings and continuations); literals keep their style, `# [min, max, step]` sets the slider; one Undo step per drag and a render once the value settles. Tests: `nested_continued_and_non_literal_lines_are_skipped`, `a_parameter_change_rewrites_its_literal_and_renders_once_it_settles` |
-| ✅ | FEAT-B4 ⚪ | **Jump to source**: from an object or a CQ Inspector step to the line that created it | Done: while a script runs, new Workplanes, Shapes, Assemblies and Sketches record their innermost script line (about 1% of run time); the GUI keeps the run's text and maps the line onto later edits. Tests: `test_each_object_remembers_the_line_that_created_it`, `going_to_the_source_follows_the_edits_made_since_the_run` |
-| ✅ | FEAT-B5 ⚪ | **Measure tool**: exact distance, closest points, angle, area, length, radius/diameter and geometry type are implemented from picked entities; bounding box and *copy as code* remain | Done: exact bounding boxes per entity, per object and for the whole selection (CadQuery's `BoundingBox()` inflates meshed shapes); selected objects are measured when no entity is picked; *Copy as code* writes Python with the script's variables and selectors and runs it to check every value. Tests: `test_bounding_boxes_are_exact_even_on_meshed_shapes`, `test_two_entities_become_selectors_measurements_and_their_relationship` |
+| | SUG-09 ⚪ | **Typed parameters**: booleans as checkboxes, strings and choices as drop-downs, and `describe_parameter()` descriptions, compatible with CadQuery's `cqgi` | `describe_parameter` raises `NameError` today; `cq-cli` and model servers use it |
+| | SUG-10 ⚪ | **Mass properties** in Measurements: volume, mass from the material density, center of mass and inertia (`BRepGProp`) | Engineering answers from the code's own data |
+| | SUG-11 🔵 | **Clearance and interference** between parts of an assembly (`BRepExtrema`, `BRepAlgoAPI_Common`), listed and highlighted | The most common assembly question |
+| | SUG-12 ⚪ | **Inspector completeness**: show the root workplane's objects (`Workplane(obj=…)`) and the steps of a `Sketch` | Today the chain starts at the first operation |
 
-### C. 3D view
+### View, projects and running
 
-| Status | Id | Feature | Notes |
+| Status | Id | Suggestion | Why it fits |
 | :---: | --- | --- | --- |
-| ✅ | FEAT-C1 ⚪ | Section / clipping planes, with the cut face filled | Done: View > Section View; a plane across X, Y or Z, flippable, with a position slider; the cut faces of solids are filled with stencil caps; what the plane removes cannot be picked. Tests: `a_section_plane_cuts_the_model_and_fills_the_cut_on_the_gpu`, `a_section_plane_hides_what_it_removes_from_picking`, `the_scene_shaders_are_valid_wgsl_with_every_entry_point` |
-| ✅ | FEAT-C2 ⚪ | Exploded view and isolate / hide others for assemblies | Done: View > Exploded View spreads the shown parts from their center (0–200%); Isolate Selection shows only the selected subtrees until End Isolation, Show All unhides everything; drawing, picking, fit and section follow, while measurements and exports keep the real placement. Tests: `exploding_moves_parts_away_from_the_centre_and_back`, `isolating_shows_only_the_isolated_subtrees`, `exploded_and_isolated_parts_are_picked_where_they_are_shown` |
-| ✅ | FEAT-C3 ⚪ | X-ray and hidden-line display modes; per-object edge visibility | Done: X-Ray (Shift+F11) and Hidden Line (Shift+F12, hidden edges dashed and sections hatched) in the View menu and toolbar; an **Edges** checkbox per object in the Objects panel. Every mode is rendered offscreen and checked pixel by pixel, on WARP in Windows CI. Tests: `display_modes_render_faces_edges_and_fills_as_documented`, `display_modes_and_object_edges_shape_how_parts_are_drawn` |
-| ✅ | FEAT-C4 🔵 | Named views (saved cameras) and view presets per file | Done: the toolbar's Named views list and View > Named Views save, restore (animated, with the projection), replace and delete cameras; they are kept per file with the preferences, like breakpoints, for the 100 most recent files, and damaged entries are refused. Tests: `views_are_saved_named_and_replaced_by_name`, `going_to_a_view_restores_its_camera_and_projection`, `named_views_follow_their_file` |
-| ✅ | FEAT-C5 ⚪ | High-resolution and transparent-background screenshots, turntable animation export | Done: Tools > Screenshot opens options: the view ×1/×2/×4 or a custom size up to 8192 px (tiled when larger than the GPU draws at once, with edges scaled to match), a transparent background with straight alpha, and a turntable export (frames, fps, direction) as a looping animated PNG or numbered PNG files, with progress and cancel. Tests: `large_captures_are_drawn_in_tiles_that_match_one_pass`, `captures_leave_out_a_transparent_background_and_scale_edges`, `an_animated_png_holds_every_frame_and_loops` |
-| ✅ | FEAT-C6 🔵 | Large-model mode: frustum culling, level of detail, progress and cancellation for tessellation | Done: every pass culls items outside its frustum; *Large models* (Automatic from 2 M triangles, Always, Off) draws small parts from a simplified mesh and specks without edges, never the selection or captures; the worker reports meshing progress per part and stops at the next part on a `cancel` request it polls for without a reader thread (protocol 5). Tests: `parts_out_of_view_are_not_drawn`, `large_models_draw_small_parts_simplified_but_never_the_selection`, `test_a_running_worker_stops_meshing_when_cancelled` |
-| ✅ | FEAT-C7 ⚪ | Ground grid with units and a scale bar | Done: View > Ground Grid draws the XY plane with lines a power of ten apart (at least 12 points on screen, every tenth stronger, finer ones fading in) around the camera's target; View > Scale Bar shows a round 1-2-5 length with the grid spacing; Preferences > 3D View > Units names the unit (mm by default). Tests: `the_grid_spacing_is_a_power_of_ten_readable_at_any_zoom`, `the_scale_bar_shows_a_round_length_at_least_sixty_points_long`, `the_ground_grid_follows_its_setting_and_the_zoom` |
-| ✅ | FEAT-C8 🔵 | **Stereo compatibility**: dual-camera rendering and tested composition for selected legacy modes, with a clear fallback when the GPU/platform cannot provide them | Done: the Stereo, MonoLeftEye and MonoRightEye projections (off-axis eyes 5% of the distance apart, zero parallax at the target) and the Anaglyph, RowInterlaced, ColumnInterlaced, ChessBoard, SideBySide and OverUnder modes, composed on the GPU for the view and on the CPU for captures; QuadBuffer shows the anaglyph with a note. Tests: `stereo_modes_compose_on_the_gpu_as_the_reference_does`, `the_eyes_of_the_stereo_pair_agree_on_the_target_plane`, `mono_eye_projections_draw_and_pick_from_one_eye` |
+| | SUG-13 ⚪ | Section plane aligned to a picked face, and more than one plane | Extends FEAT-C1 |
+| | SUG-14 ⚪ | Dimensions kept in the view: measurements pinned as annotations, included in screenshots | Extends FEAT-B5 and FEAT-C5 |
+| | SUG-15 ⚪ | **Import by drag and drop** (former FEAT-D4): a STEP, STL or DXF file dropped on the editor inserts the matching `cq.importers…` or `cq.Assembly.importStep` line | Writes code |
+| | SUG-16 🔵 | **Git awareness** (former FEAT-D5): changed-lines markers and a diff against the last commit | The conflict dialog's comparison view is a start |
+| | SUG-17 🔵 | **Run selection and cells** (former FEAT-D6): run the selected lines, or a `# %%` cell, in the console | Fast experiments on the last run's variables |
+| | SUG-18 ⚪ | Local history follows renames (today the versions stay in the folder of the old path) | Completes FEAT-D1's rename handling |
+| | SUG-19 🔵 | Project panel for large folders: build rows only when a listing changes, not every frame, and honor `.gitignore` | Keeps the panel cheap in big repositories |
 
-### D. Projects and files (advanced path)
+### Extensibility and engineering
 
-| Status | Id | Feature |
+| Status | Id | Suggestion |
 | :---: | --- | --- |
-| ✅ | FEAT-D1 🔵 | **Multiple documents in tabs**, plus a project sidebar with the folder's file tree, for multi-module projects | Done: every open file has a tab with its own caret, scrolling, undo history and breakpoints (Ctrl+Tab, Ctrl+W); File > Open Folder shows the Project panel, which opens, creates, renames and deletes files and chooses the main script that F5 renders while a project file is shown. Tracebacks open the module of a frame; tabs and the folder are restored with the session, and closing or quitting asks about every unsaved tab, which crash recovery covers too. Tests: `f5_renders_the_main_script_while_a_project_file_is_shown`, `errors_and_parameters_belong_to_the_script_that_runs`, `quitting_asks_about_every_modified_tab_at_once`, `the_session_keeps_every_unsaved_tab_and_versions_only_what_changed` |
-| | FEAT-D2 🔵 | **Headless command line**: `cq-editor --export part.step script.py` (and `--check`) for batch jobs and CI, reusing the worker |
-| | FEAT-D3 ⚪ | **More export formats** in the menu: glTF/GLB (the worker already uses OCCT's glTF writer), 3MF, AMF, VRML, and DXF/SVG of sections, with an options dialog (units, assembly mode) |
-| | FEAT-D4 ⚪ | **Import by drag and drop**: dropping a STEP, STL or DXF file inserts the matching `cq.importers…` line into the script |
-| | FEAT-D5 🔵 | **Git awareness**: changed-lines markers in the gutter and a diff view against the last commit (the conflict dialog's comparison view is a start) |
-| | FEAT-D6 🔵 | **Run selection**: execute the selected lines in the console |
-
-### E. Running code
-
-| Status | Id | Feature |
-| :---: | --- | --- |
-| ✅ | FEAT-E1 ⚪ | **Gentle stop**: interrupt pure-Python loops with `KeyboardInterrupt` first, so the console and the cache survive. Restart the process only if the script does not respond | Done: Stop sends `interrupt`; a watcher thread in the worker raises SIGINT in the main thread, which also wakes `time.sleep` on Windows. The run ends as *Stopped at line N* and keeps Python, the console namespace and the mesh cache; Stop also reaches console commands. Python is restarted after 3 s without an answer or on a second Stop. Tests: `test_stop_interrupts_a_running_worker_which_keeps_its_session`, `test_stop_interrupts_a_running_script_and_the_worker_carries_on`, `stop_interrupts_first_and_restarts_python_only_when_pressed_again` |
-| ✅ | FEAT-E2 🔵 | **Per-line profiling**: time spent per line and per CadQuery operation, shown in the gutter | Done: Run > Profile (Alt+F5) traces the script's lines with `sys.settrace` (callees included) and its calls into CadQuery per operation; the gutter shows each line's time, colored by weight, with operations in a tooltip, and the times follow edits. Tests: `test_each_line_gets_the_time_it_took_with_everything_it_called`, `test_calls_into_cadquery_are_timed_per_line_and_operation`, `a_profiled_run_puts_its_times_in_the_gutter_of_the_edited_script`, `the_gutter_shows_profiled_times_and_skips_the_fastest_lines` |
-| ✅ | FEAT-E3 🟢 | **Environment manager**: create or choose a virtual environment and install CadQuery, jedi and add-on packages from Preferences | Done: Preferences > General lists the Pythons found (**Detected**), creates a virtual environment with CadQuery, jedi and extra packages (**Create Environment…**, then **Use this environment**) and runs `pip install` into the Python in use (**Install Packages…**). Commands run in the background without a shell, with pip's output shown live and Cancel; pip options are refused. Tests: `an_environment_is_created_and_gets_a_package_without_the_network`, `a_cancelled_job_stops_its_command_and_skips_the_rest`, `package_lists_are_names_versions_or_wheels_never_options` |
-| ✅ | FEAT-E4 🟢 | **Self-contained installers:** Windows `.exe`, macOS `.pkg` for Apple Silicon and Intel, and Linux `.sh` bundle the pinned Python/CadQuery runtime. CI installs and smoke-tests each artifact; native launchers are created on all systems and Windows/Linux register "Open with CQ-editor" for `.py` files |
-| ✅ | FEAT-E5 🔵 | **Self-update check** for CQ-editor (today only CadQuery releases are checked) | Done: the worker lists CQ-editor's newer GitHub releases (no drafts or pre-releases); Help > Check for Updates reports CQ-editor and CadQuery, and a silent daily check (Preferences > General, on by default) announces a newer release and offers *Download CQ-editor x.y.z…* in the Help menu, opening only GitHub release pages. Tests: `test_editor_releases_are_newer_published_ones_newest_first`, `the_daily_check_only_speaks_when_a_newer_cq_editor_is_out`, `the_check_runs_once_a_day_unless_turned_off` |
-| ✅ | FEAT-E6 🔵 | **Rich console output**: transport bounded and sanitized Jupyter MIME bundles from the isolated worker without allowing user code to block the GUI | Done: expression results and `display()` gather Jupyter MIME bundles in the worker (`_repr_mimebundle_`, `_repr_png_`, `_repr_jpeg_`, matplotlib figures); only plain text and one checked PNG/JPEG image are sent, bounded in size, count and per command. Oversized base64 is rejected before allocation, rich messages have their own wire limit, and stale results are ignored. The GUI decodes images on the reader thread within pixel and memory limits and draws them in the console, keeping the newest 50. Tests: `test_only_checked_images_and_plain_text_leave_the_worker`, `test_the_displayer_bounds_text_only_results_per_command`, `test_the_console_sends_results_and_images_after_what_was_printed`, `console_images_that_cannot_be_trusted_become_a_note`, `the_image_memory_budget_drops_oldest_pixels` |
-
-### F. Extensibility (advanced path)
-
-| Status | Id | Feature |
-| :---: | --- | --- |
-| | FEAT-F1 🔵 | **Other OCP-based libraries**: display any object that wraps a `TopoDS_Shape` (`.wrapped`), so [build123d](https://github.com/gumyr/build123d) and `cq_warehouse` parts can be shown with `show_object` |
-| | FEAT-F2 🔵 | **Plugin API**: Python plugins loaded by the worker that register exporters, `show_object` handlers or commands; GUI menu entries that run Python snippets |
-| | FEAT-F3 🔵 | **User themes**: custom syntax and viewer colors |
-
-### G. Engineering quality
-
-| Status | Id | Item |
-| :---: | --- | --- |
-| | ENG-01 | Keep CI green (the format check was fixed with BUG-03 ✅). Add `ruff` and a type checker for the worker, and coverage reports for both suites |
-| | ENG-02 | Shared protocol fixtures: golden JSON messages tested by both the Rust and the Python suites, so the two sides cannot drift |
-| | ENG-03 | Headless UI tests of panels and dialogs (for example with `egui_kittest`) |
-| | ENG-04 | Benchmarks for tessellation, decoding and picking on large assemblies, tracked over time (picking has `pick_latency_on_growing_assemblies`; not yet tracked over time) |
-| | ENG-05 | Accessibility review (keyboard-only use, screen readers through AccessKit, contrast of both themes) |
-| ✅ | ENG-06 | `src/app.rs` had grown to about 2,000 lines of state, event routing and transitions. It is now `src/app/`, one module per concern around the central `Action` dispatch, and runs with their pending requests are a pure state machine (`Execution`) whose transitions are tested in `tests/rust/app/test_execution.rs`. Next: move the remaining egui-bound glue behind similar testable controllers as it changes |
+| | SUG-20 🔵 | **Plugin API** (former FEAT-F2): Python plugins loaded by the worker that register exporters, `show_object` handlers or commands |
+| | SUG-21 🔵 | **User themes** (former FEAT-F3): custom syntax and viewer colors |
+| | SUG-22 | Benchmarks of tessellation, decoding and picking tracked over time (former ENG-04) |
+| | SUG-23 | Accessibility review (former ENG-05): keyboard-only use, AccessKit screen readers, contrast of both themes |
 
 ---
 
-## 4. Milestones
+## 4. Direction
+
+Code-CAD has one decisive advantage over GUI CAD: a design is a program. It
+can be versioned, parameterized, tested, generated and reused. CQ-editor
+already turns the view into a way to *write* code (selectors, parameters,
+measurements as code). The directions below follow that line. Each one
+lists what it builds on, in this code and in the libraries, and a first
+step small enough to start with.
+
+### NORTH-01 · Direct manipulation that writes code
+
+Drag a face or a dimension handle in the view, and the editor changes the
+parameter that drives it, then renders. The code stays the only source of
+truth (principle 1), and the view becomes an input device for it.
+
+* **Builds on:** parameters (FEAT-B3), provenance of each object's line
+  (FEAT-B4), selectors (FEAT-B1), exact picking.
+* **How:** for a picked face, re-run with each parameter nudged by a small
+  amount and see which parameters move that face and how. That gives the
+  handle's direction and scale without any symbolic analysis.
+* **First step:** a *Which parameters move this?* command on a picked face.
+
+### NORTH-02 · Incremental execution
+
+Re-run only what an edit changed. A `Workplane` chain is a graph of
+immutable steps, and the worker already hashes geometry by content. Caching
+operation results by their inputs (the source line, the parameters, the
+input shapes' ids) would let a late edit skip early booleans. Live preview
+could then follow typing, even on heavy models.
+
+* **Builds on:** `GeometryCache` and content ids, provenance recording of
+  `Workplane.newObject`, the profiler's timing per line and operation.
+* **First step:** profile-guided memoization of the slowest operations
+  (FEAT-E2 already knows which ones they are), behind a preference.
+
+### NORTH-03 · Geometric diff and history
+
+Compare two versions of a model: two runs, two local-history versions or
+two git commits. Show added and removed material
+(`BRepAlgoAPI_Cut` in both directions), changed faces, and how volume, mass
+and bounding box changed.
+
+* **Builds on:** local history, the conflict dialog's comparison view,
+  measurements, SUG-16.
+* **First step:** *Compare with the last run* in the Objects panel.
+
+### NORTH-04 · Test-driven CAD
+
+Design rules as code: `expect(part).volume_between(…)`,
+`.clearance(a, b) >= 0.2`, `.min_wall(1.2)`, `.no_overhang_beyond(45)`.
+They are shown as a *Checks* panel after every run and run headless in CI
+([REQ-10](#req-10--headless-build-and-check)). A failing check points to the
+code line and highlights the geometry.
+
+* **Library support:** `BRepExtrema` (distances, wall thickness by
+  sampling), `BRepGProp` (mass properties), `BRepCheck` (validity), face
+  normals for overhang and draft analysis.
+* **First step:** a small `cq_editor.checks` module injected like
+  `show_object`, with three checks and a panel.
+
+### NORTH-05 · Drawings and model-based definition from code
+
+Technical drawings made by code: views made with `HLRBRep` (hidden-line
+projection, already used by CadQuery's SVG exporter), dimensions from
+measurements, sheets exported to SVG, DXF and PDF. Then the same dimensions
+and tolerances written into STEP AP242 as PMI (`XCAFDimTolObjects` is in
+OCP), so the 3D file carries the manufacturing information.
+
+* **First step:** a *Drawing* tab with front, top and side views of the
+  selection, exported to SVG.
+
+### NORTH-06 · Assemblies as mechanisms
+
+Show the constraints of `Assembly.constrain` (which faces and points, the
+kind) and the solver's residuals. Animate joints by driving a parameter
+over time, detect interference along the motion (SUG-11), and produce a
+bill of materials with mass from materials.
+
+* **Library support:** CadQuery's assembly solver (casadi), `cq.Material`,
+  `BRepExtrema`.
+* **First step:** list constraints under each assembly in the Objects
+  panel and highlight their entities on hover.
+
+### NORTH-07 · Design-space exploration and optimization
+
+Sweep parameters over a grid and show the variants side by side, with
+their measured properties. Then optimize: minimize mass under a clearance
+or stiffness constraint, with nlopt, already installed as a CadQuery
+dependency. Variants are saved as named parameter sets of the script.
+
+* **Builds on:** parameters, headless runs (REQ-10), checks (NORTH-04).
+* **First step:** *Sweep parameter…* producing a table and thumbnails.
+
+### NORTH-08 · A sketch workbench that writes `cq.Sketch`
+
+Draw 2D profiles with constraints in the view. The workbench writes them as
+`cq.Sketch` code with `.constrain()` calls and solves them with CadQuery's
+sketch solver. Editing the code updates the drawing.
+
+* **First step:** show a `Sketch`'s constraints and their status (solved,
+  over- or under-constrained) when it is selected.
+
+### NORTH-09 · An AI design partner that works through code
+
+An assistant that turns intent into CadQuery code, reads tracebacks and
+measurements, proposes selectors and fixes, and checks its own proposals by
+running them in the worker. The loop is code → model → checks → code, so
+the result is always ordinary, reviewable code (principle 1). It can use the
+same tools the GUI uses: run, measure, selectors and checks (NORTH-04). It
+is optional, with explicit consent before any code or model leaves the
+machine.
+
+* **First step:** *Explain this error* and *Write a selector for this face*,
+  each answered as a code edit the user accepts or rejects.
+
+### NORTH-10 · The OCP ecosystem
+
+Show any object that wraps a `TopoDS_Shape` (`.wrapped`), so build123d,
+`cq_warehouse` parts and OCP-based libraries work with `show_object`
+(former FEAT-F1). Offer part libraries through the environment manager
+(FEAT-E3), and a plugin API (SUG-20) for exporters and commands.
+
+* **First step:** accept `.wrapped` in `to_compound` and test with build123d.
+
+---
+
+## 5. Milestones
 
 | Milestone | Goal | Contents |
 | --- | --- | --- |
-| **0.8: stable core rewrite** | Preserve the modeling workflow without hiding incompatibilities | BUG-01…BUG-27 ✅, ENG-01, compatibility matrix, docs linked from Help ✅ |
-| **0.9: code ↔ model** | The GUI helps write code | FEAT-A3, A4, B1, B2, B3, B5; completion while typing names, Go to line, Replace, hover docs; PERF-01…04 |
-| **1.0: projects** | Comfortable for large designs | FEAT-D1, D2, D3, C1, C2, E1, E3, E4, F1 |
-| **Later** | Exploratory | FEAT-A2, A6, B4, C3–C8, D4–D6, E2, E5, E6, F2, F3, ENG-02…05 |
+| **0.8.x: safe files** | Nothing is lost or mislabeled | BUG-33…BUG-40, REQ-01, REQ-02, REQ-03, REQ-11, regression tests of REQ-13 |
+| **0.9: correct output** | What leaves the editor is right | REQ-04, REQ-05, REQ-06, REQ-07, REQ-09, REQ-12 |
+| **1.0: projects and automation** | Comfortable for large designs and CI | REQ-08, REQ-10, the rest of REQ-13, SUG-01, SUG-02, SUG-09, NORTH-10 |
+| **Later** | Leading code-CAD | The other suggestions, NORTH-01…NORTH-09 |
 
-The order inside a milestone is flexible. Bugs come before features.
+Bugs come before features. The order inside a milestone is flexible.
+
+---
+
+## Completed
+
+What the previous roadmap marked as resolved; its open items moved into
+the sections above. The ids are kept because code comments and the
+changelog refer to them.
+
+| Ids | What |
+| --- | --- |
+| BUG-01…BUG-32 | Bugs of the rewrite and of the October 2026 reviews (object keys across restarts, breakpoints following edits, worker events while minimized, recovery after *Don't save*, the debugger's `DebugStop`, bounded output, mesh ids per mesher…); see the [changelog](changelog.md) |
+| PERF-01…PERF-04 | Validated face mapping for picking, glTF scratch reuse, two-phase BVH picking, exact measurements from live geometry |
+| FEAT-B1…B5 | Selection to code, `selected()` in the console, Parameters panel, *Go to Source*, measurements and *Copy as code* |
+| FEAT-C1…C8 | Section view, exploded view and isolation, X-ray and hidden-line modes, named views, high-resolution screenshots and turntables, large-model mode, ground grid and scale bar, stereo modes |
+| FEAT-D1 | Tabs and the Project panel |
+| FEAT-E1…E6 | Gentle stop, per-line profiling, environment manager, self-contained installers, update check, rich console output |
+| ENG-06 | `src/app/` split by concern around the `Execution` state machine |
