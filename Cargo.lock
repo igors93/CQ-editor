@@ -726,6 +726,7 @@ dependencies = [
  "open",
  "png",
  "rfd",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",

@@ -85,7 +85,7 @@ Right-click a file or folder, or the empty space below the tree, for:
 | --- | --- |
 | **New File…** | Creates an empty file in the folder and opens it. Without an extension, the name gets `.py` |
 | **New Folder…** | Creates a folder |
-| **Rename…** | Renames in place. Open tabs follow the new name and keep unsaved edits; breakpoints, named views, recent files and the main script follow too |
+| **Rename…** | Renames in place. Open tabs follow the new name and keep unsaved edits; breakpoints, named views, recent files and the main script follow too. An existing name is refused, also when it differs only by case in a folder where case matters; changing just the case of a name works everywhere |
 | **Delete…** | Deletes the file, or the folder and everything in it, after a confirmation that names open files with unsaved changes. Their tabs close; their last contents and a deleted file stay in the [local history](editor.md#crash-recovery-and-local-history) |
 | **Set as Main Script** | Makes the script the one F5 renders (below) |
 | **Copy Path** | Copies the full path |

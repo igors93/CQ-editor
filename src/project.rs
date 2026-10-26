@@ -386,7 +386,9 @@ pub fn create_folder(folder: &Path, name: &str) -> io::Result<PathBuf> {
 
 /// Renames the file or folder at `path` to `name`, in the same folder.
 /// Nothing is replaced: renaming onto an existing name fails, except to
-/// change the case of the name on systems that ignore it.
+/// change the case of the name where the system ignores case, which finds
+/// the file itself under the new name. Where case matters, another file
+/// may hold that name, and it is kept.
 pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
     let name = check_name(name).map_err(invalid_name)?;
     let parent = path
@@ -399,7 +401,8 @@ pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
     let same_but_case = path
         .file_name()
         .is_some_and(|old| old.to_string_lossy().to_lowercase() == name.to_lowercase());
-    if !same_but_case && std::fs::symlink_metadata(&target).is_ok() {
+    let itself = same_but_case && same_file::is_same_file(path, &target).unwrap_or(false);
+    if !itself && std::fs::symlink_metadata(&target).is_ok() {
         return Err(describe_existing(
             io::Error::from(io::ErrorKind::AlreadyExists),
             &target,

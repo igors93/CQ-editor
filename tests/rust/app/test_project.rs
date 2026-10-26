@@ -154,6 +154,38 @@ fn files_and_folders_are_created_renamed_and_deleted_without_replacing_anything(
 }
 
 #[test]
+fn changing_only_the_case_never_replaces_another_file() {
+    let root = temporary_folder("case");
+    std::fs::write(root.join("part.py"), "lower\n").unwrap();
+    std::fs::write(root.join("Part.py"), "upper\n").unwrap();
+    let files = std::fs::read_dir(&root).unwrap().count();
+
+    let result = rename(&root.join("part.py"), "Part.py");
+    if files == 2 {
+        // Case matters here (Linux, case-sensitive folders): two files.
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read_to_string(root.join("part.py")).unwrap(),
+            "lower\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("Part.py")).unwrap(),
+            "upper\n"
+        );
+    } else {
+        // One file under either name: only its case changes.
+        assert_eq!(result.unwrap(), root.join("Part.py"));
+        let names: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["Part.py"]);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn paths_follow_a_renamed_folder() {
     let from = Path::new("/p/parts");
     let to = Path::new("/p/components");

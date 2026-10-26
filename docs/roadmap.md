@@ -97,7 +97,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | :---: | --- | --- | --- |
 | ✅ | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
 | ✅ | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
-| | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
+| ✅ | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
 | | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
 | | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
 | | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
@@ -180,6 +180,14 @@ and its resolution act on that document, whichever tab is shown. See
 [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document).
 
 ### BUG-35 · Renaming a file only by case replaces another file
+
+✅ **Resolved.** `rename` skips the "already exists" check only when the new
+name differs by case alone *and* names the same file
+(`same_file::is_same_file`: volume and file index on Windows, device and
+inode elsewhere). Test: `changing_only_the_case_never_replaces_another_file`,
+which takes the refusing branch where the temporary folder is case-sensitive
+(checked with `TMP` in a folder made case-sensitive by `fsutil`) and the
+case-changing branch elsewhere.
 
 *Evidence: test, in a folder made case-sensitive with
 `fsutil file setCaseSensitiveInfo`.* **Where:** `src/project.rs` (`rename`).

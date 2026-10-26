@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Fixed: in a folder where case matters (Linux, case-sensitive macOS
+  volumes or Windows folders), renaming `part.py` to `Part.py` in the
+  Project panel replaced an existing `Part.py`; it is now refused, while
+  changing only the case of a name still works (BUG-35)
 * Fixed: keyboard shortcuts ran behind modal dialogs. Ctrl+Tab under the
   File changed on disk dialog made it describe another file, and its answer
   was then dropped, leaving the conflict unresolved. Shortcuts now wait
