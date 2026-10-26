@@ -536,22 +536,31 @@ fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
         empty_hint: None,
         meshing: None,
     };
-    let (lighting, top, bottom) = viewer.backdrop(&input);
-    assert_eq!(lighting, rendering.presentation.lighting);
-    assert_ne!(lighting, rendering.lighting);
+    let presented = viewer.backdrop(&input);
+    assert_eq!(presented.lighting, rendering.presentation.lighting);
+    assert_ne!(presented.lighting, rendering.lighting);
     let presentation = &rendering.presentation;
-    assert_eq!(top, super::linear_rgba(presentation.background_top, 1.0));
     assert_eq!(
-        bottom,
+        presented.top,
+        super::linear_rgba(presentation.background_top, 1.0)
+    );
+    assert_eq!(
+        presented.bottom,
         super::linear_rgba(presentation.background_bottom, 1.0)
     );
+    assert_eq!(
+        presented.shadow,
+        Some(super::GroundShadow {
+            strength: presentation.shadow_strength,
+            softness: presentation.shadow_softness,
+        })
+    );
     viewer.display_mode = DisplayMode::Shaded;
-    let (lighting, top, bottom) = viewer.backdrop(&input);
-    assert_eq!(lighting, rendering.lighting);
-    assert_eq!((top, bottom), {
-        let plain = super::linear_rgba(settings.background, 1.0);
-        (plain, plain)
-    });
+    let shaded = viewer.backdrop(&input);
+    assert_eq!(shaded.lighting, rendering.lighting);
+    let plain = super::linear_rgba(settings.background, 1.0);
+    assert_eq!((shaded.top, shaded.bottom), (plain, plain));
+    assert_eq!(shaded.shadow, None, "only Presentation has a ground shadow");
 }
 
 #[test]

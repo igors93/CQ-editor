@@ -79,6 +79,9 @@ from the modeling view.
 | Edges | Outline | Which edges, when shown: All edges, Sharp edges or Outline (see *Rendering*) |
 | Background, top / bottom | (236, 237, 240) / (188, 191, 198) | A vertical gradient |
 | Axes and grid | off | Also draws the axes, the ground grid and the scale bar |
+| Shadow | on | A soft shadow on the ground under the model, as in a product photograph |
+| Shadow strength | 0.60 | 0–1. How dark the shadow is where the model touches the ground |
+| Shadow softness | 0.50 | 0–1. How far the shadow spreads around the model: 0 is crisp, 1 very soft |
 | Lighting … Contrast | Studio | The same controls as in *Rendering*, for this mode |
 
 ## Editor

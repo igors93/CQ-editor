@@ -7,6 +7,10 @@
   without a material, a light grey gradient and no axes, grid or scale bar
   by default, all set apart from the modeling view in *Preferences >
   Presentation*
+* New: a soft shadow on the ground under the model in the Presentation
+  mode, darkest where the model touches the ground, with its strength and
+  softness in *Preferences > Presentation*. It is the same from every side
+  and in large or transparent screenshots
 * New: materials. `show_object(part, material="matte plastic")` shades an
   object as matte or glossy plastic, brushed steel, aluminum or wood, by
   metalness and roughness, with metals reflecting a soft studio around the

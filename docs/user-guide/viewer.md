@@ -103,12 +103,21 @@ screenshots, turntables, reviews. It has settings of its own, in
 *Preferences > Presentation*, so switching back to Shaded restores the
 modeling view untouched. By default it draws no edges, lights the model
 with the Studio lights, shades objects without a material of their own
-as matte plastic, puts the model on a light grey gradient and leaves out
-the axes, the ground grid and the scale bar. Every one of these can be
-changed there: edges (with the Outline style, the contour of curved
-surfaces and the sharp edges), the lights, the default material, the two
-background colors and the helpers. Objects keep their own colors and
+as matte plastic, puts the model on a light grey gradient with a soft
+shadow on the ground under it, and leaves out the axes, the ground grid and
+the scale bar. Every one of these can be changed there: edges (with the
+Outline style, the contour of curved surfaces and the sharp edges), the
+lights, the default material, the two background colors, the shadow's
+strength and softness, and the helpers. Objects keep their own colors and
 materials, and the Objects panel's Edges and Material choices still apply.
+
+The shadow lies at the bottom of the model (lowest Z), darkest where the
+model touches the ground and fading around it, and is seen from above
+only. It belongs to the model, not to the view: it is the same from every
+side, in screenshots of any size and in turntables, and a screenshot with a
+transparent background keeps it as a translucent shade, ready to lay the
+picture on any page. Transparent objects (opacity below 30%) and the
+helpers cast none.
 
 In Shaded and X-Ray modes each object can show or hide its own edges: the
 **Edges** checkbox in the Objects panel's property sheet overrides *Show

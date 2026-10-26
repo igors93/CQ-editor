@@ -14,6 +14,7 @@ mod overlays;
 mod picking;
 mod renderer;
 mod section;
+mod shadow;
 mod stereo;
 mod views;
 
@@ -35,6 +36,7 @@ pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
 pub use section::{Section, SectionAxis};
+use shadow::GroundShadow;
 
 /// Zoom factor per point of scrolling (a wheel notch is about 50 points).
 const ZOOM_PER_SCROLL_POINT: f32 = 0.9978;
@@ -156,6 +158,16 @@ impl DisplayMode {
             surface: look.finish.surface(),
         }
     }
+}
+
+/// What a frame is drawn on and lit with, by display mode.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Backdrop {
+    lighting: settings::Lighting,
+    /// Top and bottom of the background gradient, linear.
+    top: [f32; 4],
+    bottom: [f32; 4],
+    shadow: Option<GroundShadow>,
 }
 
 /// What a scene part looks like before the display mode applies.
@@ -546,7 +558,7 @@ impl Viewer {
                 // Captures show every part in full, whatever its size here.
                 let full_items = (self.simplifying && self.capture.is_some())
                     .then(|| self.draw_items(&input, false));
-                let (lighting, top, bottom) = self.backdrop(&input);
+                let backdrop = self.backdrop(&input);
                 let renderer = self
                     .renderer
                     .get_or_insert_with(|| SceneRenderer::new(render_state));
@@ -560,13 +572,14 @@ impl Viewer {
                 let frame_input = FrameInput {
                     camera: &self.camera,
                     size,
-                    background_top: top,
-                    background_bottom: bottom,
+                    background_top: backdrop.top,
+                    background_bottom: backdrop.bottom,
                     items: &items,
                     section: self.section.renderer_plane(bounds),
                     pixel_scale: 1.0,
                     eye: self.camera.mono_eye(),
-                    lighting,
+                    lighting: backdrop.lighting,
+                    ground_shadow: backdrop.shadow,
                 };
                 let stereo = (settings.projection == settings::Projection::Stereo)
                     .then_some(settings.stereo_mode);
@@ -669,16 +682,20 @@ impl Viewer {
         events
     }
 
-    /// The lights and the background (top and bottom of the gradient,
-    /// linear) of the display mode: Presentation has its own.
-    fn backdrop(&self, input: &ViewInput<'_>) -> (settings::Lighting, [f32; 4], [f32; 4]) {
+    /// The lights, the background and the ground shadow of the display
+    /// mode: Presentation has its own.
+    fn backdrop(&self, input: &ViewInput<'_>) -> Backdrop {
         if self.display_mode == DisplayMode::Presentation {
             let presentation = &input.rendering.presentation;
-            return (
-                presentation.lighting,
-                linear_rgba(presentation.background_top, 1.0),
-                linear_rgba(presentation.background_bottom, 1.0),
-            );
+            return Backdrop {
+                lighting: presentation.lighting,
+                top: linear_rgba(presentation.background_top, 1.0),
+                bottom: linear_rgba(presentation.background_bottom, 1.0),
+                shadow: presentation.shadow.then_some(GroundShadow {
+                    strength: presentation.shadow_strength,
+                    softness: presentation.shadow_softness,
+                }),
+            };
         }
         let settings = input.settings;
         let top = linear_rgba(settings.background, 1.0);
@@ -687,7 +704,12 @@ impl Viewer {
         } else {
             top
         };
-        (input.rendering.lighting, top, bottom)
+        Backdrop {
+            lighting: input.rendering.lighting,
+            top,
+            bottom,
+            shadow: None,
+        }
     }
 
     fn apply_settings(&mut self, settings: &settings::Viewer) {

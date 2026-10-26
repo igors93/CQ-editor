@@ -560,6 +560,12 @@ pub struct Presentation {
     pub background_bottom: [u8; 3],
     /// The axes and the ground grid are drawn.
     pub helpers: bool,
+    /// A soft shadow on the ground under the model.
+    pub shadow: bool,
+    /// How dark the shadow is where the model touches the ground, 0 to 1.
+    pub shadow_strength: f32,
+    /// How far the shadow's edge spreads, 0 (crisp) to 1 (very soft).
+    pub shadow_softness: f32,
 }
 
 impl Default for Presentation {
@@ -572,6 +578,9 @@ impl Default for Presentation {
             background_top: [236, 237, 240],
             background_bottom: [188, 191, 198],
             helpers: false,
+            shadow: true,
+            shadow_strength: 0.6,
+            shadow_softness: 0.5,
         }
     }
 }

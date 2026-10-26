@@ -44,7 +44,7 @@ and `CQ_EDITOR_WORKER_DIR` overrides both.
 | `settings.rs` | Preferences, persisted by eframe |
 | `scene.rs` | What the view shows: nodes, parts, meshes, visibility, colors, selection, topology selection, inspector overlay |
 | `spatial.rs` | Bounding-volume hierarchies for picking: triangles, and generic boxes for scene parts, edge segments and vertices |
-| `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar), `stereo.rs` and `stereo.wgsl` (stereo composition) |
+| `viewer/` | 3D view: `camera.rs` (orbit camera, standard views, animation), `renderer.rs` (wgpu pipelines), `shaders.wgsl`, `picking.rs`, `overlays.rs` (navigation cube, axes indicator), `section.rs` (section plane), `views.rs` (named views), `capture.rs` (screenshots, turntables), `culling.rs` (frustum culling, level of detail), `ground.rs` (ground grid, scale bar), `shadow.rs` and `shadow.wgsl` (the Presentation mode's ground shadow), `stereo.rs` and `stereo.wgsl` (stereo composition) |
 | `editor/` | Code editor: `highlight.rs` (Python tokenizer), `text_ops.rs` (pure text edits: indent, comment, auto-indent, replace, names, *Go to line*, breakpoint relocation), `history.rs` (the undo history: typing grouped into steps, one step per command or reload) |
 | `panels/` | Objects, Measurements, Variables, CQ Inspector, Console, Traceback, Log, Project, and the default dock layout |
 | `dialogs/` | Preferences, Upload, About, Screenshot, Python environments, unsaved changes, external change, recovery, local history, messages |
@@ -163,6 +163,21 @@ which also reflects `studio`, an analytic photo studio attached to the
 camera, so metals look like metals without an environment map. Wood adds
 value noise in the part's own coordinates (`MeshOut::local`), so the grain
 moves with the part.
+
+The Presentation mode's **ground shadow** (`viewer/shadow.rs`,
+`shadow.wgsl`) does not depend on the camera, so it is drawn only when the
+shadowed items or the settings change (`shadow_key`), and is the same in
+every tile of a capture and for both stereo eyes. The opaque faces are drawn
+from straight above, with the scene's own object uniforms, into a 256²
+two-channel texture that keeps, by max blending, how close to the ground the
+lowest face over each texel is. Two separable Gaussian passes, read texel by
+texel, blur it a little in the red channel (the contact shadow) and much in
+the green one (the ambient shadow); both spreads are fractions of the
+model's width, so the square of ground under the model is as many times as
+wide as the model. In the scene pass, after the opaque faces, a quad on the
+ground darkens the background by both, the ambient one through a curve with
+a long tail; the depth test keeps it behind the model and back-face culling
+hides it from below.
 
 Which edges are drawn is decided on the GPU, so changing the edge style
 uploads nothing. Every segment carries the angle at which the faces of its

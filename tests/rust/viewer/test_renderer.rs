@@ -315,6 +315,7 @@ fn draw_lit(
             pixel_scale,
             eye: Eye::Center,
             lighting,
+            ground_shadow: None,
         })
         .expect("the frame is read back");
     assert_eq!(size, [side, side]);
@@ -389,6 +390,7 @@ fn reference_guides_stay_behind_opaque_models_on_the_gpu() {
                     pixel_scale: 1.0,
                     eye: Eye::Center,
                     lighting: Lighting::default(),
+                    ground_shadow: None,
                 })
                 .unwrap()
                 .1
@@ -695,6 +697,7 @@ fn render_placed(
             pixel_scale: 1.0,
             eye: Eye::Center,
             lighting: Lighting::default(),
+            ground_shadow: None,
         })
         .expect("the frame is read back");
     Frame { side: SIZE, pixels }
@@ -880,6 +883,101 @@ fn materials_change_how_faces_are_shaded_on_the_gpu() {
 }
 
 #[test]
+fn a_ground_shadow_darkens_the_floor_around_the_model_on_the_gpu() {
+    use crate::viewer::shadow::GroundShadow;
+    with_gpu(|renderer| {
+        let grey = [0.7, 0.7, 0.7, 1.0];
+        let render = |renderer: &mut SceneRenderer,
+                      shadow: Option<GroundShadow>,
+                      background: [f32; 4],
+                      side: u32| {
+            let mut camera = Camera {
+                scene_radius: 3.0,
+                ..Camera::default()
+            };
+            camera.set_pose(Pose {
+                target: Vec3::ZERO,
+                rotation: StandardView::Iso.rotation(),
+                extent: 2.5,
+            });
+            let items = [DrawItem {
+                mesh: Arc::new(cube(0.8)),
+                transform: Mat4::IDENTITY,
+                style: Style {
+                    face_color: grey,
+                    ..red()
+                },
+                layer: Layer::Scene,
+            }];
+            renderer
+                .render_pixels(&FrameInput {
+                    camera: &camera,
+                    size: [side, side],
+                    background_top: background,
+                    background_bottom: background,
+                    items: &items,
+                    section: None,
+                    pixel_scale: 1.0,
+                    eye: Eye::Center,
+                    lighting: Lighting::default(),
+                    ground_shadow: shadow,
+                })
+                .unwrap()
+                .1
+        };
+        let shadow = Some(GroundShadow {
+            strength: 0.8,
+            softness: 0.5,
+        });
+        let light = [0.9, 0.9, 0.9, 1.0];
+        let plain = render(renderer, None, light, SIZE);
+        let shaded = render(renderer, shadow, light, SIZE);
+        let background = plain[0..4].to_vec();
+        let pixels = |frame: &[u8]| frame.chunks(4).map(<[u8]>::to_vec).collect::<Vec<_>>();
+        let (plain, shaded) = (pixels(&plain), pixels(&shaded));
+        // Outside the cube, the floor darkens under and around it.
+        let darkened = plain
+            .iter()
+            .zip(&shaded)
+            .filter(|(p, s)| **p == background && s[0] < background[0] - 20)
+            .count();
+        assert!(darkened > 300, "{darkened} darkened floor pixels");
+        // The cube is drawn as before, in front of its shadow: only the
+        // smoothed pixels of its outline take some of the darker floor.
+        let side = SIZE as usize;
+        let inside = |index: usize| {
+            let (x, y) = (index % side, index / side);
+            (x.saturating_sub(2)..=(x + 2).min(side - 1)).all(|nx| {
+                (y.saturating_sub(2)..=(y + 2).min(side - 1))
+                    .all(|ny| plain[ny * side + nx] != background)
+            })
+        };
+        let cube_changed = (0..plain.len())
+            .filter(|&index| inside(index) && plain[index] != shaded[index])
+            .count();
+        assert_eq!(cube_changed, 0, "cube pixels changed");
+        // The corners of the image stay background.
+        assert_eq!(shaded[0], background);
+
+        // On a transparent background the shadow has an alpha of its own,
+        // to lay the picture on anything.
+        let clear = render(renderer, shadow, [0.0; 4], SIZE);
+        let translucent = pixels(&clear)
+            .iter()
+            .filter(|p| p[3] > 20 && p[3] < 255)
+            .count();
+        assert!(translucent > 300, "{translucent} shadow pixels");
+
+        // A capture drawn in tiles has the same shadow as one pass.
+        renderer.tile_side = SIZE / 2;
+        let tiled = render(renderer, shadow, light, SIZE);
+        renderer.tile_side = TILE_SIDE;
+        let whole = render(renderer, shadow, light, SIZE);
+        assert_eq!(tiled, whole);
+    });
+}
+
+#[test]
 fn large_captures_are_drawn_in_tiles_that_match_one_pass() {
     with_gpu(|renderer| {
         let style = in_mode(DisplayMode::Shaded);
@@ -1018,6 +1116,7 @@ fn parts_out_of_view_are_not_drawn() {
                     pixel_scale: 1.0,
                     eye: Eye::Center,
                     lighting: Lighting::default(),
+                    ground_shadow: None,
                 })
                 .unwrap()
                 .1;
@@ -1079,6 +1178,7 @@ fn stereo_modes_compose_on_the_gpu_as_the_reference_does() {
             pixel_scale: 1.0,
             eye: Eye::Center,
             lighting: Lighting::default(),
+            ground_shadow: None,
         };
 
         // The eyes see the cube from places 5% of the distance apart.
@@ -1155,6 +1255,7 @@ fn egui_gets_the_same_texels_where_textures_cannot_be_viewed_as_plain() {
                 pixel_scale: 1.0,
                 eye: Eye::Center,
                 lighting: Lighting::default(),
+                ground_shadow: None,
             })
             .unwrap();
         assert_eq!(srgb.len(), encoded.len());

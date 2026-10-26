@@ -23,6 +23,7 @@ use wgpu::util::DeviceExt as _;
 
 use super::camera::{Camera, Eye};
 use super::culling::Frustum;
+use super::shadow::{GroundShadow, ShadowPass};
 use super::stereo;
 use crate::scene::Mesh;
 use crate::settings::{Lighting, StereoMode};
@@ -145,6 +146,8 @@ pub struct FrameInput<'a> {
     /// Seen from the camera, or from one eye of the stereo pair.
     pub eye: Eye,
     pub lighting: Lighting,
+    /// A soft shadow on the ground under the model (Presentation mode).
+    pub ground_shadow: Option<GroundShadow>,
 }
 
 /// Mode and eye size of the stereo composition (`stereo.wgsl`).
@@ -295,6 +298,10 @@ pub struct SceneRenderer {
     present: Present,
     /// The device can view the sRGB target as plain for egui.
     view_formats: bool,
+    /// Made when a ground shadow is first asked for.
+    shadow: Option<ShadowPass>,
+    /// The frame being drawn has a ground shadow ready.
+    shadow_shown: bool,
 }
 
 /// Items of the last pass drawn, and skipped as out of view.
@@ -409,7 +416,53 @@ impl SceneRenderer {
             eye_targets: None,
             present,
             view_formats,
+            shadow: None,
+            shadow_shown: false,
         }
+    }
+
+    /// Draws the ground shadow's occlusion again when the frame asks for a
+    /// shadow and its items or settings changed (see `shadow.rs`).
+    fn update_shadow(&mut self, input: &FrameInput<'_>) {
+        self.shadow_shown = false;
+        let Some(ground) = input.ground_shadow else {
+            return;
+        };
+        let mut shadow = self.shadow.take().unwrap_or_else(|| {
+            ShadowPass::new(
+                &self.device,
+                &self.object_layout,
+                &self.camera_buffer,
+                COLOR_FORMAT,
+                DEPTH_FORMAT,
+                self.samples,
+            )
+        });
+        let shown = shadow.update(
+            &self.device,
+            &self.queue,
+            input.items,
+            &ground,
+            |pass, index| self.draw_occluder(pass, input, index),
+        );
+        self.shadow = Some(shadow);
+        self.shadow_shown = shown;
+    }
+
+    /// The faces of an item in the shadow's occlusion pass, whose pipeline
+    /// is set.
+    fn draw_occluder(&self, pass: &mut wgpu::RenderPass<'_>, input: &FrameInput<'_>, index: usize) {
+        let item = &input.items[index];
+        let Some(mesh) = self.meshes.get(&item.mesh.id) else {
+            return;
+        };
+        let (Some(vertices), Some(indices)) = (&mesh.vertices, &mesh.indices) else {
+            return;
+        };
+        pass.set_bind_group(1, &self.object_bind_group, &[self.object_offset(index)]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..mesh.index_count, 0, 0..1);
     }
 
     /// Draws a frame and returns the egui texture showing it.
@@ -422,6 +475,7 @@ impl SceneRenderer {
         let texture_id = self.ensure_target(egui_renderer, size);
         self.upload_meshes(input);
         self.write_objects(input.items, input.pixel_scale);
+        self.update_shadow(input);
         let view_projection = self.write_camera(input, Tile::whole(size));
         let target = self.target.as_ref().expect("target created above");
         self.draw(target, input, view_projection);
@@ -442,6 +496,7 @@ impl SceneRenderer {
         let target = create_target(&self.device, tile_size, self.samples);
         self.upload_meshes(input);
         self.write_objects(input.items, input.pixel_scale);
+        self.update_shadow(input);
         let row_bytes = width as usize * 4;
         let mut image = vec![0u8; row_bytes * height as usize];
         for y in (0..height).step_by(tile_size[1] as usize) {
@@ -536,6 +591,7 @@ impl SceneRenderer {
         }
         self.upload_meshes(input);
         self.write_objects(input.items, input.pixel_scale);
+        self.update_shadow(input);
         let targets = self.eye_targets.as_ref().expect("created above");
         for (eye, target) in [Eye::Left, Eye::Right].into_iter().zip(targets) {
             let input = FrameInput {
@@ -729,6 +785,13 @@ impl SceneRenderer {
                     self.draw_cap(&mut pass, &self.pipelines.caps, input, index);
                 }
             }
+            // The ground shadow, behind the opaque faces drawn so far.
+            if self.shadow_shown
+                && let Some(shadow) = &self.shadow
+            {
+                shadow.draw_floor(&mut pass);
+                pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            }
             for (index, _) in scene(Layer::Scene) {
                 self.draw_edges(&mut pass, &self.pipelines.edges, input, index);
                 self.draw_silhouettes(&mut pass, input, index);
@@ -768,6 +831,7 @@ impl SceneRenderer {
         let target = create_view_target(&self.device, &self.present, size, self.samples, false);
         self.upload_meshes(input);
         self.write_objects(input.items, input.pixel_scale);
+        self.update_shadow(input);
         let view_projection = self.write_camera(input, Tile::whole(size));
         self.draw(&target, input, view_projection);
         self.present(&target);

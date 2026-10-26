@@ -511,6 +511,37 @@ fn presentation(ui: &mut egui::Ui, settings: &mut Settings) {
             ui.checkbox(&mut presentation.helpers, "");
         },
     );
+    row(
+        ui,
+        "Shadow",
+        "A soft shadow on the ground under the model, as in a product photograph",
+        |ui| {
+            ui.checkbox(&mut presentation.shadow, "");
+        },
+    );
+    let shadow = presentation.shadow;
+    row(
+        ui,
+        "Shadow strength",
+        "How dark the shadow is where the model touches the ground",
+        |ui| {
+            ui.add_enabled(
+                shadow,
+                egui::Slider::new(&mut presentation.shadow_strength, 0.0..=1.0).step_by(0.01),
+            );
+        },
+    );
+    row(
+        ui,
+        "Shadow softness",
+        "How far the shadow spreads around the model: 0 is crisp, 1 very soft",
+        |ui| {
+            ui.add_enabled(
+                shadow,
+                egui::Slider::new(&mut presentation.shadow_softness, 0.0..=1.0).step_by(0.01),
+            );
+        },
+    );
     lighting_rows(ui, "presentation_lighting", &mut presentation.lighting);
 }
 
