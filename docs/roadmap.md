@@ -96,7 +96,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | Status | Id | Problem | Priority |
 | :---: | --- | --- | --- |
 | ✅ | [BUG-33](#bug-33--saving-replaces-a-newer-version-on-disk-without-a-word) | Saving replaces a newer version on disk without a word | P1 |
-| | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
+| ✅ | [BUG-34](#bug-34--shortcuts-act-behind-modal-dialogs-and-a-conflict-can-vanish) | Shortcuts act behind modal dialogs, and a conflict can vanish | P1 |
 | | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
 | | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
 | | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
@@ -142,6 +142,16 @@ overwrite, Reload, Save a copy, Compare) and archives the disk version with
 was opened gets the same question. See [REQ-01](#req-01--saving-checks-the-disk-first).
 
 ### BUG-34 · Shortcuts act behind modal dialogs, and a conflict can vanish
+
+✅ **Resolved.** `begin_frame` collects global shortcuts only while
+`Dialogs::modal_open()` is false (about, unsaved changes, file changed on
+disk, recovery, Project prompts, command palette, local history, legacy
+encoding and messages). `ExternalChange` carries the generation of its
+document: the dialog shows that document's name and text, and
+`resolve_external_change` shows its tab and acts on it, or drops the
+conflict when the tab was closed. Tests:
+`shortcuts_wait_while_a_modal_dialog_is_open`,
+`a_conflict_is_resolved_on_its_own_document_whichever_tab_is_shown`.
 
 *Evidence: test.* **Where:** `src/commands.rs` (`collect_shortcuts`, called
 from `begin_frame` before the dialogs), `src/dialogs/mod.rs` (`show`,
@@ -360,6 +370,9 @@ shows the name of that document, not of the shown tab.
 **How it helps the code.** Dialog outcomes stop depending on the shown tab.
 That removes a class of "the user switched tabs meanwhile" bugs that tabs
 (FEAT-D1) made possible.
+
+**Progress.** Done for shortcuts and for the external-change dialog
+(BUG-34). The unsaved-changes dialog already names its documents.
 
 ### REQ-03 · The editor can never be lost
 

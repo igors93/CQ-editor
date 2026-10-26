@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Fixed: keyboard shortcuts ran behind modal dialogs. Ctrl+Tab under the
+  File changed on disk dialog made it describe another file, and its answer
+  was then dropped, leaving the conflict unresolved. Shortcuts now wait
+  until a dialog is answered, and a conflict is always resolved on the
+  file it concerns (BUG-34)
 * Fixed: on Windows, the local history of a file depended on whether its
   path was written with `/` or `\`, so some versions could be missing from
   File > Local History (BUG-41)

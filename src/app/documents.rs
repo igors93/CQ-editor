@@ -99,12 +99,16 @@ impl AppState {
         );
     }
 
+    /// Carries out the choice about a conflict on the document it concerns,
+    /// which is shown for that, whichever tab was shown meanwhile. A
+    /// document closed or moved since is left alone.
     pub fn resolve_external_change(
         &mut self,
         change: ExternalChange,
         choice: ExternalChangeChoice,
     ) {
-        if self.document.path() != Some(change.path.as_path()) {
+        if !self.activate(change.document) || self.document.path() != Some(change.path.as_path()) {
+            self.rerun_after_external_change(change.rerun_after_resolution);
             return;
         }
         match choice {
@@ -152,6 +156,7 @@ impl AppState {
             return;
         };
         let change = ExternalChange {
+            document: self.document_generation,
             path,
             disk,
             show_comparison: false,
@@ -453,10 +458,9 @@ impl AppState {
     fn rerun_after_external_change(&mut self, rerun: bool) {
         while !self.dialogs.external_queue.is_empty() {
             let mut next = self.dialogs.external_queue.remove(0);
-            let Some(open) = self.find_open(&next.path) else {
+            if !self.activate(next.document) {
                 continue;
-            };
-            self.activate(open);
+            }
             next.rerun_after_resolution |= rerun;
             self.dialogs.external_change = Some(next);
             return;

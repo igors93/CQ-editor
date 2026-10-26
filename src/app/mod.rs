@@ -246,7 +246,12 @@ impl AppState {
             self.settings.general.ui_scale = self.applied_scale;
         }
         self.palette = Palette::of(ctx.theme());
-        commands::collect_shortcuts(ctx, &mut self.actions);
+        // A modal dialog keeps the pointer from the window, but not the
+        // keyboard: shortcuts wait until its question is answered, so no
+        // tab switches or file opens behind it.
+        if !self.dialogs.modal_open() {
+            commands::collect_shortcuts(ctx, &mut self.actions);
+        }
     }
 
     fn end_frame(&mut self, ctx: &egui::Context) {

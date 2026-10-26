@@ -431,6 +431,105 @@ fn a_file_changed_on_disk_reloads_its_tab_unless_it_has_unsaved_edits() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Runs a frame's shortcut handling with `key` pressed.
+fn press(state: &mut AppState, key: egui::Key, modifiers: egui::Modifiers) {
+    let ctx = state.ctx.clone();
+    let input = egui::RawInput {
+        events: vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(input, |_| state.begin_frame(&ctx));
+    output.textures_delta.clear();
+}
+
+#[test]
+fn shortcuts_wait_while_a_modal_dialog_is_open() {
+    let dir = folder("modal", &[("a.py", "a\n"), ("b.py", "b\n")]);
+    let mut state = state_in(&dir);
+    open(&mut state, &dir.join("a.py"));
+    open(&mut state, &dir.join("b.py"));
+    let ctrl = egui::Modifiers::COMMAND;
+    press(&mut state, egui::Key::Tab, ctrl);
+    assert_eq!(std::mem::take(&mut state.actions), [Action::NextTab]);
+
+    // Any modal question: nothing may change behind it.
+    state.dialogs.info("Updates", "No updates available");
+    press(&mut state, egui::Key::Tab, ctrl);
+    press(&mut state, egui::Key::W, ctrl);
+    press(&mut state, egui::Key::F5, egui::Modifiers::NONE);
+    assert!(state.actions.is_empty(), "{:?}", state.actions);
+
+    state.dialogs.message = None;
+    press(&mut state, egui::Key::W, ctrl);
+    assert_eq!(state.actions, [Action::CloseTab]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_conflict_is_resolved_on_its_own_document_whichever_tab_is_shown() {
+    use crate::dialogs::{ExternalChange, ExternalChangeChoice};
+    let dir = folder("conflict-tab", &[("a.py", "a = 1\n"), ("b.py", "b = 2\n")]);
+    let file = dir.join("a.py");
+    let mut state = state_in(&dir);
+    open(&mut state, &file);
+    let a = state.document_generation;
+    state.document.text = "a = 10  # mine\n".into();
+    open(&mut state, &dir.join("b.py"));
+    let b = state.document_generation;
+
+    let conflict = |state: &mut AppState| {
+        assert_eq!(state.reload_tab(a), Some(ExternalUpdateKind::Conflict));
+        let disk = state
+            .document_of(a)
+            .unwrap()
+            .disk_version()
+            .unwrap()
+            .unwrap();
+        state.execute(Action::ActivateTab(b));
+        ExternalChange {
+            document: a,
+            path: file.clone(),
+            disk,
+            show_comparison: false,
+            rerun_after_resolution: false,
+            on_save: false,
+        }
+    };
+
+    // Keeping my version works on a.py although b.py is shown.
+    std::fs::write(&file, "a = 98  # theirs\n").unwrap();
+    let change = conflict(&mut state);
+    state.resolve_external_change(change, ExternalChangeChoice::KeepLocal);
+    assert_eq!(state.document_generation, a, "its tab is shown");
+    assert_eq!(state.document.text, "a = 10  # mine\n");
+    state.execute(Action::Save);
+    assert!(state.dialogs.external_change.is_none(), "already decided");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "a = 10  # mine\n");
+
+    // Reloading replaces a.py's buffer, not the one shown.
+    state.document.text = "a = 11  # mine again\n".into();
+    std::fs::write(&file, "a = 99  # theirs\n").unwrap();
+    let change = conflict(&mut state);
+    state.resolve_external_change(change, ExternalChangeChoice::Reload);
+    assert_eq!(state.document_of(a).unwrap().text, "a = 99  # theirs\n");
+    assert_eq!(state.document_of(b).unwrap().text, "b = 2\n");
+
+    // A conflict of a tab closed meanwhile is dropped.
+    state.document.text = "a = 12\n".into();
+    std::fs::write(&file, "a = 100\n").unwrap();
+    let change = conflict(&mut state);
+    state.close_now(a);
+    state.resolve_external_change(change, ExternalChangeChoice::Reload);
+    assert_eq!(names(&state), ["b.py"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn saving_never_replaces_a_version_another_program_wrote_unseen() {
     use crate::dialogs::ExternalChangeChoice;

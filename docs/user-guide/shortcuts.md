@@ -4,6 +4,10 @@ On macOS, **Ctrl** means **Cmd**.
 
 ## Global shortcuts
 
+Global shortcuts wait while a dialog asks a question (unsaved changes, a
+file changed on disk, a message, the command palette…): answer or close
+it first, so nothing changes behind it.
+
 ### File and edit
 
 | Command | Shortcut |

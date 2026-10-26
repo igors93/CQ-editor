@@ -44,6 +44,8 @@ pub enum ExternalChangeChoice {
 
 /// An on-disk edit that conflicts with the editor contents.
 pub struct ExternalChange {
+    /// The open document (generation) in conflict, whichever tab is shown.
+    pub document: u64,
     pub path: PathBuf,
     pub disk: DiskVersion,
     pub show_comparison: bool,
@@ -153,6 +155,20 @@ pub struct Dialogs {
 }
 
 impl Dialogs {
+    /// Whether a modal dialog is shown. Global shortcuts wait until it is
+    /// answered, so nothing changes behind the question it asks.
+    pub fn modal_open(&self) -> bool {
+        self.about
+            || self.unsaved.is_some()
+            || self.external_change.is_some()
+            || self.recovery_session.is_some()
+            || self.file_prompt.is_some()
+            || self.palette.is_some()
+            || self.history.is_some()
+            || self.legacy_encoding.is_some()
+            || self.message.is_some()
+    }
+
     pub fn info(&mut self, title: &str, text: impl Into<String>) {
         self.message = Some(Message {
             title: title.to_owned(),
@@ -271,12 +287,19 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         }
     }
 
-    let document_name = state.document.display_name();
-    let external_choice = state
+    // About the document in conflict, not the tab shown.
+    let conflicted = state
         .dialogs
         .external_change
-        .as_mut()
-        .and_then(|change| external_change(ctx, &document_name, &state.document.text, change));
+        .as_ref()
+        .map(|change| state.document_of(change.document))
+        .map(|document| document.map(|d| (d.display_name(), d.text.clone())));
+    let external_choice = match (conflicted, state.dialogs.external_change.as_mut()) {
+        (Some(Some((name, text))), Some(change)) => external_change(ctx, &name, &text, change),
+        // Its tab was closed meanwhile: nothing is left to decide.
+        (Some(None), Some(_)) => Some(ExternalChangeChoice::KeepLocal),
+        _ => None,
+    };
     if let Some(choice) = external_choice
         && let Some(change) = state.dialogs.external_change.take()
     {

@@ -130,6 +130,7 @@ impl AppState {
                         continue;
                     };
                     conflicts.push(ExternalChange {
+                        document: generation,
                         path: path.clone(),
                         disk,
                         show_comparison: false,
@@ -147,9 +148,7 @@ impl AppState {
             self.dialogs.external_queue.extend(conflicts);
             if self.dialogs.external_change.is_none() {
                 let next = self.dialogs.external_queue.remove(0);
-                if let Some(open) = self.find_open(&next.path) {
-                    self.activate(open);
-                }
+                self.activate(next.document);
                 self.dialogs.external_change = Some(next);
             }
             self.set_status(
