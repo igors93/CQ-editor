@@ -74,6 +74,7 @@ pub(crate) fn test_state(text: &str) -> AppState {
         actions: Vec::new(),
         watcher: FileWatcher::default(),
         watch_key: None,
+        focused_last_frame: false,
         imports: Vec::new(),
         examples: Vec::new(),
         palette: Palette::DARK,

@@ -138,6 +138,7 @@ pub struct AppState {
     actions: Vec<Action>,
     watcher: FileWatcher,
     watch_key: Option<WatchKey>,
+    focused_last_frame: bool,
     /// The local modules the script F5 runs imports, while they are watched.
     imports: Vec<PathBuf>,
     examples: Vec<Example>,
@@ -229,6 +230,11 @@ impl AppState {
         self.process_worker_events();
         self.poll_stop(ctx);
         self.poll_parameter_render(ctx);
+        let focused = ctx.input(|input| input.focused);
+        if focused && !self.focused_last_frame {
+            self.check_disk_on_focus();
+        }
+        self.focused_last_frame = focused;
         self.sync_watcher();
         self.poll_watcher(ctx);
         self.poll_recovery(ctx);
@@ -819,6 +825,7 @@ impl CqEditorApp {
             actions: Vec::new(),
             watcher: FileWatcher::default(),
             watch_key: None,
+            focused_last_frame: false,
             imports: Vec::new(),
             examples: embedded::examples(),
             palette: Palette::DARK,

@@ -622,6 +622,46 @@ fn saving_never_replaces_a_version_another_program_wrote_unseen() {
 }
 
 #[test]
+fn focus_checks_all_tabs_even_without_automatic_reload() {
+    let dir = folder("focus-disk", &[("a.py", "a = 1\n"), ("b.py", "b = 1\n")]);
+    let mut state = state_in(&dir);
+    open(&mut state, &dir.join("a.py"));
+    let a = generation_of(&state, "a.py");
+    state.document.text = "a = 3  # local\n".into();
+    open(&mut state, &dir.join("b.py"));
+    assert!(!state.settings.editor.autoreload);
+
+    std::fs::write(dir.join("a.py"), "a = 2  # disk\n").unwrap();
+    std::fs::write(dir.join("b.py"), "b = 2  # disk\n").unwrap();
+    state.check_disk_on_focus();
+    assert_eq!(state.document_of(a).unwrap().text, "a = 3  # local\n");
+    let change = state
+        .dialogs
+        .external_change
+        .take()
+        .expect("conflict in hidden tab");
+    assert_eq!(change.document, a);
+    assert_eq!(change.disk.text, "a = 2  # disk\n");
+    let b = generation_of(&state, "b.py");
+    assert_eq!(state.document_of(b).unwrap().text, "b = 2  # disk\n");
+
+    state.resolve_external_change(change, crate::dialogs::ExternalChangeChoice::Cancel);
+    std::fs::remove_file(dir.join("a.py")).unwrap();
+    state.check_disk_on_focus();
+    assert!(state.document_of(a).unwrap().is_missing_on_disk());
+    assert!(
+        state
+            .tabs()
+            .iter()
+            .any(|tab| tab.name.contains("deleted on disk"))
+    );
+    std::fs::write(dir.join("a.py"), "a = 4\n").unwrap();
+    state.check_disk_on_focus();
+    assert!(!state.document_of(a).unwrap().is_missing_on_disk());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn completions_asked_for_in_another_tab_are_dropped() {
     use crate::app::execution::Pending;
     let dir = folder("completions", &[("a.py", "import cadquery as cq\ncq.\n")]);

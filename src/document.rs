@@ -7,7 +7,7 @@
 
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{self, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -74,9 +74,35 @@ pub fn is_not_utf8(error: &io::Error) -> bool {
 pub struct DiskVersion {
     pub text: String,
     path: PathBuf,
+    fingerprint: DiskFingerprint,
     line_ending: LineEnding,
     utf8_bom: bool,
     encoding: Encoding,
+}
+
+/// Identity of the bytes last read or written at a document path. The hash
+/// catches rewrites that keep both the length and modification timestamp.
+#[derive(Clone, Copy, Debug)]
+struct DiskFingerprint {
+    len: u64,
+    _modified: Option<SystemTime>,
+    content_hash: u64,
+}
+
+impl DiskFingerprint {
+    fn of(bytes: &[u8], modified: Option<SystemTime>) -> Self {
+        let mut hasher = DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        Self {
+            len: bytes.len() as u64,
+            _modified: modified,
+            content_hash: hasher.finish(),
+        }
+    }
+
+    fn same_content(self, other: Self) -> bool {
+        self.len == other.len && self.content_hash == other.content_hash
+    }
 }
 
 /// Relationship between an on-disk snapshot and the editor's local state.
@@ -138,6 +164,9 @@ pub struct Document {
     /// Encoding of the file when it was opened; saving writes UTF-8.
     encoding: Encoding,
     saved_hash: u64,
+    saved_fingerprint: Option<DiskFingerprint>,
+    /// The original path disappeared while the document remained open.
+    missing_on_disk: bool,
     /// Title of the bundled example this buffer was loaded from. Examples
     /// are read-only: saving one asks for a new location.
     example: Option<String>,
@@ -148,11 +177,13 @@ impl Document {
         let text = normalize(text);
         Self {
             saved_hash: hash(&text),
+            saved_fingerprint: None,
             text,
             path: None,
             line_ending: LineEnding::NATIVE,
             utf8_bom: false,
             encoding: Encoding::Utf8,
+            missing_on_disk: false,
             example: None,
         }
     }
@@ -171,14 +202,16 @@ impl Document {
     /// Opens `path` decoded as `encoding`. Saving writes UTF-8 whatever the
     /// encoding was.
     pub fn open_with(path: &Path, encoding: Encoding) -> io::Result<Self> {
-        let (text, line_ending, utf8_bom) = read(path, encoding)?;
+        let (text, line_ending, utf8_bom, fingerprint) = read(path, encoding)?;
         Ok(Self {
             saved_hash: hash(&text),
+            saved_fingerprint: Some(fingerprint),
             text,
             path: Some(path.to_path_buf()),
             line_ending,
             utf8_bom,
             encoding,
+            missing_on_disk: false,
             example: None,
         })
     }
@@ -205,8 +238,10 @@ impl Document {
         let saved_hash = disk
             .as_ref()
             .map_or_else(|| hash(&text) ^ u64::MAX, |disk| disk.saved_hash);
+        let saved_fingerprint = disk.as_ref().and_then(|disk| disk.saved_fingerprint);
         Self {
             saved_hash,
+            saved_fingerprint,
             text,
             path,
             line_ending,
@@ -214,6 +249,7 @@ impl Document {
             // Keeps reading the file the way it is encoded on disk, so the
             // file watcher can compare it.
             encoding: disk.map_or(Encoding::Utf8, |disk| disk.encoding),
+            missing_on_disk: false,
             example: None,
         }
     }
@@ -226,6 +262,15 @@ impl Document {
     /// or not, and saves go to `path` from now on.
     pub fn set_path(&mut self, path: PathBuf) {
         self.path = Some(path);
+        self.missing_on_disk = false;
+    }
+
+    pub fn is_missing_on_disk(&self) -> bool {
+        self.missing_on_disk
+    }
+
+    pub fn set_missing_on_disk(&mut self, missing: bool) {
+        self.missing_on_disk = missing && self.path.is_some();
     }
 
     pub fn line_ending(&self) -> LineEnding {
@@ -255,10 +300,15 @@ impl Document {
         if let Some(title) = &self.example {
             return format!("{title} (example)");
         }
-        self.path.as_ref().and_then(|p| p.file_name()).map_or_else(
+        let name = self.path.as_ref().and_then(|p| p.file_name()).map_or_else(
             || "untitled".to_owned(),
             |n| n.to_string_lossy().into_owned(),
-        )
+        );
+        if self.missing_on_disk {
+            format!("{name} (deleted on disk)")
+        } else {
+            name
+        }
     }
 
     /// Saves to the current path; `false` when a "save as" is needed first
@@ -299,10 +349,11 @@ impl Document {
         let Some(path) = &self.path else {
             return Ok(None);
         };
-        let (text, line_ending, utf8_bom) = read(path, self.encoding)?;
+        let (text, line_ending, utf8_bom, fingerprint) = read(path, self.encoding)?;
         Ok(Some(DiskVersion {
             text,
             path: path.clone(),
+            fingerprint,
             line_ending,
             utf8_bom,
             encoding: self.encoding,
@@ -330,11 +381,15 @@ impl Document {
     /// baseline, so the buffer counts as modified until it is saved over it.
     pub fn adopt_disk_baseline(&mut self, version: &DiskVersion) {
         self.saved_hash = hash(&version.text);
+        self.saved_fingerprint = Some(version.fingerprint);
     }
 
     /// Whether a disk snapshot still has the contents last loaded or saved.
     pub fn disk_matches_saved(&self, version: &DiskVersion) -> bool {
-        self.path.as_ref() == Some(&version.path) && hash(&version.text) == self.saved_hash
+        self.path.as_ref() == Some(&version.path)
+            && self
+                .saved_fingerprint
+                .is_some_and(|saved| saved.same_content(version.fingerprint))
     }
 
     pub fn classify_external_update(&self, version: &DiskVersion) -> ExternalUpdate {
@@ -359,10 +414,12 @@ impl Document {
         }
         let changed = version.text != self.text;
         self.saved_hash = hash(&version.text);
+        self.saved_fingerprint = Some(version.fingerprint);
         self.text = version.text;
         self.line_ending = version.line_ending;
         self.utf8_bom = version.utf8_bom;
         self.encoding = version.encoding;
+        self.missing_on_disk = false;
         Ok(changed)
     }
 
@@ -408,9 +465,17 @@ impl Document {
     }
 
     fn write(&mut self, path: &Path) -> io::Result<()> {
-        atomic_write(path, &self.encoded_bytes())?;
+        let bytes = self.encoded_bytes();
+        atomic_write(path, &bytes)?;
         self.saved_hash = hash(&self.text);
+        self.saved_fingerprint = Some(DiskFingerprint::of(
+            &bytes,
+            std::fs::metadata(path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok()),
+        ));
         self.encoding = Encoding::Utf8;
+        self.missing_on_disk = false;
         Ok(())
     }
 
@@ -429,8 +494,15 @@ impl Document {
     }
 }
 
-fn read(path: &Path, encoding: Encoding) -> io::Result<(String, LineEnding, bool)> {
-    let mut bytes = std::fs::read(path)?;
+fn read(
+    path: &Path,
+    encoding: Encoding,
+) -> io::Result<(String, LineEnding, bool, DiskFingerprint)> {
+    let mut file = File::open(path)?;
+    let modified = file.metadata()?.modified().ok();
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let fingerprint = DiskFingerprint::of(&bytes, modified);
     let utf8_bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
     if utf8_bom {
         bytes.drain(..3);
@@ -449,7 +521,7 @@ fn read(path: &Path, encoding: Encoding) -> io::Result<(String, LineEnding, bool
         Encoding::Windows1252 => decode_windows_1252(&bytes),
     };
     let line_ending = LineEnding::detect(&raw);
-    Ok((normalize(&raw), line_ending, utf8_bom))
+    Ok((normalize(&raw), line_ending, utf8_bom, fingerprint))
 }
 
 /// Decodes Windows-1252 as the WHATWG Encoding Standard does: every byte is

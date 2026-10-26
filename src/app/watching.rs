@@ -3,6 +3,7 @@
 //! unsaved edits, asked about), and a change to the script or its modules
 //! renders it again.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -23,6 +24,91 @@ pub(super) struct WatchKey {
 }
 
 impl AppState {
+    /// Inspect all open files when the window regains focus. This runs even
+    /// when automatic preview is disabled: external edits must not remain
+    /// invisible until the next save.
+    pub(super) fn check_disk_on_focus(&mut self) {
+        let documents: Vec<_> = self
+            .documents_in_order()
+            .into_iter()
+            .filter_map(|(generation, document)| {
+                document.path().map(|path| (generation, path.to_path_buf()))
+            })
+            .collect();
+        let mut conflicts = Vec::new();
+        for (generation, path) in documents {
+            let snapshot = self
+                .document_of(generation)
+                .and_then(|document| document.disk_version().transpose())
+                .transpose();
+            match snapshot {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if let Some((document, _)) = self.open_mut(generation) {
+                        document.set_missing_on_disk(true);
+                    }
+                    self.set_status(
+                        StatusKind::Warning,
+                        format!(
+                            "{} was deleted or moved on disk; the editor buffer is preserved",
+                            path.display()
+                        ),
+                    );
+                }
+                Err(error) => {
+                    self.dialogs.error(
+                        "Cannot check a file on disk",
+                        format!("{}\n\n{error}", path.display()),
+                    );
+                }
+                Ok(Some(version)) => {
+                    if let Some((document, _)) = self.open_mut(generation) {
+                        document.set_missing_on_disk(false);
+                    }
+                    let update = self
+                        .document_of(generation)
+                        .map(|document| document.classify_external_update(&version));
+                    match update {
+                        Some(ExternalUpdate::Conflict) => {
+                            let already_queued = self
+                                .dialogs
+                                .external_change
+                                .as_ref()
+                                .is_some_and(|change| change.document == generation)
+                                || self
+                                    .dialogs
+                                    .external_queue
+                                    .iter()
+                                    .any(|change| change.document == generation);
+                            if !already_queued {
+                                conflicts.push(ExternalChange {
+                                    document: generation,
+                                    path,
+                                    disk: version,
+                                    show_comparison: false,
+                                    rerun_after_resolution: false,
+                                    on_save: false,
+                                });
+                            }
+                        }
+                        Some(ExternalUpdate::Reload | ExternalUpdate::MatchesBuffer) => {
+                            self.reload_tab(generation);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(None) => {}
+            }
+        }
+        if !conflicts.is_empty() {
+            self.dialogs.external_queue.extend(conflicts);
+            if self.dialogs.external_change.is_none() {
+                let next = self.dialogs.external_queue.remove(0);
+                self.activate(next.document);
+                self.dialogs.external_change = Some(next);
+            }
+        }
+    }
+
     pub(super) fn sync_watcher(&mut self) {
         let editor = &self.settings.editor;
         let (autoreload, watch_imports) = (editor.autoreload, editor.watch_imported_modules);

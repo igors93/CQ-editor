@@ -380,7 +380,7 @@ the code**.
 
 | Status | Id | Improvement | Fixes | Priority |
 | :---: | --- | --- | --- | --- |
-| | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
+| ✅ | [REQ-01](#req-01--saving-checks-the-disk-first) | Saving checks the disk first | BUG-33 | P1 |
 | | [REQ-02](#req-02--dialogs-own-the-keyboard-and-their-document) | Dialogs own the keyboard and their document | BUG-34 | P1 |
 | | [REQ-03](#req-03--the-editor-can-never-be-lost) | The editor can never be lost | BUG-36 | P2 |
 | | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
@@ -412,8 +412,11 @@ deleted or moved says so in its title.
 watcher, save and focus, instead of a protection that exists only while
 autoreload is on. `Document::save` gets a precondition the tests can state.
 
-**Progress.** The check on save is done (BUG-33). The check when the window
-gets focus back and the title of a deleted file remain.
+**Progress.** Done. Save compares the disk with the saved baseline. Regaining
+focus checks every open tab even with automatic reload off: clean files are
+reloaded, conflicts use the same dialog as the watcher, and a missing file
+is labeled in its tab and title while its buffer is preserved. The baseline
+also records length, modification time and a hash of the original bytes.
 
 ### REQ-02 · Dialogs own the keyboard and their document
 
