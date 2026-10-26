@@ -1,8 +1,10 @@
 """Color and opacity inputs accepted by show_object."""
 
+import math
+
 import pytest
 
-from cq_worker.scene import DisplayOptions, parse_color
+from cq_worker.scene import DisplayOptions, non_finite, parse_color
 
 
 @pytest.mark.parametrize(
@@ -29,6 +31,37 @@ def test_invalid_color_forms_are_rejected(color):
 @pytest.mark.parametrize(("input_alpha", "expected"), [(-2, 0), (0.25, 0.25), (5, 1)])
 def test_display_opacity_is_clamped(input_alpha, expected):
     assert DisplayOptions.parse({"alpha": input_alpha}).alpha == expected
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"alpha": math.nan},
+        {"alpha": math.inf},
+        {"rgba": (1, 0, 0, math.nan)},
+    ],
+)
+def test_non_finite_opacity_is_ignored(options, caplog):
+    parsed = DisplayOptions.parse(options)
+    assert parsed.alpha is None
+    assert "finite number" in caplog.text
+    assert non_finite(parsed.to_message()) is None
+
+
+def test_one_invalid_option_keeps_the_others(caplog):
+    parsed = DisplayOptions.parse({"color": "#zz", "alpha": 0.5, "edgecolor": "blue"})
+    assert parsed.color is None
+    assert parsed.alpha == 0.5
+    assert parsed.edge_color == pytest.approx((0, 0, 1), abs=1e-3)
+    assert "Ignoring invalid display option" in caplog.text
+
+
+def test_non_finite_numbers_are_found_where_they_are():
+    assert non_finite({"parts": [{"transform": [1.0, 2.0]}]}) is None
+    assert non_finite({"parts": [{"transform": [1.0, math.nan]}]}) == (
+        "parts[0].transform[1]"
+    )
+    assert non_finite({"alpha": math.inf, "mesh": "AAAA"}) == "alpha"
 
 
 def test_explicit_opacity_overrides_color_opacity():

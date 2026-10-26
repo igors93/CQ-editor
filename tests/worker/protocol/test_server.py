@@ -42,6 +42,31 @@ def test_failed_run_keeps_previous_scene(conversation):
     assert finished["error"]["type_name"] == "ZeroDivisionError"
 
 
+def test_a_non_finite_number_never_loses_the_whole_run(conversation, caplog):
+    # A NaN option is ignored; a NaN placement drops only that object.
+    script = (
+        "import math\n"
+        "good = cq.Workplane().sphere(1)\n"
+        "show_object(good)\n"
+        "faded = cq.Workplane().box(1, 1, 1)\n"
+        "show_object(faded, options={'alpha': math.nan, 'color': 'red'})\n"
+        "lost = cq.Workplane().box(1, 1, 1).val().moved(cq.Location((math.nan, 0, 0)))\n"
+        "show_object(lost)\n"
+    )
+    talk = conversation({"cmd": "run", "id": 3, "script": script})
+    talk.serve()
+
+    assert not talk.of_type("error")
+    (finished,) = talk.of_type("run_finished")
+    assert finished["ok"] is True
+    objects = {node["name"]: node for node in finished["objects"]}
+    assert list(objects) == ["good", "faded"]
+    assert objects["faded"]["alpha"] is None
+    assert objects["faded"]["color"] == pytest.approx([1, 0, 0], abs=1e-3)
+    assert "Cannot display lost: parts[0]." in caplog.text
+    assert "is not a finite number" in caplog.text
+
+
 def test_script_log_reaches_the_gui(conversation):
     talk = conversation({"cmd": "run", "id": 2, "script": "log('from script')"})
     import logging

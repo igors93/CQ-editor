@@ -102,7 +102,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | ✅ | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
 | ✅ | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
 | ✅ | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
-| | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
+| ✅ | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
 | ✅ | [BUG-41](#bug-41--the-local-history-depends-on-how-a-path-is-written) | The local history depends on how a path is written | P3 |
 
 ### BUG-33 · Saving replaces a newer version on disk without a word
@@ -323,6 +323,17 @@ the large-model mode. Restart the worker cleanly. See
 [REQ-09](#req-09--large-and-unusual-results-travel-safely).
 
 ### BUG-40 · One invalid display option loses the whole run
+
+✅ **Resolved.** `DisplayOptions.parse` reads each option on its own, so an
+invalid one no longer drops the others, and refuses NaN and infinities
+(`finite`) with the usual warning. Fixing it showed that a NaN placement
+(`moved(cq.Location((math.nan, 0, 0)))`) broke the reply the same way:
+`SceneBuilder` now checks every node with `non_finite`, and leaves out an
+object that holds a NaN, releasing its keys and naming it in the log
+(*Cannot display lost: parts[0].mesh.bbox[0][0] is not a finite number*).
+Tests: `test_non_finite_opacity_is_ignored`,
+`test_one_invalid_option_keeps_the_others`,
+`test_a_non_finite_number_never_loses_the_whole_run`.
 
 *Evidence: script.* **Where:** `worker/cq_worker/scene.py`
 (`DisplayOptions.parse`), `worker/cq_worker/protocol.py` (`Channel.send`,

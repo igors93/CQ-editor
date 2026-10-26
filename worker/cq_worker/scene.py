@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import math
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
@@ -121,6 +122,37 @@ def parse_color(value: Any) -> tuple[Color, float | None]:
     raise ValueError(f"Unsupported color specification {value!r}")
 
 
+def finite(value: Any, what: str) -> float:
+    """``value`` as a float; NaN and infinities cannot reach the GUI."""
+
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be a finite number, not {value!r}")
+    return number
+
+
+def non_finite(value: Any, where: str = "") -> str | None:
+    """Where ``value``, a message, holds a number JSON cannot encode (NaN or
+    an infinity), such as ``parts[0].transform``; ``None`` when it holds
+    none. Strings, which hold the mesh arrays, are not looked into."""
+
+    if isinstance(value, float):
+        return None if math.isfinite(value) else where or "a number"
+    if isinstance(value, dict):
+        items = (
+            (f"{where}.{key}" if where else str(key), v) for key, v in value.items()
+        )
+    elif isinstance(value, (list, tuple)):
+        items = ((f"{where}[{index}]", v) for index, v in enumerate(value))
+    else:
+        return None
+    for place, item in items:
+        found = non_finite(item, place)
+        if found is not None:
+            return found
+    return None
+
+
 @dataclass
 class DisplayOptions:
     """The ``options`` mapping accepted by ``show_object``."""
@@ -132,24 +164,40 @@ class DisplayOptions:
 
     @classmethod
     def parse(cls, options: Mapping[str, Any] | None) -> DisplayOptions:
+        """Each option on its own: an invalid one is ignored with a warning,
+        and the others still apply."""
+
         result = cls()
         if not options:
             return result
-        try:
-            if "rgba" in options:
-                r, g, b, a = options["rgba"]
-                result.color, _ = parse_color((r, g, b))
-                result.alpha = float(a)
-            if "color" in options:
-                result.color, alpha = parse_color(options["color"])
-                if alpha is not None and alpha < 1.0 and result.alpha is None:
-                    result.alpha = alpha
-            if "alpha" in options:
-                result.alpha = float(options["alpha"])
-            if "edgecolor" in options:
-                result.edge_color, _ = parse_color(options["edgecolor"])
-        except (TypeError, ValueError) as error:
-            log.warning("Ignoring invalid display option: %s", error)
+
+        def rgba(value) -> None:
+            r, g, b, a = value
+            color, _ = parse_color((r, g, b))
+            result.color, result.alpha = color, finite(a, "the rgba alpha")
+
+        def color(value) -> None:
+            result.color, alpha = parse_color(value)
+            if alpha is not None and alpha < 1.0 and result.alpha is None:
+                result.alpha = alpha
+
+        def alpha(value) -> None:
+            result.alpha = finite(value, "alpha")
+
+        def edge_color(value) -> None:
+            result.edge_color, _ = parse_color(value)
+
+        for key, apply in (
+            ("rgba", rgba),
+            ("color", color),
+            ("alpha", alpha),
+            ("edgecolor", edge_color),
+        ):
+            if key in options:
+                try:
+                    apply(options[key])
+                except (TypeError, ValueError) as error:
+                    log.warning("Ignoring invalid display option: %s", error)
         if result.alpha is not None:
             result.alpha = min(max(result.alpha, 0.0), 1.0)
         return result
@@ -356,8 +404,16 @@ class SceneBuilder:
                     "Cannot display %s: %s: %s", name, type(error).__name__, error
                 )
                 continue
-            if node is not None:
-                nodes.append(node)
+            if node is None:
+                continue
+            # One object with a NaN, such as in its placement, must not make
+            # the whole reply impossible to send.
+            where = non_finite(node)
+            if where is not None:
+                log.error("Cannot display %s: %s is not a finite number", name, where)
+                self.registry.release([node["key"]])
+                continue
+            nodes.append(node)
         return nodes
 
     def node(

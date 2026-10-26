@@ -65,8 +65,11 @@ Accepted color forms:
 cq.Color("steelblue")               # CadQuery colors
 ```
 
-An invalid option is ignored with a warning in the Log panel. It never stops
-the script. Objects without a color use *Preferences > 3D View > Default
+An invalid option, such as a NaN alpha, is ignored with a warning in the
+Log panel, and the other options of the object still apply. It never stops
+the script. An object that cannot be drawn, such as one placed at a NaN
+coordinate, is left out with an error in the Log panel; the other objects
+are shown. Objects without a color use *Preferences > 3D View > Default
 object color* (gold by default).
 
 ### Scripts without `show_object`

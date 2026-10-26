@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Fixed: one NaN in a `show_object` option or in an object's placement lost
+  the whole run, every valid object included, with *ValueError: Out of range
+  float values are not JSON compliant*. A non-finite option is now ignored
+  with a warning (the object's other options still apply), and an object
+  that cannot be sent is left out and named in the log (BUG-40)
 * Fixed: a model too large to transfer from Python (over 512 MiB of mesh,
   about ten million triangles) was reported as *CadQuery is not
   available*, and the run never finished. It is now explained, with how to
