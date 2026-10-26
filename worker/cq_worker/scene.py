@@ -288,6 +288,10 @@ class RegistryEntry:
     #: The name and display color of this node as shown by the script.
     name: str = ""
     display_color: cq.Color | None = None
+    material: cq.Material | None = None
+    face_attributes: list[dict] = field(default_factory=list)
+    part_materials: list[cq.Material | None] = field(default_factory=list)
+    part_shapes: list[cq.Shape] = field(default_factory=list)
 
     def subshape(self, part: int, kind: str, identifier: int) -> cq.Shape:
         try:
@@ -505,9 +509,13 @@ class SceneBuilder:
         parent_location: cq.Location,
         inherited_color: cq.Color | None,
         top: bool = False,
+        inherited_material: cq.Material | None = None,
     ) -> dict | None:
         location = parent_location * assembly.loc
         color = assembly.color if assembly.color is not None else inherited_color
+        material = (
+            assembly.material if assembly.material is not None else inherited_material
+        )
 
         shape, parts, topologies, sources = None, [], [], []
         if assembly.obj is not None:
@@ -518,11 +526,14 @@ class SceneBuilder:
             part = self._part(
                 local_shape,
                 None,
-                *self._part_color(color),
+                *self._part_color(color or self._material_color(material)),
                 location,
                 assembly.obj,
             )
             if part is not None:
+                attributes = self._face_attributes(assembly, local_shape)
+                part["face_attributes"] = attributes
+                part["material"] = self._material_message(material)
                 parts.append(part)
                 topologies.append(topology)
                 sources.append(PartSource(assembly.obj, location))
@@ -532,7 +543,12 @@ class SceneBuilder:
             for child in assembly.children
             if (
                 child_node := self._assembly_node(
-                    child.name, child, options, location, color
+                    child.name,
+                    child,
+                    options,
+                    location,
+                    color,
+                    inherited_material=material,
                 )
             )
             is not None
@@ -550,6 +566,8 @@ class SceneBuilder:
             inherited_color=None if top else inherited_color,
             name=str(name),
             display_color=(cq.Color(*options.color) if options.color else None),
+            material=material,
+            face_attributes=attributes if parts else [],
         )
         key = self.registry.add(entry)
         message = self._message(key, name, assembly, options, parts, children)
@@ -561,11 +579,14 @@ class SceneBuilder:
     def _merged_assembly_node(
         self, name: str, assembly: cq.Assembly, options: DisplayOptions
     ) -> dict | None:
-        parts, shapes, topologies, sources = [], [], [], []
+        parts, shapes, topologies, sources, materials = [], [], [], [], []
 
-        def collect(node: cq.Assembly, parent: cq.Location, inherited) -> None:
+        def collect(
+            node: cq.Assembly, parent: cq.Location, inherited, inherited_mat
+        ) -> None:
             location = parent * node.loc
             color = node.color if node.color is not None else inherited
+            material = node.material if node.material is not None else inherited_mat
             if node.obj is not None:
                 local_shape = to_compound(node.obj)
                 shape = local_shape.moved(location)
@@ -574,18 +595,21 @@ class SceneBuilder:
                 part = self._part(
                     local_shape,
                     None,
-                    *self._part_color(color),
+                    *self._part_color(color or self._material_color(material)),
                     location,
                     node.obj,
                 )
                 if part is not None:
+                    part["face_attributes"] = self._face_attributes(node, local_shape)
+                    part["material"] = self._material_message(material)
                     parts.append(part)
                     topologies.append(topology)
                     sources.append(PartSource(node.obj, location))
+                    materials.append(material)
             for child in node.children:
-                collect(child, location, color)
+                collect(child, location, color, material)
 
-        collect(assembly, cq.Location(), None)
+        collect(assembly, cq.Location(), None, None)
         if not parts:
             return None
         key = self.registry.add(
@@ -596,6 +620,8 @@ class SceneBuilder:
                 sources=sources,
                 name=str(name),
                 display_color=(cq.Color(*options.color) if options.color else None),
+                part_materials=materials,
+                part_shapes=shapes,
             )
         )
         return self._message(key, name, assembly, options, parts, [])
@@ -606,6 +632,54 @@ class SceneBuilder:
             return None, None
         rgb, alpha = parse_color(color)
         return rgb, alpha
+
+    @staticmethod
+    def _material_color(material: cq.Material | None) -> cq.Color | None:
+        if material is None or not (
+            material.wrapped_vis.HasPbrMaterial()
+            or material.wrapped_vis.HasCommonMaterial()
+        ):
+            return None
+        value = material.wrapped_vis.BaseColor()
+        rgb = value.GetRGB()
+        return cq.Color(rgb.Red(), rgb.Green(), rgb.Blue(), value.Alpha())
+
+    @staticmethod
+    def _material_message(material: cq.Material | None) -> dict | None:
+        if material is None:
+            return None
+        return {
+            "name": material.name,
+            "density": finite(material.density, "material density"),
+            "density_unit": material.densityUnit,
+        }
+
+    @staticmethod
+    def _face_attributes(assembly: cq.Assembly, shape: cq.Shape) -> list[dict]:
+        topology = TopologyIndex.build(shape.wrapped)
+        index = {
+            cq.Shape.cast(raw_face): identifier
+            for identifier, raw_face in enumerate(topology.faces, 1)
+        }
+        attributes: dict[int, dict] = {}
+        for field_name, values in (
+            ("name", assembly._subshape_names),
+            ("layer", assembly._subshape_layers),
+            ("color", assembly._subshape_colors),
+        ):
+            for subshape, value in values.items():
+                for face in subshape.Faces():
+                    identifier = index.get(face)
+                    if identifier is None:
+                        continue
+                    item = attributes.setdefault(identifier, {"id": identifier})
+                    if field_name == "color":
+                        rgb, alpha = parse_color(value)
+                        item["color"] = list(rgb)
+                        item["alpha"] = alpha
+                    else:
+                        item[field_name] = value
+        return [attributes[identifier] for identifier in sorted(attributes)]
 
     def _part(
         self,

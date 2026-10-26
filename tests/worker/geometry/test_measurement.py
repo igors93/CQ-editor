@@ -4,8 +4,8 @@ import cadquery as cq
 import pytest
 
 from cq_worker.measurement import MeasurementError, measure
-from cq_worker.scene import Registry, RegistryEntry
-from cq_worker.tessellation import TopologyIndex
+from cq_worker.scene import Registry, RegistryEntry, SceneBuilder, ShownObject
+from cq_worker.tessellation import Tolerance, TopologyIndex
 
 
 def add_shape(registry, shape):
@@ -30,6 +30,39 @@ def test_two_vertices_have_an_exact_five_unit_distance():
     assert result["pair"]["first_point"] == pytest.approx([0.0, 0.0, 0.0])
     assert result["pair"]["second_point"] == pytest.approx([3.0, 4.0, 0.0])
     assert result["identity"] == {"scope": "scene_entry", "persistent": False}
+
+
+def test_material_density_produces_mass_for_mixed_assembly():
+    registry = Registry()
+    box = cq.Workplane().box(10, 10, 10).val()
+    steel = registry.add(
+        RegistryEntry(box, box, material=cq.Material("Steel", density=7.8))
+    )
+    aluminium = registry.add(
+        RegistryEntry(box, box, material=cq.Material("Al", density=2.7))
+    )
+    root = registry.add(RegistryEntry(None, None, children=[steel, aluminium]))
+
+    (result,) = measure(registry, [], [root])["objects"]
+
+    assert result["mass_g"] == pytest.approx(10.5)
+    assert result["materials"] == ["Al", "Steel"]
+
+
+def test_merged_assembly_keeps_each_part_material_for_mass():
+    assembly = cq.Assembly(name="mixed")
+    box = cq.Workplane().box(10, 10, 10)
+    assembly.add(box, name="steel", material=cq.Material("Steel", density=7.8))
+    assembly.add(box, name="al", material=cq.Material("Al", density=2.7))
+    registry = Registry()
+    (node,) = SceneBuilder(registry, Tolerance(), merge_assemblies=True).build(
+        {"mixed": ShownObject(assembly)}
+    )
+
+    (result,) = measure(registry, [], [node["key"]])["objects"]
+
+    assert result["mass_g"] == pytest.approx(10.5)
+    assert result["materials"] == ["Al", "Steel"]
 
 
 def test_curved_edge_reports_occt_length_radius_and_diameter():

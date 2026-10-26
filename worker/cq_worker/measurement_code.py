@@ -117,16 +117,40 @@ def _entity(
 ) -> str:
     entry = registry.get(reference.key)
     source = entry.sources[reference.part]
-    receiver = _receiver(namespace, source.obj, problems)
-    candidate = selection.selector_candidates(registry, [_message(reference)])[
-        "candidates"
-    ][0]
-    expression = receiver + candidate["expression"]
-    if isinstance(source.obj, cq.Workplane):
-        expression += ".val()"
+    named = None
+    if reference.kind == "face" and isinstance(entry.obj, cq.Assembly):
+        attribute = next(
+            (
+                item
+                for item in entry.face_attributes
+                if item["id"] == reference.identifier
+            ),
+            None,
+        )
+        if attribute is not None and attribute.get("name"):
+            label = attribute["name"]
+            if list(entry.obj._subshape_names.values()).count(label) == 1:
+                assembly = _variable(namespace, entry.obj) or _assembly_path(
+                    namespace, entry.obj
+                )
+                if assembly is not None:
+                    named = (
+                        f"next(face for face, name in {assembly}._subshape_names.items() "
+                        f"if name == {label!r})"
+                    )
+    if named is not None:
+        expression = named
+    else:
+        receiver = _receiver(namespace, source.obj, problems)
+        candidate = selection.selector_candidates(registry, [_message(reference)])[
+            "candidates"
+        ][0]
+        expression = receiver + candidate["expression"]
+        if isinstance(source.obj, cq.Workplane):
+            expression += ".val()"
     expression += _placement(source.location)
     name = f"{reference.kind}_{number}"
-    if candidate["index_based"]:
+    if named is None and candidate["index_based"]:
         code.lines.append(
             "# By index: this may name another entity once the model changes"
         )

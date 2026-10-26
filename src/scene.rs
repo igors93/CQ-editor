@@ -147,6 +147,9 @@ pub struct Mesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
+    /// Packed sRGB colors on render-only, face-styled meshes. Zero uses the
+    /// part color; other values hold RGBA with the top byte set to 255.
+    pub vertex_colors: Vec<u32>,
     /// Line segments, two points each.
     pub edges: Vec<[f32; 3]>,
     /// Degrees between the faces that meet at each segment's edge: 0 where
@@ -213,6 +216,7 @@ impl Mesh {
             positions,
             normals,
             indices,
+            vertex_colors: Vec::new(),
             edges,
             segment_angles: Vec::new(),
             points,
@@ -336,6 +340,76 @@ impl Mesh {
             .as_ref()
     }
 
+    /// A render-only copy with triangle corners separated at face borders.
+    /// Geometry stays content-addressed in `Part::mesh` for picking and
+    /// instancing; this copy exists only when an assembly colors a face.
+    fn with_face_colors(&self, attributes: &[protocol::FaceAttribute]) -> Option<Arc<Mesh>> {
+        let colors: HashMap<u32, u32> = attributes
+            .iter()
+            .filter_map(|attribute| {
+                attribute.color.map(|rgb| {
+                    let bytes = rgb.map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u32);
+                    (
+                        attribute.id,
+                        0xff00_0000 | bytes[0] | bytes[1] << 8 | bytes[2] << 16,
+                    )
+                })
+            })
+            .collect();
+        if colors.is_empty() {
+            return None;
+        }
+        let (positions, indices, use_display_normals) = if self.topology.face_indices.is_empty() {
+            (&self.positions, &self.indices, true)
+        } else {
+            (
+                &self.topology.face_positions,
+                &self.topology.face_indices,
+                false,
+            )
+        };
+        if self.topology.triangle_faces.len() != indices.len() / 3 {
+            return None;
+        }
+        let mut result = Mesh::new(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            self.edges.clone(),
+            self.points.clone(),
+        );
+        for (triangle, &face) in indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(&self.topology.triangle_faces)
+        {
+            let Some(corners) = triangle
+                .iter()
+                .map(|&index| positions.get(index as usize).copied())
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let normal = (Vec3::from_array(corners[1]) - Vec3::from_array(corners[0]))
+                .cross(Vec3::from_array(corners[2]) - Vec3::from_array(corners[0]))
+                .normalize_or_zero()
+                .to_array();
+            for (&index, &position) in triangle.iter().zip(&corners) {
+                result.positions.push(position);
+                result.normals.push(if use_display_normals {
+                    self.normals.get(index as usize).copied().unwrap_or(normal)
+                } else {
+                    normal
+                });
+                result.vertex_colors.push(*colors.get(&face).unwrap_or(&0));
+                result.indices.push((result.indices.len()) as u32);
+            }
+        }
+        result.bounds = self.bounds;
+        Some(Arc::new(result))
+    }
+
     fn simplify(&self) -> Option<Mesh> {
         let triangles = self.triangle_count();
         let size = self.bounds.size().max_element();
@@ -446,6 +520,7 @@ impl Mesh {
             + topology.face_positions.len()
             + topology.vertices.len();
         let integers = self.indices.len()
+            + self.vertex_colors.len()
             + topology.face_indices.len()
             + topology.triangle_faces.len()
             + topology.segment_edges.len()
@@ -628,6 +703,9 @@ pub struct Part {
     pub transform: Mat4,
     pub color: Option<Rgb>,
     pub alpha: Option<f32>,
+    pub face_attributes: Vec<protocol::FaceAttribute>,
+    pub material: Option<protocol::Material>,
+    pub render_mesh: Option<Arc<Mesh>>,
 }
 
 /// Display properties the user can change in the Objects panel.
@@ -686,11 +764,16 @@ impl SceneNode {
     ) -> Result<Self, String> {
         let mut parts = Vec::with_capacity(message.parts.len());
         for part in message.parts {
+            let mesh = library.resolve(part.mesh, request)?;
+            let render_mesh = mesh.with_face_colors(&part.face_attributes);
             parts.push(Part {
-                mesh: library.resolve(part.mesh, request)?,
+                mesh,
                 transform: Mat4::from_cols_array(&part.transform),
                 color: part.color,
                 alpha: part.alpha,
+                face_attributes: part.face_attributes,
+                material: part.material,
+                render_mesh,
             });
         }
         let mut children = Vec::with_capacity(message.children.len());
@@ -1440,6 +1523,9 @@ impl Scene {
                     transform: part.transform,
                     color: None,
                     alpha: None,
+                    face_attributes: Vec::new(),
+                    material: None,
+                    render_mesh: None,
                 })
             });
         let Some(highlight) = highlight else {

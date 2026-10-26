@@ -360,12 +360,26 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
 
     ui.strong(&node.name);
     if let Some(selection) = &topology {
-        ui.label(format!(
-            "{} {} · part {}",
-            selection.entity.kind(),
-            selection.entity.identifier(),
-            selection.part + 1
-        ));
+        let label = node
+            .parts
+            .get(selection.part)
+            .and_then(|part| {
+                part.face_attributes.iter().find(|face| {
+                    selection.entity.kind() == "Face" && face.id == selection.entity.identifier()
+                })
+            })
+            .and_then(|face| face.name.as_deref())
+            .map_or_else(
+                || {
+                    format!(
+                        "{} {}",
+                        selection.entity.kind(),
+                        selection.entity.identifier()
+                    )
+                },
+                str::to_owned,
+            );
+        ui.label(format!("{label} · part {}", selection.part + 1));
     }
     egui::Grid::new("object_properties_grid")
         .num_columns(2)
@@ -388,6 +402,14 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
             ui.label("Type");
             ui.weak(&node.kind);
             ui.end_row();
+            if let Some(material) = node.parts.first().and_then(|part| part.material.as_ref()) {
+                ui.label("Material");
+                ui.weak(format!(
+                    "{} · {} {}",
+                    material.name, material.density, material.density_unit
+                ));
+                ui.end_row();
+            }
 
             if let Some(line) = node.line {
                 ui.label("Source");

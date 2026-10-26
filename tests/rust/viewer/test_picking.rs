@@ -363,6 +363,9 @@ fn part(mesh: &Arc<Mesh>, transform: Mat4) -> Part {
         transform,
         color: None,
         alpha: None,
+        face_attributes: Vec::new(),
+        material: None,
+        render_mesh: None,
     }
 }
 

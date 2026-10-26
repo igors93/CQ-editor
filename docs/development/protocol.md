@@ -1,4 +1,4 @@
-# Worker protocol (version 8)
+# Worker protocol (version 9)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -144,6 +144,11 @@ buffer appears as the file `<cq-editor>`.
   key is a no-op.
 * An assembly is a node whose `children` mirror the assembly tree. Each
   child carries its own parts and placement.
+* A part may carry `face_attributes` (`id`, `name`, `layer`, `color`, `alpha`)
+  indexed by its live OCCT face ids. These belong to the part instance, not
+  the content-addressed mesh. `material` carries CadQuery's name, density and
+  density unit; measurements report mass in grams when the density unit is
+  supported.
 * Colors are sRGB floats in 0–1. `null` means "use the default".
 * `finish` is the `material` option of `show_object`: `matte_plastic`,
   `glossy_plastic`, `brushed_steel`, `aluminum`, `wood`, `default`, or

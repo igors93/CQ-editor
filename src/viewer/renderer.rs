@@ -70,6 +70,14 @@ struct ObjectUniform {
     surface: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(super) struct MeshVertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    face_color: u32,
+}
+
 /// How one mesh is drawn. Colors are linear RGBA.
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
@@ -1405,11 +1413,16 @@ fn upload(device: &wgpu::Device, mesh: &Arc<Mesh>) -> GpuMesh {
             })
         })
     };
-    let interleaved: Vec<[f32; 6]> = mesh
+    let interleaved: Vec<MeshVertex> = mesh
         .positions
         .iter()
         .zip(&mesh.normals)
-        .map(|(p, n)| [p[0], p[1], p[2], n[0], n[1], n[2]])
+        .enumerate()
+        .map(|(index, (p, n))| MeshVertex {
+            position: *p,
+            normal: *n,
+            face_color: mesh.vertex_colors.get(index).copied().unwrap_or(0),
+        })
         .collect();
     let has_triangles = !interleaved.is_empty() && !mesh.indices.is_empty();
     // Each segment: its two ends and the angle its edge's faces meet at.
@@ -1603,8 +1616,8 @@ impl Pipelines {
         shader: &wgpu::ShaderModule,
         samples: u32,
     ) -> Self {
-        const MESH_ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+        const MESH_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
         const SEGMENT_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32];
         const SILHOUETTE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
@@ -1614,7 +1627,7 @@ impl Pipelines {
             wgpu::vertex_attr_array![0 => Float32x3];
 
         let mesh_buffers = [Some(wgpu::VertexBufferLayout {
-            array_stride: 24,
+            array_stride: std::mem::size_of::<MeshVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &MESH_ATTRIBUTES,
         })];

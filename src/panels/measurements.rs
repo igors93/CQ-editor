@@ -217,16 +217,31 @@ fn entity_ui(ui: &mut egui::Ui, state: &AppState, entity: &EntityMeasurement, nu
         .scene
         .find(&entity.key)
         .map_or(entity.key.as_str(), |node| node.name.as_str());
-    ui.strong(format!(
-        "{number}. {} {} · {name}",
-        kind_label(entity.kind),
-        entity.identifier
-    ));
+    let attribute = state.scene.find(&entity.key).and_then(|node| {
+        (entity.kind == TopologyKind::Face)
+            .then(|| node.parts.get(entity.part))
+            .flatten()
+            .and_then(|part| {
+                part.face_attributes
+                    .iter()
+                    .find(|face| face.id == entity.identifier)
+            })
+    });
+    let face_label = attribute.and_then(|face| face.name.as_deref()).map_or_else(
+        || format!("{} {}", kind_label(entity.kind), entity.identifier),
+        str::to_owned,
+    );
+    ui.strong(format!("{number}. {face_label} · {name}"));
     egui::Grid::new(("measurement_entity", number))
         .num_columns(2)
         .spacing([12.0, 4.0])
         .show(ui, |ui| {
             row(ui, "Geometry", &title_case(&entity.geometry_type));
+            if let Some(face) = attribute {
+                if let Some(layer) = &face.layer {
+                    row(ui, "Layer", layer);
+                }
+            }
             row(ui, "Part", &(entity.part + 1).to_string());
             row(ui, "Center", &format_point(entity.center));
             if let Some(position) = entity.position {
@@ -263,6 +278,12 @@ fn object_ui(ui: &mut egui::Ui, state: &AppState, object: &ObjectMeasurement, nu
             row(ui, "Shape", &title_case(&object.shape_type));
             if let Some(value) = object.volume {
                 row(ui, "Volume", &format_number(value));
+            }
+            if let Some(value) = object.mass_g {
+                row(ui, "Mass (g)", &format_number(value));
+            }
+            if !object.materials.is_empty() {
+                row(ui, "Materials", &object.materials.join(", "));
             }
             if let Some(value) = object.area {
                 row(ui, "Area", &format_number(value));

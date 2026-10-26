@@ -32,6 +32,11 @@ the most recent **Fit** or **Zoom to Selection** command.
   for mechanical parts.
 * **Trackball** rotates freely, like rolling a ball under the pointer.
 
+Faces annotated with `Assembly.addSubshape` use their specified color in the
+view. Picking a named face shows its name and layer in Objects and
+Measurements. The assembly material's name and density appear in Objects;
+Measurements reports mass when the density is in g/cm³, kg/m³ or g/mm³.
+
 ## Navigation cube
 
 ![Navigation cube](../images/navigation-cube.png)

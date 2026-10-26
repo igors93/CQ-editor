@@ -281,6 +281,7 @@ fn fs_background(in: BackgroundOut) -> @location(0) vec4<f32> {
 struct MeshIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) face_color: u32,
 };
 
 struct MeshOut {
@@ -289,6 +290,7 @@ struct MeshOut {
     @location(1) normal: vec3<f32>,
     // In the part's own frame, for the wood grain.
     @location(2) local: vec3<f32>,
+    @location(3) @interpolate(flat) face_color: u32,
 };
 
 @vertex
@@ -300,6 +302,7 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
     let rotation = mat3x3<f32>(object.model[0].xyz, object.model[1].xyz, object.model[2].xyz);
     out.normal = rotation * in.normal;
     out.local = in.position;
+    out.face_color = in.face_color;
     return out;
 }
 
@@ -318,6 +321,14 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     }
     let n = facing_normal(in.normal, in.world);
     var color = object.face_color.rgb;
+    if (in.face_color != 0u) {
+        let srgb = vec3<f32>(
+            f32(in.face_color & 255u),
+            f32((in.face_color >> 8u) & 255u),
+            f32((in.face_color >> 16u) & 255u),
+        ) / 255.0;
+        color = select(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3<f32>(2.4)), srgb > vec3<f32>(0.04045));
+    }
     if (object.surface.x > 1.5) {
         color = wood(in.local, color);
     }

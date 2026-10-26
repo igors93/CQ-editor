@@ -883,6 +883,36 @@ fn materials_change_how_faces_are_shaded_on_the_gpu() {
 }
 
 #[test]
+fn annotated_face_color_overrides_the_part_color_on_the_gpu() {
+    with_gpu(|renderer| {
+        let style = Style {
+            face_color: [0.3, 0.3, 0.3, 1.0],
+            ..red()
+        };
+        let plain = render_placed(
+            renderer,
+            cube(1.0),
+            Mat4::IDENTITY,
+            StandardView::Front,
+            style,
+        );
+        let mut painted = cube(1.0);
+        painted.vertex_colors = vec![0xff00_00ff; painted.positions.len()];
+        let colored = render_placed(
+            renderer,
+            painted,
+            Mat4::IDENTITY,
+            StandardView::Front,
+            style,
+        );
+        let plain = plain.at(CENTER, CENTER);
+        let colored = colored.at(CENTER, CENTER);
+        assert_ne!(plain, colored);
+        assert!(colored[0] > colored[1] + 50);
+    });
+}
+
+#[test]
 fn a_ground_shadow_darkens_the_floor_around_the_model_on_the_gpu() {
     use crate::viewer::shadow::GroundShadow;
     with_gpu(|renderer| {

@@ -79,8 +79,8 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | --- | --- |
 | `Workplane`, `Shape`, `Sketch`, `Assembly` display, nested assemblies, instancing | ✅ Shown, picked, measured |
 | Free-function API (`cadquery.func`: `box`, `extrude`, `loft`, `sweep`, `fillet`, `offset`, `text`, `imprint`, `split`, `fill`, `cap`, `check`, `closest`…) | Usable in scripts; no snippets or help of its own |
-| Per-face names, colors and layers (`Assembly.addSubshape`) | ❌ Ignored by the view ([REQ-07](#req-07--show-everything-the-cadquery-api-can-specify)) |
-| Materials (`cq.Material`: name, density, visual material) | ❌ Ignored |
+| Per-face names, colors and layers (`Assembly.addSubshape`) | ✅ Drawn and shown when picking ([REQ-07](#req-07--show-everything-the-cadquery-api-can-specify)) |
+| Materials (`cq.Material`: name, density, visual material) | ✅ Name, density, supported visual base color and measured mass |
 | Assembly constraints (`constrain`, `solve`, casadi) and sketch constraints (nlopt) | Only the solved result is shown |
 | Assembly export: STEP (default or fused), OCAF XBF/XML, glTF/GLB, VRML, VTK.js, STL | STEP, only when one assembly is exported alone |
 | Shape export: STEP, STL, BREP, 3MF, AMF, SVG and DXF (2D), VRML, VTP, TJS, BIN | STEP, STL, BREP |
@@ -386,7 +386,7 @@ the code**.
 | ✅ | [REQ-04](#req-04--exports-keep-what-the-code-built) | Exports keep what the code built | BUG-37 | P1 |
 | ✅ | [REQ-05](#req-05--units-reach-the-exported-files) | Units reach the exported files | | P2 |
 | ✅ | [REQ-06](#req-06--geometry-is-validated-before-it-leaves) | Geometry is validated before it leaves | | P2 |
-| | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
+| ✅ | [REQ-07](#req-07--show-everything-the-cadquery-api-can-specify) | Show everything the CadQuery API can specify | | P2 |
 | | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
 | | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
 | | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
@@ -558,6 +558,13 @@ density to measurements (see [SUG-10](#3-suggested-improvements)).
 **How it helps the code.** `MeshTopology` gains attributes per face rather
 than one color per part. The same structure later carries PMI and
 inspection highlights.
+
+**Progress.** Done. Assembly face names, layers and colors travel with each
+part instance, independent of the shared mesh. The viewer shades named faces
+with their own color, and picking and measurements show the name and layer.
+Copy as code uses a unique assembly face name when available. Assembly
+materials carry their physical density to exact mass measurements, and their
+visual base color to the part when specified. The protocol is version 9.
 
 ### REQ-08 · Debugging and profiling cover the whole project
 

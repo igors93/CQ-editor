@@ -87,6 +87,7 @@ impl AppState {
                 }
                 let entity = selection.entity;
                 let node = selection.node.clone();
+                let part_index = selection.part;
                 if self.scene.select_topology(selection, extend) {
                     let count = self.scene.topology_selections.len();
                     if count == 0 {
@@ -96,13 +97,24 @@ impl AppState {
                             .scene
                             .find(&node)
                             .map_or(node.as_str(), |node| node.name.as_str());
+                        let entity_label = self
+                            .scene
+                            .find(&node)
+                            .and_then(|scene_node| scene_node.parts.get(part_index))
+                            .and_then(|part| {
+                                part.face_attributes.iter().find(|face| {
+                                    entity.kind() == "Face" && face.id == entity.identifier()
+                                })
+                            })
+                            .and_then(|face| face.name.clone())
+                            .unwrap_or_else(|| {
+                                format!("{} {}", entity.kind(), entity.identifier())
+                            });
                         let plural = if count == 1 { "entity" } else { "entities" };
                         self.set_status(
                             StatusKind::Info,
                             format!(
-                                "Selected {} {} of {name} · {count} {plural} selected",
-                                entity.kind(),
-                                entity.identifier()
+                                "Selected {entity_label} of {name} · {count} {plural} selected"
                             ),
                         );
                     }

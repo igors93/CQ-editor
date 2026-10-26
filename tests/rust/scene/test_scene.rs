@@ -11,6 +11,9 @@ fn node(key: &str, name: &str, children: Vec<SceneNode>) -> SceneNode {
             transform: Mat4::IDENTITY,
             color: None,
             alpha: None,
+            face_attributes: Vec::new(),
+            material: None,
+            render_mesh: None,
         }],
         children,
         visible: true,
@@ -368,6 +371,8 @@ fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::Sc
             transform: transform.to_cols_array(),
             color: None,
             alpha: None,
+            face_attributes: Vec::new(),
+            material: None,
         }],
         children: Vec::new(),
     }
@@ -410,6 +415,46 @@ fn content_addressed_mesh_references_reuse_cpu_geometry() {
     ));
     assert_eq!(second[0].own_bounds().min.x, 10.0);
     assert_eq!(second[0].own_bounds().max.x, 11.0);
+}
+
+#[test]
+fn face_colors_are_instance_local_and_preserve_picking_geometry() {
+    let mut scene = Scene::default();
+    let mut first = worker_node("first", triangle_mesh("shared"), Mat4::IDENTITY);
+    first.parts[0].mesh.topology.triangle_faces = vec![1];
+    first.parts[0].face_attributes = vec![protocol::FaceAttribute {
+        id: 1,
+        name: Some("painted".into()),
+        layer: Some("finish".into()),
+        color: Some([1.0, 0.0, 0.0]),
+        alpha: Some(1.0),
+    }];
+    let nodes = scene.decode_nodes(None, vec![first]).unwrap();
+    scene.append(nodes, None);
+
+    let mut second = worker_node("second", mesh_reference("shared"), Mat4::IDENTITY);
+    second.parts[0].face_attributes = vec![protocol::FaceAttribute {
+        color: Some([0.0, 1.0, 0.0]),
+        ..scene.nodes[0].parts[0].face_attributes[0].clone()
+    }];
+    let nodes = scene.decode_nodes(None, vec![second]).unwrap();
+    assert!(Arc::ptr_eq(
+        &scene.nodes[0].parts[0].mesh,
+        &nodes[0].parts[0].mesh
+    ));
+    let first_color = scene.nodes[0].parts[0]
+        .render_mesh
+        .as_ref()
+        .unwrap()
+        .vertex_colors[0];
+    let second_color = nodes[0].parts[0]
+        .render_mesh
+        .as_ref()
+        .unwrap()
+        .vertex_colors[0];
+    assert_eq!(first_color, 0xff00_00ff);
+    assert_eq!(second_color, 0xff00_ff00);
+    assert_eq!(scene.nodes[0].parts[0].mesh.indices, vec![0, 1, 2]);
 }
 
 #[test]

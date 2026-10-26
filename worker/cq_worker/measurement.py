@@ -85,7 +85,7 @@ def measure(
             []
             if references
             else [
-                _describe_object(key, shape)
+                _describe_object(registry, key, shape)
                 for key, shape in zip(_object_keys(raw_objects), shapes, strict=True)
             ]
         ),
@@ -206,10 +206,42 @@ def _bounds(*shapes: cq.Shape) -> dict[str, list[float]] | None:
     }
 
 
-def _describe_object(key: str, shape: cq.Shape) -> dict[str, Any]:
+def _material_mass(registry: Registry, key: str) -> tuple[float | None, list[str]]:
+    """Mass in grams from each displayed solid's assigned material."""
+    entry = registry.get(key)
+    masses: list[float] = []
+    names: list[str] = []
+    incomplete = False
+
+    def visit(current) -> None:
+        nonlocal incomplete
+        own = (
+            zip(current.part_shapes, current.part_materials, strict=True)
+            if current.part_shapes
+            else [(current.shape, current.material)]
+        )
+        for shape, material in own:
+            if shape is None or not shape.Solids():
+                continue
+            factors = {"g/cm^3": 0.001, "kg/m^3": 0.000001, "g/mm^3": 1.0}
+            factor = factors.get(material.densityUnit) if material is not None else None
+            if factor is None or not math.isfinite(material.density):
+                incomplete = True
+            else:
+                masses.append(shape.Volume() * material.density * factor)
+                names.append(material.name)
+        for child in current.children:
+            visit(registry.get(child))
+
+    visit(entry)
+    return (sum(masses) if masses and not incomplete else None), sorted(set(names))
+
+
+def _describe_object(registry: Registry, key: str, shape: cq.Shape) -> dict[str, Any]:
     solids = shape.Solids()
     faces = shape.Faces()
     edges = shape.Edges()
+    mass, materials = _material_mass(registry, key)
     return {
         "key": key,
         "shape_type": shape.ShapeType().lower(),
@@ -224,6 +256,8 @@ def _describe_object(key: str, shape: cq.Shape) -> dict[str, Any]:
         "faces": len(faces),
         "edges": len(edges),
         "vertices": len(shape.Vertices()),
+        "mass_g": mass,
+        "materials": materials,
     }
 
 

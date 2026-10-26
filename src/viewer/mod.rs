@@ -1202,9 +1202,13 @@ impl Viewer {
                     finish,
                 };
                 let transform = scene.part_transform(part);
-                let mut mesh = &part.mesh;
+                let mut mesh = if node.overrides.color.is_some() {
+                    &part.mesh
+                } else {
+                    part.render_mesh.as_ref().unwrap_or(&part.mesh)
+                };
                 let mut style = self.display_mode.style(look, settings, input.rendering);
-                if simplify && !selected && !hovered {
+                if simplify && !selected && !hovered && part.render_mesh.is_none() {
                     let bounds = part.mesh.bounds.transformed(transform);
                     let size =
                         culling::projected_size(&self.camera, self.view_px[1] as f32, bounds);

@@ -24,6 +24,32 @@ def test_to_compound_applies_sketch_placement():
     assert face.normalAt().toTuple() == pytest.approx((0, -1, 0))
 
 
+def test_assembly_face_attributes_and_material_follow_instances():
+    shape = cq.Workplane().box(10, 10, 10).val()
+    material = cq.Material("Aluminium", density=2.7)
+    child = cq.Assembly(shape, name="block", material=material)
+    child.addSubshape(
+        shape.Faces()[0], name="top face", color=cq.Color("red"), layer="finish"
+    )
+    root = cq.Assembly(name="root")
+    root.add(child, name="first")
+    root.add(child, name="second", loc=cq.Location((20, 0, 0)))
+    registry = Registry()
+    scene = SceneBuilder(registry, Tolerance()).build({"result": ShownObject(root)})
+    first, second = scene[0]["children"]
+    for node in (first, second):
+        part = node["parts"][0]
+        assert part["face_attributes"][0]["name"] == "top face"
+        assert part["face_attributes"][0]["layer"] == "finish"
+        assert part["face_attributes"][0]["color"] == pytest.approx([1, 0, 0])
+        assert part["material"] == {
+            "name": "Aluminium",
+            "density": 2.7,
+            "density_unit": "g/cm^3",
+        }
+        assert registry.get(node["key"]).material.name == "Aluminium"
+
+
 def test_to_compound_empty_list():
     # #600: an empty list must give an empty compound instead of raising.
     result = to_compound([])

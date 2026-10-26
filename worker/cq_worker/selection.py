@@ -282,10 +282,17 @@ def selector_candidates(registry: Registry, raw_selections: Any) -> dict[str, An
             candidates.append(fallback)
     if not candidates:
         raise SelectorError("No selector selects exactly these entities")
-    return {
-        "method": receiver.method,
-        "candidates": [c.to_message(receiver.method) for c in candidates],
-    }
+    messages = [c.to_message(receiver.method) for c in candidates]
+    if first.kind == "face" and len(references) == 1:
+        attribute = next(
+            (a for a in entry.face_attributes if a["id"] == first.identifier), None
+        )
+        if attribute is not None and attribute.get("name"):
+            for candidate in messages:
+                candidate["description"] = (
+                    f"{attribute['name']} · {candidate['description']}"
+                )
+    return {"method": receiver.method, "candidates": messages}
 
 
 # -- simple selectors ------------------------------------------------------------

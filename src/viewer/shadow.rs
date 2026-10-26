@@ -14,7 +14,7 @@ use eframe::egui_wgpu::wgpu;
 use glam::camera::rh::{proj::directx, view};
 use glam::{Mat4, Vec3};
 
-use super::renderer::{DrawItem, Layer};
+use super::renderer::{DrawItem, Layer, MeshVertex};
 use crate::scene::Aabb;
 
 /// Side of the occlusion textures, in texels.
@@ -278,9 +278,9 @@ impl ShadowPass {
             dst_factor: wgpu::BlendFactor::One,
             operation: wgpu::BlendOperation::Max,
         };
-        // Positions of the scene's interleaved vertices (position, normal).
+        // Positions of the scene's interleaved vertices.
         let positions = [Some(wgpu::VertexBufferLayout {
-            array_stride: 24,
+            array_stride: size_of::<MeshVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Float32x3],
         })];

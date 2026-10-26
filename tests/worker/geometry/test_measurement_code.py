@@ -91,6 +91,32 @@ def test_assembly_parts_are_placed_where_the_assembly_puts_them(shown):
     assert body(pin["code"])[0].endswith(".val().moved(cq.Location((30, 0, 0)))")
 
 
+def test_named_assembly_face_is_referenced_by_its_script_name():
+    script = """\
+block = cq.Workplane().box(10, 10, 10)
+model = cq.Assembly(block, name='block')
+model.addSubshape(block.faces('>Z').val(), name='lid', color=cq.Color('red'), layer='finish')
+show_object(model)
+"""
+    execution = Execution(script, None, RunSettings())
+    assert execution.run(), execution.error
+    registry = Registry()
+    (node,) = SceneBuilder(registry, Tolerance()).build(execution.shown)
+    (attribute,) = node["parts"][0]["face_attributes"]
+
+    result = measurement_code(
+        registry,
+        dict(execution.namespace),
+        [entity(node["key"], "face", attribute["id"])],
+    )
+
+    assert result["verified"], result["problem"]
+    assert "name == 'lid'" in result["code"]
+    scope = dict(execution.namespace)
+    exec(result["code"], scope)
+    assert scope["area_1"] == pytest.approx(100)
+
+
 def test_objects_are_measured_whole(shown):
     registry, namespace, (plate, assembly) = shown
     result = measurement_code(registry, namespace, [], [plate["key"], assembly["key"]])

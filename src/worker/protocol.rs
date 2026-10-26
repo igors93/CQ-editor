@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 pub type RequestId = u64;
 
@@ -767,6 +767,10 @@ pub struct ObjectMeasurement {
     pub faces: usize,
     pub edges: usize,
     pub vertices: usize,
+    #[serde(default)]
+    pub mass_g: Option<f64>,
+    #[serde(default)]
+    pub materials: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -851,6 +855,25 @@ pub struct Part {
     pub transform: [f32; 16],
     pub color: Option<[f32; 3]>,
     pub alpha: Option<f32>,
+    #[serde(default)]
+    pub face_attributes: Vec<FaceAttribute>,
+    pub material: Option<Material>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct FaceAttribute {
+    pub id: u32,
+    pub name: Option<String>,
+    pub layer: Option<String>,
+    pub color: Option<[f32; 3]>,
+    pub alpha: Option<f32>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct Material {
+    pub name: String,
+    pub density: f64,
+    pub density_unit: String,
 }
 
 /// Triangulated geometry, already decoded.
