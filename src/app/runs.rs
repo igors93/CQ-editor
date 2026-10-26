@@ -112,7 +112,11 @@ impl AppState {
         editor.sync_markers(&document.text);
         let script = document.text.clone();
         let path = document.path().map(|p| p.display().to_string());
-        let breakpoints = editor.breakpoints.iter().copied().collect();
+        let (breakpoints, module_breakpoints) = self.open_breakpoints(target);
+        let project_root = self
+            .project
+            .as_ref()
+            .map(|project| project.root().display().to_string());
         let id = self.worker.next_id();
         // Pinned, so a debugging session may reference them even after it
         // clears the view below.
@@ -131,6 +135,8 @@ impl AppState {
             path,
             debug,
             breakpoints,
+            project_root,
+            module_breakpoints,
             settings: self.settings.run_settings(),
             scene: self.settings.scene_settings(),
             known_geometry,
@@ -142,9 +148,7 @@ impl AppState {
         }
         self.execution.started(id, debug);
         // The times of an earlier profile no longer describe the script.
-        if let Some((_, editor)) = self.open_mut(target) {
-            editor.line_profile.clear();
-        }
+        self.clear_line_profiles();
         if profile {
             self.set_status(StatusKind::Info, "Profiling…");
         }
@@ -322,18 +326,20 @@ impl AppState {
             return;
         };
         let target = self.run_document(id);
-        let breakpoints = match self.open_mut(target) {
-            Some((document, editor)) => {
-                editor.sync_markers(&document.text);
-                editor.breakpoints.iter().copied().collect()
-            }
-            None => Vec::new(),
-        };
-        self.worker.send(&Request::Debug {
+        let (breakpoints, module_breakpoints) = self.open_breakpoints(target);
+        let sent = self.worker.send(&Request::Debug {
             action,
             breakpoints,
+            module_breakpoints,
         });
         self.clear_debug_lines();
+        if !sent {
+            self.execution.ended(id);
+            self.set_status(
+                StatusKind::Warning,
+                "The debugging session ended when Python disconnected",
+            );
+        }
     }
 
     pub(super) fn stop_debugging(&mut self) {
@@ -398,38 +404,70 @@ impl AppState {
         else {
             return;
         };
-        let mut lines: BTreeMap<usize, LineTiming> = profile
-            .lines
-            .iter()
-            .map(|line| {
-                let timing = LineTiming {
+        let mut by_file: BTreeMap<Option<String>, BTreeMap<usize, LineTiming>> = BTreeMap::new();
+        for line in profile.lines {
+            by_file.entry(line.file).or_default().insert(
+                line.line,
+                LineTiming {
                     seconds: line.seconds,
                     hits: line.hits,
                     operations: Vec::new(),
-                };
-                (line.line, timing)
-            })
-            .collect();
+                },
+            );
+        }
         for operation in profile.operations {
-            if let Some(timing) = lines.get_mut(&operation.line) {
+            if let Some(timing) = by_file
+                .get_mut(&operation.file)
+                .and_then(|lines| lines.get_mut(&operation.line))
+            {
                 timing
                     .operations
                     .push((operation.name, operation.seconds, operation.calls));
             }
         }
-        let Some((document, editor)) = self.open_mut(target) else {
-            return;
-        };
-        editor.set_line_profile(lines, &run_text, &document.text);
-        // On the lines of the document as it is now.
-        let slowest = editor
-            .line_profile
-            .iter()
-            .max_by(|a, b| a.1.seconds.total_cmp(&b.1.seconds))
-            .map(|(line, timing)| (*line, timing.seconds));
-        if let Some((line, seconds)) = slowest {
+        let mut slowest: Option<(String, usize, f64)> = None;
+        for (file, lines) in by_file {
+            let generation = match file.as_deref() {
+                Some(path) => self.find_open(std::path::Path::new(path)),
+                None => Some(target),
+            };
+            let Some(generation) = generation else {
+                continue;
+            };
+            let source = match file.as_deref() {
+                Some(path) => profile
+                    .sources
+                    .get(path)
+                    .cloned()
+                    .or_else(|| std::fs::read_to_string(path).ok()),
+                None => Some(run_text.clone()),
+            };
+            let Some((document, editor)) = self.open_mut(generation) else {
+                continue;
+            };
+            let source = source.unwrap_or_else(|| document.text.clone());
+            editor.set_line_profile(lines, &source, &document.text);
+            if let Some((line, timing)) = editor
+                .line_profile
+                .iter()
+                .max_by(|a, b| a.1.seconds.total_cmp(&b.1.seconds))
+                && slowest
+                    .as_ref()
+                    .is_none_or(|(_, _, seconds)| timing.seconds > *seconds)
+            {
+                let label = file
+                    .as_deref()
+                    .and_then(|path| std::path::Path::new(path).file_name())
+                    .map_or_else(
+                        || document.display_name(),
+                        |name| name.to_string_lossy().into_owned(),
+                    );
+                slowest = Some((label, *line, timing.seconds));
+            }
+        }
+        if let Some((file, line, seconds)) = slowest {
             let text = format!(
-                "Profiled: the slowest line is {line} ({}); times are in the gutter",
+                "Profiled: the slowest line is {file}:{line} ({}); times are in the gutters",
                 format_seconds(seconds)
             );
             self.set_status(StatusKind::Success, text);

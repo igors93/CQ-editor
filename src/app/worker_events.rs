@@ -222,6 +222,7 @@ impl AppState {
             Message::DebugPaused {
                 id,
                 line,
+                path,
                 variables,
                 objects,
             } => {
@@ -231,9 +232,14 @@ impl AppState {
                     self.debug_command(DebugAction::Stop);
                     return;
                 }
-                // The paused script is shown, in whichever tab it is.
-                let target = self.run_document(id);
-                self.activate(target);
+                // Show the frame's document, including an imported module.
+                self.clear_debug_lines();
+                if let Some(path) = path.as_deref() {
+                    self.open_path_at(std::path::Path::new(path), line);
+                } else {
+                    let target = self.run_document(id);
+                    self.activate(target);
+                }
                 self.editor.set_debug_line(Some(line));
                 self.variables = variables;
                 let Some(mut nodes) = self.decode_scene_nodes(Some(id), objects) else {
@@ -246,7 +252,13 @@ impl AppState {
                 self.measurements.clear();
                 self.selector.clear();
                 self.refresh_inspector();
-                self.set_status(StatusKind::Info, format!("Paused at line {line}"));
+                let file = path
+                    .as_deref()
+                    .and_then(|p| std::path::Path::new(p).file_name())
+                    .map_or(String::new(), |name| {
+                        format!("{}: ", name.to_string_lossy())
+                    });
+                self.set_status(StatusKind::Info, format!("Paused at {file}line {line}"));
             }
             Message::Completions {
                 id,

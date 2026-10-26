@@ -38,10 +38,11 @@ fn serializes_requests_with_command_tags() {
     let request = Request::Debug {
         action: DebugAction::StepIn,
         breakpoints: vec![3],
+        module_breakpoints: [("/project/helper.py".into(), vec![7])].into(),
     };
     assert_eq!(
         serde_json::to_string(&request).unwrap(),
-        r#"{"cmd":"debug","action":"step_in","breakpoints":[3]}"#
+        r#"{"cmd":"debug","action":"step_in","breakpoints":[3],"module_breakpoints":{"/project/helper.py":[7]}}"#
     );
     assert_eq!(
         serde_json::to_string(&Request::Shutdown).unwrap(),
@@ -144,6 +145,8 @@ fn serializes_run_request_with_worker_settings() {
         path: None,
         debug: false,
         breakpoints: vec![4],
+        project_root: Some("/project".into()),
+        module_breakpoints: [("/project/helper.py".into(), vec![7])].into(),
         settings: RunSettings {
             reload_cq: false,
             add_script_dir_to_path: true,
@@ -163,6 +166,11 @@ fn serializes_run_request_with_worker_settings() {
     assert_eq!(json["cmd"], "run");
     assert_eq!(json["id"], 9);
     assert_eq!(json["path"], serde_json::Value::Null);
+    assert_eq!(json["project_root"], "/project");
+    assert_eq!(
+        json["module_breakpoints"]["/project/helper.py"],
+        serde_json::json!([7])
+    );
     assert_eq!(json["breakpoints"], serde_json::json!([4]));
     assert_eq!(json["settings"]["add_script_dir_to_path"], true);
     assert_eq!(json["scene"]["linear_tolerance"], 0.001);
@@ -535,6 +543,7 @@ fn profiles_cross_the_protocol() {
     assert_eq!(
         profile.lines,
         [LineTime {
+            file: None,
             line: 2,
             seconds: 1.5,
             hits: 3

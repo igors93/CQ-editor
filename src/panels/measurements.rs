@@ -237,10 +237,10 @@ fn entity_ui(ui: &mut egui::Ui, state: &AppState, entity: &EntityMeasurement, nu
         .spacing([12.0, 4.0])
         .show(ui, |ui| {
             row(ui, "Geometry", &title_case(&entity.geometry_type));
-            if let Some(face) = attribute {
-                if let Some(layer) = &face.layer {
-                    row(ui, "Layer", layer);
-                }
+            if let Some(face) = attribute
+                && let Some(layer) = &face.layer
+            {
+                row(ui, "Layer", layer);
             }
             row(ui, "Part", &(entity.part + 1).to_string());
             row(ui, "Center", &format_point(entity.center));

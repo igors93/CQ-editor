@@ -234,18 +234,24 @@ class Server:
             RunSettings.from_message(request.get("settings")),
         )
         debug = bool(request.get("debug"))
+        path = request.get("path")
+        project_root = request.get("project_root") or (
+            os.path.dirname(os.path.abspath(path)) if path else None
+        )
         executor = None
         if debug:
             self._debugger = Debugger(
                 SCRIPT_FILENAME,
                 request.get("breakpoints", []),
                 lambda frame: self._pause(frame, execution, builder),
+                project_root,
+                request.get("module_breakpoints", {}),
             )
             executor = self._debugger.run
         # The debugger traces the script itself; it cannot be profiled too.
         profiler = None
         if request.get("profile") and not debug:
-            profiler = LineProfiler(SCRIPT_FILENAME)
+            profiler = LineProfiler(SCRIPT_FILENAME, project_root)
             executor = profiler.run
 
         started = time.perf_counter()
@@ -332,6 +338,11 @@ class Server:
                 "type": "debug_paused",
                 "id": self.channel.current_id,
                 "line": frame.f_lineno,
+                "path": (
+                    self._debugger.source_path(frame)
+                    if frame.f_code.co_filename != SCRIPT_FILENAME
+                    else None
+                ),
                 "variables": describe_variables(local_names, hidden),
                 "objects": builder.build(find_cq_objects(local_names)),
             }
@@ -346,7 +357,9 @@ class Server:
             command = request.get("cmd")
             if command == "debug":
                 if "breakpoints" in request and self._debugger is not None:
-                    self._debugger.breakpoints = set(request["breakpoints"])
+                    self._debugger.set_breakpoints(
+                        request["breakpoints"], request.get("module_breakpoints", {})
+                    )
                 return Action(request.get("action", "continue"))
             if command == "shutdown":
                 sys.exit(0)

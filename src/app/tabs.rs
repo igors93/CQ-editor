@@ -8,6 +8,7 @@
 //! its own editor (caret, scrolling, undo history, breakpoints), until they
 //! are shown again.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{AppState, StatusKind};
@@ -135,6 +136,47 @@ impl AppState {
     fn editors_mut(&mut self) -> impl Iterator<Item = &mut CodeEditor> {
         std::iter::once(&mut self.editor)
             .chain(self.tabs.parked.iter_mut().map(|parked| &mut parked.editor))
+    }
+
+    /// Current breakpoints of the run target and every open project module.
+    /// Each editor syncs markers before reporting line numbers.
+    pub(super) fn open_breakpoints(
+        &mut self,
+        target: u64,
+    ) -> (Vec<usize>, BTreeMap<String, Vec<usize>>) {
+        let Some((document, editor)) = self.open_mut(target) else {
+            return (Vec::new(), BTreeMap::new());
+        };
+        editor.sync_markers(&document.text);
+        let main_path = document.path().map(Path::to_path_buf);
+        let main = editor.breakpoints.iter().copied().collect();
+        let mut modules = BTreeMap::new();
+        let mut add = |document: &Document, editor: &mut CodeEditor| {
+            let Some(path) = document.path() else { return };
+            if main_path.as_deref() == Some(path) {
+                return;
+            }
+            editor.sync_markers(&document.text);
+            modules.insert(
+                path.display().to_string(),
+                editor.breakpoints.iter().copied().collect(),
+            );
+        };
+        if target != self.document_generation {
+            add(&self.document, &mut self.editor);
+        }
+        for parked in &mut self.tabs.parked {
+            if parked.generation != target {
+                add(&parked.document, &mut parked.editor);
+            }
+        }
+        (main, modules)
+    }
+
+    pub(super) fn clear_line_profiles(&mut self) {
+        for editor in self.editors_mut() {
+            editor.line_profile.clear();
+        }
     }
 
     pub fn any_modified(&self) -> bool {
@@ -332,8 +374,11 @@ impl AppState {
             let saved = editor.saved_breakpoints(&document.text);
             self.settings.remember_breakpoints(&path, saved);
         }
+        let paused_here = self
+            .open_mut(generation)
+            .is_some_and(|(_, editor)| editor.debug_line.is_some());
         if self.is_debugging()
-            && self.running_document() == Some(generation)
+            && (self.running_document() == Some(generation) || paused_here)
             && self.execution.abandon()
         {
             self.debug_command(DebugAction::Stop);

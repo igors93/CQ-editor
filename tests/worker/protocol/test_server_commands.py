@@ -254,6 +254,35 @@ def test_console_requests_are_blocked_while_debugger_is_paused(conversation):
     assert talk.of_type("run_finished")[0]["ok"]
 
 
+def test_debug_pause_identifies_the_project_module(conversation, tmp_path):
+    module = tmp_path / "module_req08.py"
+    module.write_text("def work():\n    result = 7\n    return result\n")
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 1,
+            "script": "import module_req08\nx = module_req08.work()\n",
+            "path": str(tmp_path / "main.py"),
+            "project_root": str(tmp_path),
+            "debug": True,
+            "breakpoints": [],
+            "module_breakpoints": {str(module): [2]},
+        },
+        {
+            "cmd": "debug",
+            "action": "continue",
+            "breakpoints": [],
+            "module_breakpoints": {},
+        },
+    )
+    talk.serve()
+
+    (pause,) = talk.of_type("debug_paused")
+    assert pause["path"].lower() == str(module).lower()
+    assert pause["line"] == 2
+    assert talk.of_type("run_finished")[0]["ok"]
+
+
 def test_brep_export_writes_a_nonempty_file(conversation, tmp_path):
     path = tmp_path / "model.brep"
     talk = conversation(

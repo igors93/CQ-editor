@@ -1,5 +1,6 @@
 """Per-line profiling of script runs."""
 
+import os
 import sys
 import textwrap
 
@@ -103,3 +104,20 @@ def test_profiling_is_part_of_a_run_on_request(conversation):
     assert plain["profile"] is None
     # The debugger traces the script itself: it is not profiled too.
     assert debugged["profile"] is None
+
+
+def test_project_module_lines_have_paths_and_source_snapshots(tmp_path):
+    module = tmp_path / "timed_helper_req08.py"
+    module.write_text("def work(value):\n    result = value * 2\n    return result\n")
+    execution = Execution(
+        "import timed_helper_req08\nanswer = timed_helper_req08.work(4)\n",
+        str(tmp_path / "main.py"),
+        RunSettings(),
+    )
+    profiler = LineProfiler(SCRIPT_FILENAME, str(tmp_path))
+    assert execution.run(profiler.run), execution.error
+    result = profiler.result()
+    path = os.path.normcase(os.path.realpath(module))
+    module_lines = {entry["line"] for entry in result["lines"] if entry["file"] == path}
+    assert {2, 3} <= module_lines
+    assert result["sources"][path] == module.read_text()

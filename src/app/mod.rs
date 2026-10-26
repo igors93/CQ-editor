@@ -487,7 +487,7 @@ impl AppState {
 
             Action::Render => self.start_run(false),
             Action::Profile => self.start_profile(),
-            Action::ClearProfile => self.editor.line_profile.clear(),
+            Action::ClearProfile => self.clear_line_profiles(),
             Action::ToggleDebug => {
                 if self.is_debugging() {
                     self.stop_debugging();

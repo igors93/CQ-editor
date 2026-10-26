@@ -2,6 +2,7 @@ import textwrap
 
 from cq_worker.debugger import Action, Debugger
 from cq_worker.execution import SCRIPT_FILENAME, compile_script
+from cq_worker.execution import Execution, RunSettings
 
 SOURCE = textwrap.dedent("""\
     def helper(x):
@@ -86,3 +87,26 @@ def test_stop_is_not_swallowed_by_the_scripts_exception_handlers():
         raise AssertionError("DebugStop expected")
     assert pauses == [4]
     assert namespace["reached"] == []
+
+
+def test_project_module_breakpoints_pause_and_can_be_updated(tmp_path):
+    module = tmp_path / "helper_req08.py"
+    module.write_text("def work(value):\n    doubled = value * 2\n    return doubled\n")
+    execution = Execution(
+        "import helper_req08\nanswer = helper_req08.work(4)\n",
+        str(tmp_path / "main.py"),
+        RunSettings(),
+    )
+    pauses = []
+
+    def on_pause(frame):
+        pauses.append((frame.f_code.co_filename, frame.f_lineno))
+        debugger.set_breakpoints([], {})
+        return Action.CONTINUE
+
+    debugger = Debugger(
+        SCRIPT_FILENAME, [], on_pause, str(tmp_path), {str(module): [2, 3]}
+    )
+    assert execution.run(debugger.run), execution.error
+    assert pauses == [(str(module), 2)]
+    assert execution.namespace["answer"] == 8

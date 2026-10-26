@@ -223,10 +223,9 @@ fn closing_the_script_paused_in_the_debugger_ends_its_session() {
 
     state.execute(Action::CloseDocument(a));
     assert!(state.document_of(a).is_none());
-    assert!(!state.is_paused(), "the session was told to stop");
     assert!(
-        state.execution.ended(id).stale,
-        "and what it still sends is discarded"
+        !state.is_debugging(),
+        "a disconnected worker leaves no paused session"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

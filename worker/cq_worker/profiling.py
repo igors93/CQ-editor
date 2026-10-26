@@ -1,15 +1,16 @@
 """Per-line profiling of a script run (FEAT-E2).
 
-``sys.settrace`` follows the frames of the editor buffer line by line: the
+``sys.settrace`` follows the editor buffer and project modules line by line: the
 time between two events of a frame goes to the line that was running, with
 everything that line called, so a line's time is all the time it cost. Calls
 from the script straight into CadQuery are also timed, per function, as the
-line's *operations*. Code outside the script is not traced line by line,
+line's *operations*. Code outside the project is not traced line by line,
 which keeps the overhead to one Python call per function call.
 """
 
 from __future__ import annotations
 
+import linecache
 import os
 import sys
 import time
@@ -28,16 +29,54 @@ OPERATIONS_PER_LINE = 8
 class LineProfiler:
     """Runs a script and measures it; :meth:`result` is the profile."""
 
-    def __init__(self, filename: str) -> None:
+    def __init__(self, filename: str, project_root: str | None = None) -> None:
         self.filename = filename
-        #: line -> [seconds, times it started]
-        self._lines: defaultdict[int, list] = defaultdict(lambda: [0.0, 0])
-        #: (line, function) -> [seconds, calls]
-        self._operations: defaultdict[tuple[int, str], list] = defaultdict(
+        self.project_root = (
+            os.path.normcase(os.path.realpath(project_root)) if project_root else None
+        )
+        #: (file, line) -> [seconds, times it started]
+        self._lines: defaultdict[tuple[str, int], list] = defaultdict(lambda: [0.0, 0])
+        #: (file, line, function) -> [seconds, calls]
+        self._operations: defaultdict[tuple[str, int, str], list] = defaultdict(
             lambda: [0.0, 0]
         )
-        #: Script frames being run -> [line, since]
+        #: Script frames being run -> [file, line, since]
         self._running: dict[types.FrameType, list] = {}
+        self._sources: dict[str, str] = {}
+        self._paths: dict[str, str] = {}
+        self._traceable: dict[str, bool] = {}
+
+    def _source_path(self, path: str) -> str:
+        if path not in self._paths:
+            self._paths[path] = (
+                self.filename
+                if path == self.filename
+                else os.path.normcase(os.path.realpath(path))
+            )
+        return self._paths[path]
+
+    def _traced(self, path: str) -> bool:
+        if path in self._traceable:
+            return self._traceable[path]
+        result = self._in_project(path)
+        self._traceable[path] = result
+        return result
+
+    def _in_project(self, path: str) -> bool:
+        if path == self.filename:
+            return True
+        if self.project_root is None:
+            return False
+        try:
+            if os.path.commonpath((self.project_root, path)) != self.project_root:
+                return False
+            for prefix in (sys.prefix, sys.base_prefix, sys.exec_prefix):
+                prefix = os.path.normcase(os.path.realpath(prefix))
+                if os.path.commonpath((prefix, path)) == prefix:
+                    return False
+            return "site-packages" not in path.split(os.sep)
+        except ValueError:
+            return False
 
     def run(self, code: types.CodeType, namespace: dict) -> None:
         """Executes ``code`` like ``exec``, measuring it."""
@@ -50,19 +89,25 @@ class LineProfiler:
             sys.settrace(previous)
             # Frames left without a return event (none in practice).
             now = time.perf_counter()
-            for line, since in self._running.values():
+            for path, line, since in self._running.values():
                 if line is not None:
-                    self._lines[line][0] += now - since
+                    self._lines[(path, line)][0] += now - since
             self._running.clear()
 
     def result(self) -> dict[str, Any]:
         """``lines`` (line, seconds, hits) in line order and, per line, its
         slowest ``operations`` (line, name, seconds, calls)."""
 
-        operations: defaultdict[int, list] = defaultdict(list)
-        for (line, name), (seconds, calls) in self._operations.items():
-            operations[line].append(
-                {"line": line, "name": name, "seconds": seconds, "calls": calls}
+        operations: defaultdict[tuple[str, int], list] = defaultdict(list)
+        for (path, line, name), (seconds, calls) in self._operations.items():
+            operations[(path, line)].append(
+                {
+                    "file": None if path == self.filename else path,
+                    "line": line,
+                    "name": name,
+                    "seconds": seconds,
+                    "calls": calls,
+                }
             )
         slowest = []
         for line in sorted(operations):
@@ -72,11 +117,17 @@ class LineProfiler:
             slowest.extend(ranked[:OPERATIONS_PER_LINE])
         return {
             "lines": [
-                {"line": line, "seconds": seconds, "hits": hits}
-                for line, (seconds, hits) in sorted(self._lines.items())
+                {
+                    "file": None if path == self.filename else path,
+                    "line": line,
+                    "seconds": seconds,
+                    "hits": hits,
+                }
+                for (path, line), (seconds, hits) in sorted(self._lines.items())
                 if hits
             ],
             "operations": slowest,
+            "sources": self._sources,
         }
 
     def _call(self, frame: types.FrameType, event: str, arg: Any):
@@ -85,16 +136,24 @@ class LineProfiler:
         if event != "call":
             return None
         code = frame.f_code
-        if code.co_filename == self.filename:
-            self._running[frame] = [None, time.perf_counter()]
+        path = self._source_path(code.co_filename)
+        if self._traced(path):
+            self._running[frame] = [path, None, time.perf_counter()]
+            if path != self.filename and path not in self._sources:
+                linecache.checkcache(path)
+                source = "".join(linecache.getlines(path))
+                if len(source) <= 2_000_000:
+                    self._sources[path] = source
             return self._line
         caller = frame.f_back
         if (
             caller is not None
-            and caller.f_code.co_filename == self.filename
+            and caller in self._running
             and code.co_filename.startswith(_CADQUERY)
         ):
-            return self._operation(frame, caller.f_lineno, code)
+            return self._operation(
+                frame, self._running[caller][0], caller.f_lineno, code
+            )
         return None
 
     def _line(self, frame: types.FrameType, event: str, arg: Any):
@@ -104,18 +163,20 @@ class LineProfiler:
         running = self._running.get(frame)
         if running is None:
             return self._line
-        line, since = running
+        path, line, since = running
         if line is not None:
-            self._lines[line][0] += now - since
-        running[1] = now
+            self._lines[(path, line)][0] += now - since
+        running[2] = now
         if event == "line":
-            running[0] = frame.f_lineno
-            self._lines[frame.f_lineno][1] += 1
+            running[1] = frame.f_lineno
+            self._lines[(path, frame.f_lineno)][1] += 1
         elif event == "return":
             del self._running[frame]
         return self._line
 
-    def _operation(self, frame: types.FrameType, line: int, code: types.CodeType):
+    def _operation(
+        self, frame: types.FrameType, path: str, line: int, code: types.CodeType
+    ):
         # Its own lines are not followed, only its return.
         frame.f_trace_lines = False
         name = getattr(code, "co_qualname", None)
@@ -128,7 +189,7 @@ class LineProfiler:
 
         def returned(frame: types.FrameType, event: str, arg: Any):
             if event == "return":
-                stats = self._operations[(line, name)]
+                stats = self._operations[(path, line, name)]
                 stats[0] += time.perf_counter() - started
                 stats[1] += 1
             return returned

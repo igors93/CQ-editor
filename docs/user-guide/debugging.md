@@ -41,11 +41,10 @@ The 3D view is cleared when the session starts.
 | Continue | Ctrl+F12 | Run to the next breakpoint, or to the end |
 | Stop Debugging | Ctrl+F5 | End the session |
 
-Only code of the script itself is traced. CadQuery, OpenCascade and imported
-modules run at full speed and are never stepped into. In a project, Debug
-runs the [main script](projects.md#the-main-script) and shows its tab when
-the session pauses; set breakpoints there. Closing the tab of the script
-being debugged, paused or not, stops the session.
+The debugger traces the main script and Python modules inside the project
+folder. Set breakpoints in their tabs; the paused module opens at its line.
+CadQuery and OpenCascade libraries run at full speed. Closing the tab of the
+script being debugged, or the module currently paused, ends the session.
 
 When the session ends, normally or with *Stop Debugging*, the view shows
 what the script displayed, or the CadQuery objects that existed when it

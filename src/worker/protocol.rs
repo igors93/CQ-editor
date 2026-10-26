@@ -5,13 +5,14 @@
 //! little-endian binary and are decoded on the reader thread, off the UI
 //! thread.
 
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 pub type RequestId = u64;
 
@@ -24,6 +25,8 @@ pub enum Request {
         path: Option<String>,
         debug: bool,
         breakpoints: Vec<usize>,
+        project_root: Option<String>,
+        module_breakpoints: BTreeMap<String, Vec<usize>>,
         settings: RunSettings,
         scene: SceneSettings,
         /// Content-addressed meshes the GUI holds and pins for this request.
@@ -36,6 +39,7 @@ pub enum Request {
     Debug {
         action: DebugAction,
         breakpoints: Vec<usize>,
+        module_breakpoints: BTreeMap<String, Vec<usize>>,
     },
     /// Scene keys the GUI no longer shows; lets the worker free them.
     Release {
@@ -296,6 +300,7 @@ pub enum Message {
     DebugPaused {
         id: RequestId,
         line: usize,
+        path: Option<String>,
         variables: Vec<Variable>,
         objects: Vec<SceneNode>,
     },
@@ -548,10 +553,13 @@ pub struct RunProfile {
     pub lines: Vec<LineTime>,
     /// The slowest calls of each line, slowest first.
     pub operations: Vec<OperationTime>,
+    pub sources: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct LineTime {
+    #[serde(default)]
+    pub file: Option<String>,
     /// 1-based.
     pub line: usize,
     pub seconds: f64,
@@ -561,6 +569,8 @@ pub struct LineTime {
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct OperationTime {
+    #[serde(default)]
+    pub file: Option<String>,
     pub line: usize,
     /// For example `Workplane.fillet`.
     pub name: String,

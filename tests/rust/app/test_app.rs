@@ -624,13 +624,122 @@ fn a_profiled_run_puts_its_times_in_the_gutter_of_the_edited_script() {
     assert_eq!(state.editor.line_profile[&3].seconds, 1.001);
     let status = state.status.as_ref().unwrap();
     assert!(
-        status.text.contains("slowest line is 3 (1.0 s)"),
+        status.text.contains("slowest line is untitled:3 (1.0 s)"),
         "{}",
         status.text
     );
 
     state.execute(Action::ClearProfile);
     assert!(state.editor.line_profile.is_empty());
+}
+
+#[test]
+fn a_pause_in_a_module_opens_its_tab_and_closing_it_ends_debugging() {
+    let dir = std::env::temp_dir().join(format!("cq-editor-debug-modules-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = dir.join("main.py");
+    let module = dir.join("helper.py");
+    std::fs::write(&main, "import helper\nhelper.work()\n").unwrap();
+    std::fs::write(&module, "def work():\n    return 4\n").unwrap();
+    let mut state = test_state("");
+    state.open_path(&main);
+    let main_generation = state.document_generation;
+    state.open_path(&module);
+    let module_generation = state.document_generation;
+    state.editor.breakpoints.insert(2);
+    state.activate(main_generation);
+    let (main_breaks, modules) = state.open_breakpoints(main_generation);
+    assert!(main_breaks.is_empty());
+    assert_eq!(modules[&module.display().to_string()], [2]);
+
+    state.execution.started(17, true);
+    state.run_script = Some((
+        17,
+        std::sync::Arc::new(crate::scene::RunScript {
+            document: main_generation,
+            text: state.document.text.clone(),
+        }),
+    ));
+    let message: crate::worker::protocol::Message = serde_json::from_value(serde_json::json!({
+        "type": "debug_paused", "id": 17, "line": 2,
+        "path": module.display().to_string(), "variables": [], "objects": []
+    }))
+    .unwrap();
+    state.handle_message(message);
+    assert_eq!(state.document_generation, module_generation);
+    assert_eq!(state.editor.debug_line, Some(2));
+    state.close_now(module_generation);
+    assert!(!state.is_debugging());
+    assert_eq!(state.document_generation, main_generation);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn closing_the_paused_run_document_ends_the_session() {
+    let mut state = test_state("a = 1\n");
+    state.execution.started(19, true);
+    state.run_script = Some((
+        19,
+        std::sync::Arc::new(crate::scene::RunScript {
+            document: state.document_generation,
+            text: state.document.text.clone(),
+        }),
+    ));
+    assert!(!state.execution.paused(19));
+    state.close_now(state.document_generation);
+    assert!(!state.is_debugging());
+}
+
+#[test]
+fn module_profile_lines_appear_in_the_module_gutter() {
+    let dir =
+        std::env::temp_dir().join(format!("cq-editor-profile-modules-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = dir.join("main.py");
+    let module = dir.join("helper.py");
+    std::fs::write(&main, "import helper\nhelper.work()\n").unwrap();
+    std::fs::write(&module, "def work():\n    return 4\n").unwrap();
+    let mut state = test_state("");
+    state.open_path(&main);
+    let main_generation = state.document_generation;
+    state.open_path(&module);
+    let module_generation = state.document_generation;
+    state.activate(main_generation);
+    state.execution.started(18, false);
+    state.run_script = Some((
+        18,
+        std::sync::Arc::new(crate::scene::RunScript {
+            document: main_generation,
+            text: state.document.text.clone(),
+        }),
+    ));
+    let message: crate::worker::protocol::Message = serde_json::from_value(serde_json::json!({
+        "type": "run_finished", "id": 18, "ok": true, "debug": false, "stopped": false,
+        "objects": [], "variables": [], "error": null, "duration": 0.1,
+        "profile": {"lines": [{"file": module.display().to_string(), "line": 2,
+                   "seconds": 0.1, "hits": 1}], "operations": [],
+                   "sources": {}}
+    }))
+    .unwrap();
+    state.handle_message(message);
+    assert!(
+        state
+            .open_mut(module_generation)
+            .unwrap()
+            .1
+            .line_profile
+            .contains_key(&2)
+    );
+    state.execute(Action::ClearProfile);
+    assert!(
+        state
+            .open_mut(module_generation)
+            .unwrap()
+            .1
+            .line_profile
+            .is_empty()
+    );
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
