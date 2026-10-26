@@ -340,9 +340,10 @@ impl AppState {
         }
     }
 
-    /// The document of the run going on, if any.
+    /// The document of the run going on, if any, also while it is paused
+    /// in the debugger: closing that document ends the session.
     pub(super) fn running_document(&self) -> Option<u64> {
-        let running = self.execution.phase().running_id()?;
+        let running = self.execution.phase().run_id()?;
         self.run_script
             .as_ref()
             .filter(|(id, _)| *id == running)

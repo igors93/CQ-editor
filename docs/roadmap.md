@@ -100,7 +100,7 @@ against the installed packages (CadQuery 2.7.0, OCP 7.8.1):
 | ✅ | [BUG-35](#bug-35--renaming-a-file-only-by-case-replaces-another-file) | Renaming a file only by case replaces another file | P1 |
 | ✅ | [BUG-36](#bug-36--a-closed-editor-panel-never-comes-back) | A closed Editor panel never comes back | P2 |
 | ✅ | [BUG-37](#bug-37--step-export-of-a-sub-assembly-loses-its-placement) | STEP export of a sub-assembly loses its placement | P2 |
-| | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
+| ✅ | [BUG-38](#bug-38--closing-the-tab-of-a-paused-script-leaves-the-debugger-paused) | Closing the tab of a paused script leaves the debugger paused | P2 |
 | | [BUG-39](#bug-39--a-model-too-large-to-transfer-is-reported-as-missing-cadquery) | A model too large to transfer is reported as missing CadQuery | P3 |
 | | [BUG-40](#bug-40--one-invalid-display-option-loses-the-whole-run) | One invalid display option loses the whole run | P3 |
 | ✅ | [BUG-41](#bug-41--the-local-history-depends-on-how-a-path-is-written) | The local history depends on how a path is written | P3 |
@@ -268,6 +268,13 @@ STEP export as an assembly with world placements (see
 [REQ-04](#req-04--exports-keep-what-the-code-built)).
 
 ### BUG-38 · Closing the tab of a paused script leaves the debugger paused
+
+✅ **Resolved.** `Phase::run_id()` names the run whether it is running or
+paused, and `running_document` uses it. Closing the paused script's tab now
+reaches `Execution::abandon`, which sends *Stop* to the debugger and marks
+the run stale, so what it still sends is discarded. Tests:
+`closing_the_script_paused_in_the_debugger_ends_its_session`,
+`a_paused_session_resumes_as_a_running_debug_session`.
 
 *Evidence: test.* **Where:** `src/app/tabs.rs` (`forget_document`,
 `running_document`), `src/app/execution.rs` (`Phase::running_id`).

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Fixed: closing the tab of a script paused in the debugger left the
+  session paused on a document that was gone; it now stops it (BUG-38)
 * Fixed: a part or sub-assembly selected inside an assembly and exported to
   STEP lost the placement of its parents (STL and BREP were right), and
   parts lost the color inherited from their parents, which the view shows

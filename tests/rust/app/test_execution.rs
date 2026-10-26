@@ -112,7 +112,11 @@ fn a_paused_session_resumes_as_a_running_debug_session() {
 
     assert!(!execution.paused(4), "the session of this document");
     assert!(execution.is_paused() && execution.is_debugging());
+    // Paused, the run is not running but still goes on.
+    assert_eq!(execution.phase().running_id(), None);
+    assert_eq!(execution.phase().run_id(), Some(4));
     assert_eq!(execution.resume(), Some(4));
+    assert_eq!(execution.phase().run_id(), Some(4));
     assert_eq!(execution.phase(), Phase::Running { id: 4, debug: true });
     // Only a paused session can be resumed.
     assert_eq!(execution.resume(), None);

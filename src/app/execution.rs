@@ -34,6 +34,14 @@ impl Phase {
             Phase::Idle | Phase::Paused { .. } => None,
         }
     }
+
+    /// The run going on, paused in the debugger or not.
+    pub fn run_id(self) -> Option<RequestId> {
+        match self {
+            Phase::Running { id, .. } | Phase::Paused { id } => Some(id),
+            Phase::Idle => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

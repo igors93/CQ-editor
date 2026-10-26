@@ -203,6 +203,35 @@ fn unmodified_tabs_close_without_a_question() {
 }
 
 #[test]
+fn closing_the_script_paused_in_the_debugger_ends_its_session() {
+    let dir = folder("paused", &[("a.py", "a = 1\nb = 2\n"), ("b.py", "c = 3\n")]);
+    let mut state = state_in(&dir);
+    open(&mut state, &dir.join("a.py"));
+    open(&mut state, &dir.join("b.py"));
+    let a = generation_of(&state, "a.py");
+    let text = state.document_of(a).unwrap().text.clone();
+
+    // A debugging session of a.py, paused at a breakpoint.
+    let id = 7;
+    state.run_script = Some((
+        id,
+        std::sync::Arc::new(crate::scene::RunScript { document: a, text }),
+    ));
+    state.execution.started(id, true);
+    assert!(!state.execution.paused(id));
+    assert!(state.is_paused());
+
+    state.execute(Action::CloseDocument(a));
+    assert!(state.document_of(a).is_none());
+    assert!(!state.is_paused(), "the session was told to stop");
+    assert!(
+        state.execution.ended(id).stale,
+        "and what it still sends is discarded"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn quitting_asks_about_every_modified_tab_at_once() {
     let dir = folder("quit", &[("a.py", "a\n"), ("b.py", "b\n"), ("c.py", "c\n")]);
     let mut state = state_in(&dir);

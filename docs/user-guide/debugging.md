@@ -44,7 +44,8 @@ The 3D view is cleared when the session starts.
 Only code of the script itself is traced. CadQuery, OpenCascade and imported
 modules run at full speed and are never stepped into. In a project, Debug
 runs the [main script](projects.md#the-main-script) and shows its tab when
-the session pauses; set breakpoints there.
+the session pauses; set breakpoints there. Closing the tab of the script
+being debugged, paused or not, stops the session.
 
 When the session ends, normally or with *Stop Debugging*, the view shows
 what the script displayed, or the CadQuery objects that existed when it
