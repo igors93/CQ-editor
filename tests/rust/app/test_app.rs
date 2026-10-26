@@ -139,6 +139,7 @@ fn pick_face(state: &mut AppState) {
         color: None,
         alpha: None,
         edge_color: None,
+        finish: None,
         overrides: Default::default(),
         line: None,
         script: None,

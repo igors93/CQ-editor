@@ -10,6 +10,7 @@ use crate::app::AppState;
 use crate::commands::Action;
 use crate::panels::measurements;
 use crate::scene::{Rgb, SceneNode};
+use crate::settings::Finish;
 use crate::worker::protocol::{EntityMeasurement, ExportFormat, SelectorCandidate};
 
 /// Height the object tree keeps while the property sheet is open.
@@ -468,6 +469,39 @@ fn properties(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>
                             .clicked()
                     {
                         node.overrides.edges = None;
+                    }
+                });
+                ui.end_row();
+
+                ui.label("Material");
+                ui.horizontal(|ui| {
+                    let current = node.finish();
+                    egui::ComboBox::from_id_salt(("finish", key.as_str()))
+                        .selected_text(current.label())
+                        .show_ui(ui, |ui| {
+                            for finish in Finish::ALL {
+                                if ui
+                                    .selectable_label(finish == current, finish.label())
+                                    .clicked()
+                                {
+                                    node.overrides.finish = Some(finish);
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(
+                            "How the faces are shaded: Default is the plain shading of a CAD \
+                             view; the materials have their own gloss, and metals reflect a \
+                             studio around the model. Scripts choose one with \
+                             show_object(..., material=\"matte plastic\")",
+                        );
+                    if node.overrides.finish.is_some()
+                        && ui
+                            .small_button("Reset")
+                            .on_hover_text("Use the script's material")
+                            .clicked()
+                    {
+                        node.overrides.finish = None;
                     }
                 });
                 ui.end_row();

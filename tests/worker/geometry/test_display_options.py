@@ -75,4 +75,30 @@ def test_display_options_message_has_all_fields():
         "color": None,
         "alpha": None,
         "edge_color": None,
+        "finish": None,
     }
+
+
+@pytest.mark.parametrize(
+    ("material", "finish"),
+    [
+        ("matte plastic", "matte_plastic"),
+        ("Glossy-Plastic", "glossy_plastic"),
+        ("brushed_steel", "brushed_steel"),
+        ("  ALUMINIUM ", "aluminum"),
+        ("wood", "wood"),
+        ("default", "default"),
+    ],
+)
+def test_materials_are_named_loosely(material, finish):
+    assert DisplayOptions.parse({"material": material}).finish == finish
+    assert DisplayOptions.parse({"material": material}).to_message()["finish"] == finish
+
+
+@pytest.mark.parametrize("material", ["unobtainium", 3, None])
+def test_an_unknown_material_is_ignored_and_the_rest_applies(material, caplog):
+    parsed = DisplayOptions.parse({"material": material, "color": "red"})
+    assert parsed.finish is None
+    assert parsed.color == pytest.approx((1, 0, 0), abs=1e-3)
+    assert "material" in caplog.text
+    assert parsed.to_message()["finish"] is None

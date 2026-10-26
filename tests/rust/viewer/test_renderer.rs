@@ -211,6 +211,7 @@ fn red() -> Style {
         hidden_edges: false,
         edge_min_angle: 0.0,
         silhouettes: false,
+        surface: [0.0; 4],
     }
 }
 
@@ -224,6 +225,7 @@ fn in_mode(mode: DisplayMode) -> Style {
         has_faces: true,
         emphasized: false,
         edges: None,
+        finish: crate::settings::Finish::Default,
     };
     mode.style(look, &settings, &crate::settings::Rendering::default())
 }
@@ -350,6 +352,7 @@ fn reference_guides_stay_behind_opaque_models_on_the_gpu() {
             hidden_edges: false,
             edge_min_angle: 0.0,
             silhouettes: false,
+            surface: [0.0; 4],
         };
         let mut camera = Camera {
             scene_radius: 4.0,
@@ -655,6 +658,17 @@ fn render_mesh(
     view: StandardView,
     style: Style,
 ) -> Frame {
+    render_placed(renderer, mesh, Mat4::IDENTITY, view, style)
+}
+
+/// `render_mesh` with the mesh placed by `transform`.
+fn render_placed(
+    renderer: &mut SceneRenderer,
+    mesh: Mesh,
+    transform: Mat4,
+    view: StandardView,
+    style: Style,
+) -> Frame {
     let mut camera = Camera {
         scene_radius: 2.0,
         ..Camera::default()
@@ -666,7 +680,7 @@ fn render_mesh(
     });
     let items = [DrawItem {
         mesh: Arc::new(mesh),
-        transform: Mat4::IDENTITY,
+        transform,
         style,
         layer: Layer::Scene,
     }];
@@ -766,6 +780,102 @@ fn curved_surfaces_get_an_outline_on_the_gpu() {
             },
         );
         assert!(dark_columns(&hidden).is_empty());
+    });
+}
+
+/// A ball of `radius` with smooth normals.
+fn ball(radius: f32) -> Mesh {
+    let (rings, segments) = (32u32, 64u32);
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    for ring in 0..=rings {
+        let polar = std::f32::consts::PI * ring as f32 / rings as f32;
+        for segment in 0..=segments {
+            let azimuth = std::f32::consts::TAU * segment as f32 / segments as f32;
+            let normal = [
+                polar.sin() * azimuth.cos(),
+                polar.sin() * azimuth.sin(),
+                polar.cos(),
+            ];
+            positions.push(normal.map(|c| c * radius));
+            normals.push(normal);
+        }
+    }
+    let mut indices = Vec::new();
+    let row = segments + 1;
+    for ring in 0..rings {
+        for segment in 0..segments {
+            let a = ring * row + segment;
+            let (b, c, d) = (a + 1, a + row, a + row + 1);
+            indices.extend([a, c, b, b, c, d]);
+        }
+    }
+    Mesh::new(positions, normals, indices, Vec::new(), Vec::new())
+}
+
+#[test]
+fn materials_change_how_faces_are_shaded_on_the_gpu() {
+    use crate::settings::Finish;
+    with_gpu(|renderer| {
+        // A grey ball of radius 1.2 (38 px), or a 40-unit one drawn as
+        // small, whose wood grain is in its own units.
+        let grey = [0.3, 0.3, 0.3, 1.0];
+        let shade = |renderer: &mut SceneRenderer, finish: Finish, big: bool| {
+            let style = Style {
+                face_color: grey,
+                surface: finish.surface(),
+                ..red()
+            };
+            let (mesh, scale) = if big {
+                (ball(40.0), 0.03)
+            } else {
+                (ball(1.2), 1.0)
+            };
+            let frame = render_placed(
+                renderer,
+                mesh,
+                Mat4::from_scale(Vec3::splat(scale)),
+                StandardView::Front,
+                style,
+            );
+            // The square inside the ball, row by row.
+            (CENTER - 26..CENTER + 26)
+                .flat_map(|y| (CENTER - 26..CENTER + 26).map(move |x| (x, y)))
+                .map(|(x, y)| frame.at(x, y))
+                .collect::<Vec<_>>()
+        };
+        let brightest = |pixels: &[[u8; 4]]| pixels.iter().map(|p| p[1]).max().unwrap();
+        let unevenness = |row: &[[u8; 4]]| {
+            row.windows(2)
+                .map(|pair| u32::from(pair[0][1].abs_diff(pair[1][1])))
+                .sum::<u32>()
+        };
+
+        let matte = shade(renderer, Finish::MattePlastic, false);
+        let glossy = shade(renderer, Finish::GlossyPlastic, false);
+        assert!(
+            brightest(&glossy) > brightest(&matte) + 40,
+            "a glossy highlight: {} vs {}",
+            brightest(&glossy),
+            brightest(&matte)
+        );
+        // A metal reflects the studio around it in its own color.
+        let steel = shade(renderer, Finish::BrushedSteel, false);
+        assert_ne!(steel, matte);
+        // Default stays the plain shading.
+        let plain = shade(renderer, Finish::Default, false);
+        let red_style = in_mode(DisplayMode::Shaded);
+        assert_eq!(red_style.surface, [0.0; 4]);
+        assert_ne!(plain, matte);
+        // Wood has a grain where matte plastic of its color is even.
+        let wood = shade(renderer, Finish::Wood, true);
+        let matte_big = shade(renderer, Finish::MattePlastic, true);
+        assert!(
+            unevenness(&wood) > 2 * unevenness(&matte_big) + 20,
+            "a grain: {} vs {}",
+            unevenness(&wood),
+            unevenness(&matte_big)
+        );
     });
 }
 

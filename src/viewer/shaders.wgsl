@@ -56,6 +56,9 @@ struct Object {
     params: vec4<f32>,
     // x: edges whose faces meet at a smaller angle (degrees) are left out.
     edge_filter: vec4<f32>,
+    // x: shading model (0 plain, 1 physically based, 2 the same with a
+    // wood grain); y: metalness; z: roughness.
+    surface: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -121,6 +124,131 @@ fn lit(base: vec3<f32>, n: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     return finished(base * (levels.z + diffuse) + vec3<f32>(specular + rim));
 }
 
+// The object's shading model: the plain one, or a material.
+fn shaded(base: vec3<f32>, n: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    if (object.surface.x > 0.5) {
+        return lit_material(base, n, world, object.surface.y, object.surface.z);
+    }
+    return lit(base, n, world);
+}
+
+const PI: f32 = 3.14159265;
+
+// GGX distribution of microfacet normals.
+fn ggx(n_dot_h: f32, alpha: f32) -> f32 {
+    let a2 = alpha * alpha;
+    let d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+// Shadowing of microfacets (Smith, with the Schlick approximation).
+fn smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    return n_dot_v / (n_dot_v * (1.0 - k) + k) * n_dot_l / (n_dot_l * (1.0 - k) + k);
+}
+
+fn fresnel(f0: vec3<f32>, cosine: f32) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
+}
+
+// A photo studio around the model, attached to the camera like the lights,
+// for what metals and glossy surfaces reflect: bright above, darker below,
+// a soft box where the key light is. Rough surfaces see it blurred.
+fn studio(direction: vec3<f32>, key: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let height = dot(direction, camera.up.xyz);
+    let sky = mix(0.16, 1.0, smoothstep(-0.4, 0.7, height));
+    let spread = mix(300.0, 4.0, roughness);
+    let softbox = pow(max(dot(direction, key), 0.0), spread) * mix(3.0, 0.3, roughness);
+    return vec3<f32>(mix(sky + softbox, 0.55, roughness * roughness));
+}
+
+// The same lights as the plain shading, for a material of the given
+// metalness and roughness: microfacet highlights (scaled by the Highlights
+// setting, 1 at its default), a diffuse part that metals lack, and
+// reflections of the studio, which the ambient light sets.
+fn lit_material(
+    base: vec3<f32>,
+    n: vec3<f32>,
+    world: vec3<f32>,
+    metallic: f32,
+    roughness: f32,
+) -> vec3<f32> {
+    var to_eye = -camera.forward.xyz;
+    if (camera.eye.w > 0.5) {
+        to_eye = normalize(camera.eye.xyz - world);
+    }
+    let back = -camera.forward.xyz;
+    let key = normalize(
+        camera.key_light.x * camera.right.xyz + camera.key_light.y * camera.up.xyz
+            + camera.key_light.z * back,
+    );
+    let fill = normalize(0.65 * camera.right.xyz - 0.25 * camera.up.xyz + 0.72 * back);
+    let levels = camera.light_levels;
+    let alpha = max(roughness * roughness, 0.002);
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let diffuse = base * (1.0 - metallic);
+    let n_dot_v = max(dot(n, to_eye), 1e-3);
+    let highlights = camera.finish.x / 0.22;
+
+    var color = vec3<f32>(0.0);
+    var lights = array<vec4<f32>, 2>(vec4<f32>(key, levels.x), vec4<f32>(fill, levels.y));
+    for (var i = 0; i < 2; i++) {
+        let light = lights[i].xyz;
+        let n_dot_l = dot(n, light);
+        if (n_dot_l > 0.0) {
+            let half_vector = normalize(light + to_eye);
+            let f = fresnel(f0, dot(half_vector, to_eye));
+            let specular = ggx(max(dot(n, half_vector), 0.0), alpha)
+                * smith(n_dot_v, n_dot_l, roughness) / (4.0 * n_dot_v * n_dot_l);
+            color += lights[i].w * n_dot_l
+                * ((vec3<f32>(1.0) - f) * diffuse + PI * specular * f * highlights);
+        }
+    }
+
+    // Fresnel with roughness for the reflections; a sky above for the
+    // diffuse ambient light.
+    let grazing = pow(1.0 - n_dot_v, 5.0);
+    let f_ambient = f0 + (max(vec3<f32>(1.0 - roughness), f0) - f0) * grazing;
+    let sky_light = 0.8 + 0.2 * dot(n, camera.up.xyz);
+    let reflected = studio(reflect(-to_eye, n), key, roughness);
+    color += levels.z * (diffuse * sky_light * (vec3<f32>(1.0) - f_ambient)
+        + reflected * f_ambient * 2.4);
+    color += vec3<f32>(levels.w * pow(1.0 - n_dot_v, 3.0) * (1.0 - 0.5 * roughness));
+    return finished(color);
+}
+
+// Hash of a point in space, in 0..1 (no trigonometry, so it is the same
+// on every GPU).
+fn hash(point: vec3<f32>) -> f32 {
+    var q = fract(point * vec3<f32>(0.1031, 0.1030, 0.0973));
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+
+// Smooth value noise in 0..1.
+fn noise(point: vec3<f32>) -> f32 {
+    let cell = floor(point);
+    let t = fract(point);
+    let w = t * t * (3.0 - 2.0 * t);
+    let x00 = mix(hash(cell), hash(cell + vec3<f32>(1.0, 0.0, 0.0)), w.x);
+    let x10 = mix(hash(cell + vec3<f32>(0.0, 1.0, 0.0)), hash(cell + vec3<f32>(1.0, 1.0, 0.0)), w.x);
+    let x01 = mix(hash(cell + vec3<f32>(0.0, 0.0, 1.0)), hash(cell + vec3<f32>(1.0, 0.0, 1.0)), w.x);
+    let x11 = mix(hash(cell + vec3<f32>(0.0, 1.0, 1.0)), hash(cell + vec3<f32>(1.0, 1.0, 1.0)), w.x);
+    return mix(mix(x00, x10, w.y), mix(x01, x11, w.y), w.z);
+}
+
+// Wood of the color `light` around the part's Z axis: growth rings about
+// 2.5 units apart, wavering, darker latewood, and a fine grain along Z.
+fn wood(local: vec3<f32>, light: vec3<f32>) -> vec3<f32> {
+    let p = local * 0.4;
+    let wobble = noise(p * vec3<f32>(0.5, 0.5, 0.06)) * 0.9;
+    let ring = fract(length(p.xy) + wobble);
+    let latewood = smoothstep(0.55, 0.85, ring) * (1.0 - smoothstep(0.9, 1.0, ring));
+    let grain = noise(local * vec3<f32>(4.0, 4.0, 0.25));
+    let dark = light * vec3<f32>(0.62, 0.52, 0.44);
+    return mix(light, dark, clamp(latewood * 0.7 + grain * 0.2, 0.0, 1.0));
+}
+
 // Exposure, then contrast around middle grey (0.18 in linear light). Both
 // leave the color as it is at their defaults (1 and 1).
 fn finished(color: vec3<f32>) -> vec3<f32> {
@@ -159,6 +287,8 @@ struct MeshOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    // In the part's own frame, for the wood grain.
+    @location(2) local: vec3<f32>,
 };
 
 @vertex
@@ -169,6 +299,7 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
     out.world = world.xyz;
     let rotation = mat3x3<f32>(object.model[0].xyz, object.model[1].xyz, object.model[2].xyz);
     out.normal = rotation * in.normal;
+    out.local = in.position;
     return out;
 }
 
@@ -186,8 +317,12 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
         );
     }
     let n = facing_normal(in.normal, in.world);
-    let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a);
-    return vec4<f32>(lit(base, n, in.world), object.face_color.a);
+    var color = object.face_color.rgb;
+    if (object.surface.x > 1.5) {
+        color = wood(in.local, color);
+    }
+    let base = mix(color, object.highlight.rgb, object.highlight.a);
+    return vec4<f32>(shaded(base, n, in.world), object.face_color.a);
 }
 
 // Counts the object's remaining surfaces into the stencil; no color.
@@ -230,7 +365,7 @@ fn fs_cap(in: CapOut) -> @location(0) vec4<f32> {
     // A little darker than the outside, so the cut reads as a cut.
     let n = facing_normal(camera.clip_plane.xyz, in.world);
     let base = mix(object.face_color.rgb, object.highlight.rgb, object.highlight.a) * 0.78;
-    return vec4<f32>(lit(base, n, in.world), object.face_color.a);
+    return vec4<f32>(shaded(base, n, in.world), object.face_color.a);
 }
 
 // --- Edges --------------------------------------------------------------

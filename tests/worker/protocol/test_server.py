@@ -524,3 +524,20 @@ def test_stop_interrupts_a_console_command_and_keeps_the_namespace(conversation)
     assert "KeyboardInterrupt" in talk.output(2)
     assert [result["id"] for result in talk.of_type("console_result")] == [1, 2, 3]
     assert talk.output(3) == "42\n"
+
+
+def test_show_object_chooses_the_material_of_an_object(conversation):
+    script = (
+        "plate = cq.Workplane().box(4, 4, 1)\n"
+        "show_object(plate, material='Brushed Steel')\n"
+        "knob = cq.Workplane().sphere(1)\n"
+        "show_object(knob, options={'color': 'green', 'material': 'matte plastic'})\n"
+        "bare = cq.Workplane().box(1, 1, 1)\n"
+        "show_object(bare)\n"
+    )
+    talk = conversation({"cmd": "run", "id": 4, "script": script})
+    talk.serve()
+
+    (finished,) = talk.of_type("run_finished")
+    finishes = {node["name"]: node["finish"] for node in finished["objects"]}
+    assert finishes == {"plate": "brushed_steel", "knob": "matte_plastic", "bare": None}

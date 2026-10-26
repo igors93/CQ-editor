@@ -54,6 +54,12 @@ are still shown.
 | `alpha` | float, 0–1 | Opacity: `1` is opaque, `0` invisible. Values are clamped to 0–1 |
 | `rgba` | `(r, g, b, a)` | Color and opacity in one tuple |
 | `edgecolor` | a color | Color of the edges |
+| `material` | `"matte plastic"`, `"glossy plastic"`, `"brushed steel"`, `"aluminum"`, `"wood"` or `"default"` | How the faces are shaded (see [Materials](viewer.md#materials)). Case, spaces, hyphens and underscores do not matter; `"aluminium"` works too. Metals and wood have a color of their own for objects without a `color` |
+
+```python
+show_object(organizer, color="green", material="matte plastic")
+show_object(shaft, material="brushed steel")      # steel grey
+```
 
 Accepted color forms:
 

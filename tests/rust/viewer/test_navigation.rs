@@ -251,6 +251,7 @@ fn red_look(edges: Option<bool>) -> PartLook {
         has_faces: true,
         emphasized: false,
         edges,
+        finish: settings::Finish::Default,
     }
 }
 
@@ -404,6 +405,7 @@ fn large_models_draw_small_parts_simplified_but_never_the_selection() {
         color: None,
         alpha: None,
         edge_color: None,
+        finish: None,
         overrides: Default::default(),
         line: None,
         script: None,

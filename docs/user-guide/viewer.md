@@ -335,6 +335,30 @@ These options live in *Preferences > 3D View*:
 Individual objects can be recolored from the script (`show_object` options)
 or in the Objects panel.
 
+### Materials
+
+Each object can be shaded as a material instead of the plain shading of a
+CAD view. The script chooses it with `show_object(..., material="matte
+plastic")` (see [Display options](scripting.md#display-options)), and the
+**Material** list of the Objects panel's property sheet changes it for one
+object (**Reset** returns to the script's).
+
+| Material | Look |
+| --- | --- |
+| **Default** | The plain shading of earlier releases, crisp for modeling |
+| **Matte plastic** | Soft, without sharp highlights, in the object's color |
+| **Glossy plastic** | Sharp highlights of the lights, in the object's color |
+| **Brushed steel** | A metal: steel grey (unless the object has a color), blurred reflections |
+| **Aluminum** | A brighter, smoother metal |
+| **Wood** | Wood-colored, with growth rings around the part's Z axis about 2.5 model units apart and a fine grain along it |
+
+Materials are shaded by their metalness and roughness. Metals have no
+color of their own in the diffuse light: they reflect a soft photo studio
+around the model, attached to the camera like the lights, so they keep
+their sheen from every side. The lighting settings below apply to
+materials too; *Highlights* scales their highlights, and *Ambient light*
+the studio they reflect.
+
 ### Lighting
 
 *Preferences > Rendering* sets the lights: a key light, a softer fill

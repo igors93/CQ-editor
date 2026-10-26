@@ -156,6 +156,14 @@ come from `settings::Lighting` (*Preferences > Rendering*) through the
 camera uniform; `lighting_uniform` bounds them, so a damaged settings file
 cannot produce negative light or NaN.
 
+Materials (`settings::Finish`) reach the shader as the item's `surface`:
+the plain model of `lit`, or `lit_material`, a microfacet model (GGX,
+Smith, Schlick) driven by metalness and roughness under the same lights,
+which also reflects `studio`, an analytic photo studio attached to the
+camera, so metals look like metals without an environment map. Wood adds
+value noise in the part's own coordinates (`MeshOut::local`), so the grain
+moves with the part.
+
 Which edges are drawn is decided on the GPU, so changing the edge style
 uploads nothing. Every segment carries the angle at which the faces of its
 B-rep edge meet, measured by the worker (`edge_angles` in

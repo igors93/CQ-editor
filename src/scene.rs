@@ -11,6 +11,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use glam::{Mat4, Vec3};
 
+use crate::settings::Finish;
 use crate::spatial::{BoundsBvh, TriangleBvh};
 use crate::worker::protocol::{self, RequestId};
 
@@ -636,6 +637,8 @@ pub struct Overrides {
     pub alpha: Option<f32>,
     /// Edges shown or hidden for this object only, whatever the preference.
     pub edges: Option<bool>,
+    /// The material chosen in the Objects panel, over the script's.
+    pub finish: Option<Finish>,
 }
 
 #[derive(Debug)]
@@ -652,6 +655,8 @@ pub struct SceneNode {
     pub color: Option<Rgb>,
     pub alpha: Option<f32>,
     pub edge_color: Option<Rgb>,
+    /// From `show_object`'s `material` option.
+    pub finish: Option<Finish>,
     pub overrides: Overrides,
     /// The script line that created the object, 1-based, in `script`.
     pub line: Option<usize>,
@@ -703,6 +708,7 @@ impl SceneNode {
             color: message.color,
             alpha: message.alpha,
             edge_color: message.edge_color,
+            finish: message.finish.as_deref().and_then(Finish::from_name),
             overrides: Overrides::default(),
             line: message.line,
             script: None,
@@ -734,15 +740,23 @@ impl SceneNode {
                 .sum::<usize>()
     }
 
+    /// The material its faces are shaded with: the Objects panel's choice,
+    /// then the script's.
+    pub fn finish(&self) -> Finish {
+        self.overrides.finish.or(self.finish).unwrap_or_default()
+    }
+
     /// The color a part is drawn with, without selection highlighting:
     /// user override, then the assembly part color, then `show_object`
-    /// options, then `default`.
+    /// options, then the material's own color (a metal's grey), then
+    /// `default`.
     pub fn part_color(&self, part: &Part, default: Rgb) -> (Rgb, f32) {
         let color = self
             .overrides
             .color
             .or(part.color)
             .or(self.color)
+            .or(self.finish().natural_color())
             .unwrap_or(default);
         let alpha = self
             .overrides

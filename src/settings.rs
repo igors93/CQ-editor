@@ -538,6 +538,86 @@ impl Default for Rendering {
     }
 }
 
+/// The look of a surface: the plain shading of a CAD view, or a material
+/// shaded by its metalness and roughness. Scripts choose one with
+/// `show_object(..., material="matte plastic")`, the Objects panel per
+/// object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Finish {
+    /// The shading of earlier releases, with the lighting's highlights.
+    #[default]
+    Default,
+    MattePlastic,
+    GlossyPlastic,
+    BrushedSteel,
+    Aluminum,
+    /// Plain wood with a procedural grain around the part's Z axis.
+    Wood,
+}
+
+impl Finish {
+    pub const ALL: [Finish; 6] = [
+        Finish::Default,
+        Finish::MattePlastic,
+        Finish::GlossyPlastic,
+        Finish::BrushedSteel,
+        Finish::Aluminum,
+        Finish::Wood,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Finish::Default => "Default",
+            Finish::MattePlastic => "Matte plastic",
+            Finish::GlossyPlastic => "Glossy plastic",
+            Finish::BrushedSteel => "Brushed steel",
+            Finish::Aluminum => "Aluminum",
+            Finish::Wood => "Wood",
+        }
+    }
+
+    /// The name the worker sends for `show_object`'s `material` option.
+    pub fn name(self) -> &'static str {
+        match self {
+            Finish::Default => "default",
+            Finish::MattePlastic => "matte_plastic",
+            Finish::GlossyPlastic => "glossy_plastic",
+            Finish::BrushedSteel => "brushed_steel",
+            Finish::Aluminum => "aluminum",
+            Finish::Wood => "wood",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Finish> {
+        Finish::ALL.into_iter().find(|finish| finish.name() == name)
+    }
+
+    /// How the shader draws it: model (0 plain, 1 physically based, 2 the
+    /// same with a wood grain), metalness and roughness.
+    pub fn surface(self) -> [f32; 4] {
+        let (model, metallic, roughness) = match self {
+            Finish::Default => (0.0, 0.0, 0.0),
+            Finish::MattePlastic => (1.0, 0.0, 0.75),
+            Finish::GlossyPlastic => (1.0, 0.0, 0.2),
+            Finish::BrushedSteel => (1.0, 1.0, 0.55),
+            Finish::Aluminum => (1.0, 1.0, 0.3),
+            Finish::Wood => (2.0, 0.0, 0.65),
+        };
+        [model, metallic, roughness, 0.0]
+    }
+
+    /// The color of the material itself (sRGB), for objects without a
+    /// color of their own; plastics take the default object color.
+    pub fn natural_color(self) -> Option<[f32; 3]> {
+        match self {
+            Finish::BrushedSteel => Some([0.62, 0.63, 0.64]),
+            Finish::Aluminum => Some([0.91, 0.92, 0.93]),
+            Finish::Wood => Some([0.72, 0.52, 0.32]),
+            Finish::Default | Finish::MattePlastic | Finish::GlossyPlastic => None,
+        }
+    }
+}
+
 /// Which edges of a model are drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum EdgeStyle {

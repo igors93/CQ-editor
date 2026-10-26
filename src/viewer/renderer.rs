@@ -66,6 +66,7 @@ struct ObjectUniform {
     highlight: [f32; 4],
     params: [f32; 4],
     edge_filter: [f32; 4],
+    surface: [f32; 4],
 }
 
 /// How one mesh is drawn. Colors are linear RGBA.
@@ -93,6 +94,8 @@ pub struct Style {
     /// The outline of curved surfaces is drawn too, with the edges (see
     /// [`crate::scene::Mesh::silhouette_edges`]).
     pub silhouettes: bool,
+    /// How faces are shaded: [`crate::settings::Finish::surface`].
+    pub surface: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -974,6 +977,7 @@ impl SceneRenderer {
                     f32::from(u8::from(style.background_fill)),
                 ],
                 edge_filter: [style.edge_min_angle, 0.0, 0.0, 0.0],
+                surface: style.surface,
             };
             let offset = (slot + 1) * stride;
             data[offset..offset + OBJECT_UNIFORM_SIZE as usize]

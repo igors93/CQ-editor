@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* New: materials. `show_object(part, material="matte plastic")` shades an
+  object as matte or glossy plastic, brushed steel, aluminum or wood, by
+  metalness and roughness, with metals reflecting a soft studio around the
+  model; the Objects panel's **Material** list changes it per object.
+  Metals and wood have their own color for objects without one; Default
+  keeps the plain shading
 * New: *Preferences > Rendering > Edges* chooses which edges are drawn:
   all of them, **Sharp edges** (without the edges between faces that
   continue smoothly, such as fillet borders and cylinder seams, below a

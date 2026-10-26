@@ -17,6 +17,7 @@ fn node(key: &str, name: &str, children: Vec<SceneNode>) -> SceneNode {
         color: None,
         alpha: None,
         edge_color: None,
+        finish: None,
         overrides: Overrides::default(),
         line: None,
         script: None,
@@ -94,6 +95,60 @@ fn colors_resolve_in_priority_order() {
     assert_eq!(n.part_color(&n.parts[0], default), ([0.0, 0.0, 1.0], 0.5));
     n.overrides.color = Some([1.0, 0.0, 0.0]);
     assert_eq!(n.part_color(&n.parts[0], default).0, [1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn a_material_without_a_color_has_its_own() {
+    use crate::settings::Finish;
+    let mut n = node("n", "n", vec![]);
+    let default = [0.5; 3];
+    assert_eq!(n.finish(), Finish::Default);
+
+    // The script's material, then the Objects panel's.
+    n.finish = Some(Finish::Aluminum);
+    assert_eq!(n.finish(), Finish::Aluminum);
+    let aluminum = Finish::Aluminum.natural_color().unwrap();
+    assert_eq!(n.part_color(&n.parts[0], default).0, aluminum);
+    n.overrides.finish = Some(Finish::MattePlastic);
+    assert_eq!(n.finish(), Finish::MattePlastic);
+    assert_eq!(
+        n.part_color(&n.parts[0], default).0,
+        default,
+        "plastics take any color"
+    );
+
+    // A color of the object's own wins over the material's.
+    n.overrides.finish = Some(Finish::Wood);
+    n.color = Some([0.0, 0.0, 1.0]);
+    assert_eq!(n.part_color(&n.parts[0], default).0, [0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn the_material_of_show_object_reaches_the_node() {
+    use crate::settings::Finish;
+    let message = |finish: Option<&str>| protocol::SceneNode {
+        finish: finish.map(str::to_owned),
+        ..worker_node("k", triangle_mesh("material"), Mat4::IDENTITY)
+    };
+    let mut library = MeshLibrary::default();
+    let decode = |library: &mut MeshLibrary, finish| {
+        SceneNode::from_message(message(finish), library, None)
+            .unwrap()
+            .finish
+    };
+    assert_eq!(
+        decode(&mut library, Some("brushed_steel")),
+        Some(Finish::BrushedSteel)
+    );
+    assert_eq!(decode(&mut library, None), None);
+    assert_eq!(
+        decode(&mut library, Some("unobtainium")),
+        None,
+        "unknown: plain"
+    );
+    for finish in Finish::ALL {
+        assert_eq!(Finish::from_name(finish.name()), Some(finish));
+    }
 }
 
 #[test]
@@ -307,6 +362,7 @@ fn worker_node(key: &str, mesh: protocol::Mesh, transform: Mat4) -> protocol::Sc
         color: None,
         alpha: None,
         edge_color: None,
+        finish: None,
         parts: vec![protocol::Part {
             mesh,
             transform: transform.to_cols_array(),

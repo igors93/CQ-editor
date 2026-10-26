@@ -130,7 +130,7 @@ buffer appears as the file `<cq-editor>`.
 ```json
 {
   "key": "s1-n4", "name": "bracket", "kind": "Workplane", "inspectable": true, "line": 12,
-  "color": [0.27, 0.51, 0.71], "alpha": null, "edge_color": null,
+  "color": [0.27, 0.51, 0.71], "alpha": null, "edge_color": null, "finish": "matte_plastic",
   "parts": [{ "mesh": { … }, "transform": [16 floats, column-major], "color": null, "alpha": null }],
   "children": []
 }
@@ -145,6 +145,10 @@ buffer appears as the file `<cq-editor>`.
 * An assembly is a node whose `children` mirror the assembly tree. Each
   child carries its own parts and placement.
 * Colors are sRGB floats in 0–1. `null` means "use the default".
+* `finish` is the `material` option of `show_object`: `matte_plastic`,
+  `glossy_plastic`, `brushed_steel`, `aluminum`, `wood`, `default`, or
+  `null` for the plain shading. The worker refuses unknown names with a
+  warning; the GUI treats a name it does not know as `null`.
 * `line` is the 1-based script line that created the object (for an
   assembly child, the line of its `add` call), or the line of the
   `show_object` call when the object was not created by this run; `null`

@@ -153,6 +153,36 @@ def non_finite(value: Any, where: str = "") -> str | None:
     return None
 
 
+#: The surface looks ``show_object(..., material="matte plastic")`` offers:
+#: plastics and metals with their roughness, and a procedural wood grain.
+#: ``default`` is the plain shading of a CAD view.
+FINISHES = (
+    "default",
+    "matte plastic",
+    "glossy plastic",
+    "brushed steel",
+    "aluminum",
+    "wood",
+)
+_FINISH_ALIASES = {"aluminium": "aluminum"}
+
+
+def finish_name(value: Any) -> str:
+    """The GUI's name of the material ``value`` names: case, spaces,
+    hyphens and underscores do not matter (``"Matte-Plastic"``)."""
+
+    if not isinstance(value, str):
+        raise TypeError(
+            f"material must be a name such as 'matte plastic', not {value!r}"
+        )
+    words = " ".join(value.replace("_", " ").replace("-", " ").lower().split())
+    words = _FINISH_ALIASES.get(words, words)
+    if words not in FINISHES:
+        known = ", ".join(repr(name) for name in FINISHES)
+        raise ValueError(f"unknown material {value!r}; known materials: {known}")
+    return words.replace(" ", "_")
+
+
 @dataclass
 class DisplayOptions:
     """The ``options`` mapping accepted by ``show_object``."""
@@ -161,6 +191,9 @@ class DisplayOptions:
     #: Opacity in 0..1 (1 is opaque).
     alpha: float | None = None
     edge_color: Color | None = None
+    #: The look of the surface, from ``material``: one of :data:`FINISHES`,
+    #: as the GUI names it (``matte_plastic``).
+    finish: str | None = None
 
     @classmethod
     def parse(cls, options: Mapping[str, Any] | None) -> DisplayOptions:
@@ -187,11 +220,15 @@ class DisplayOptions:
         def edge_color(value) -> None:
             result.edge_color, _ = parse_color(value)
 
+        def material(value) -> None:
+            result.finish = finish_name(value)
+
         for key, apply in (
             ("rgba", rgba),
             ("color", color),
             ("alpha", alpha),
             ("edgecolor", edge_color),
+            ("material", material),
         ):
             if key in options:
                 try:
@@ -207,6 +244,7 @@ class DisplayOptions:
             "color": list(self.color) if self.color else None,
             "alpha": self.alpha,
             "edge_color": list(self.edge_color) if self.edge_color else None,
+            "finish": self.finish,
         }
 
 

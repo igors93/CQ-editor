@@ -837,6 +837,9 @@ pub struct SceneNode {
     pub color: Option<[f32; 3]>,
     pub alpha: Option<f32>,
     pub edge_color: Option<[f32; 3]>,
+    /// The `material` option of `show_object`, as `Finish::name` spells it.
+    #[serde(default)]
+    pub finish: Option<String>,
     pub parts: Vec<Part>,
     pub children: Vec<SceneNode>,
 }

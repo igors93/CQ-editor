@@ -140,6 +140,7 @@ impl DisplayMode {
             hidden_edges: self == DisplayMode::HiddenLine && settings.hidden_edges,
             edge_min_angle,
             silhouettes,
+            surface: look.finish.surface(),
         }
     }
 }
@@ -155,6 +156,7 @@ struct PartLook {
     emphasized: bool,
     /// The object's own edge visibility, when set in the Objects panel.
     edges: Option<bool>,
+    finish: settings::Finish,
 }
 
 /// Restricts which entity type a click may select. `Auto` preserves the
@@ -1103,6 +1105,7 @@ impl Viewer {
             let selected =
                 highlighted.contains(&node.key) && !topology_nodes.contains(node.key.as_str());
             let hovered = self.hovered.as_deref() == Some(node.key.as_str());
+            let finish = node.finish();
             for part in &node.parts {
                 let (rgb, alpha) = node.part_color(part, default_color);
                 let has_faces = !part.mesh.indices.is_empty();
@@ -1129,6 +1132,7 @@ impl Viewer {
                     has_faces,
                     emphasized: selected || hovered,
                     edges: node.overrides.edges,
+                    finish,
                 };
                 let transform = scene.part_transform(part);
                 let mut mesh = &part.mesh;
@@ -1177,6 +1181,7 @@ impl Viewer {
                     hidden_edges: false,
                     edge_min_angle: 0.0,
                     silhouettes: false,
+                    surface: [0.0; 4],
                 },
                 layer: Layer::Overlay,
             });
@@ -1257,6 +1262,7 @@ impl Viewer {
                     hidden_edges: false,
                     edge_min_angle: 0.0,
                     silhouettes: false,
+                    surface: [0.0; 4],
                 },
                 layer: Layer::Overlay,
             });
@@ -1583,6 +1589,7 @@ fn line_item(mesh: Arc<Mesh>, color: [f32; 4], width: f32, layer: Layer) -> Draw
             hidden_edges: false,
             edge_min_angle: 0.0,
             silhouettes: false,
+            surface: [0.0; 4],
         },
         layer,
     }
