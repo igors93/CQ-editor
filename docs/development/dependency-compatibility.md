@@ -13,24 +13,39 @@ can receive compatible fixes.
 
 | Lane | Python | CadQuery | cadquery-ocp | Policy |
 | --- | --- | --- | --- | --- |
-| Legacy floor | 3.10 | 2.7.0 | 7.8.1.1.post1 | Required |
+| Previous CadQuery minor | 3.11 | 2.7.0 | 7.8.1.1.post1 | Required |
 | Current stable, minimum Python | 3.11 | 2.8.0 | 7.9.3.1.1 | Required |
+| Current stable | 3.12 | 2.8.0 | 7.9.3.1.1 | Required |
+| Current stable | 3.13 | 2.8.0 | 7.9.3.1.1 | Required |
 | Current stable, maximum Python | 3.14 | 2.8.0 | 7.9.3.1.1 | Required |
 | Upstream development | 3.12 | `CadQuery/master` (currently 2.9.0dev) | 8.0.1.1.0 | Early warning |
 
-The supported package ranges are Python 3.10–3.14, CadQuery 2.7.x–2.9.x and
-OCP 7.8.1–8.0.x. Python 3.10 is paired with CadQuery 2.7 because CadQuery 2.8
-itself requires Python 3.11 or newer.
+The supported package ranges are Python 3.11–3.14, CadQuery 2.7.x–2.8.x and
+OCP 7.8.1–7.9.x. The Python window includes security-supported versions with
+matching released OCP wheels. Python 3.10 reached end of life in October 2026;
+Python 3.15 is still outside this window because OCP 7.9 has no 3.15 wheels.
+The CadQuery window contains its last two released minor versions and their
+matching OCP families.
+The 2.9/OCP 8 lane is an early warning probe until that release is published
+and passes the complete suite.
 
-The three released combinations are blocking CI jobs. The development lane
+The released combinations are blocking CI jobs. The development lane
 runs the same complete worker suite but is allowed to fail because it follows
 a moving external branch. A failure there is still a compatibility issue to
 investigate before that CadQuery/OCP family becomes stable.
 
 The versions were selected from CadQuery's official metadata:
 
+* [Python version status](https://devguide.python.org/versions/) identifies
+  the branches still receiving security fixes;
+* [CadQuery releases](https://github.com/CadQuery/cadquery/releases) lists
+  2.8 and 2.7 as the two latest released minor versions;
+* [CadQuery 2.7.0](https://github.com/CadQuery/cadquery/blob/v2.7.0/setup.py)
+  uses OCP 7.8.x;
 * [CadQuery 2.8.0](https://github.com/CadQuery/cadquery/blob/v2.8.0/setup.py)
   requires Python 3.11+ and OCP 7.9.x;
+* [OCP 7.9 release files](https://pypi.org/project/cadquery-ocp/7.9.3.1.1/)
+  include wheels through Python 3.14;
 * [CadQuery `master`](https://github.com/CadQuery/cadquery/blob/master/setup.py)
   currently declares 2.9.0dev, Python 3.11+ and OCP 8.0.1.1;
 * [OCP's build matrix](https://github.com/CadQuery/ocp-build-system/blob/main/.github/workflows/build-ocp.yml)

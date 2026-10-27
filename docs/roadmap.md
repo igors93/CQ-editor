@@ -390,7 +390,7 @@ the code**.
 | ✅ | [REQ-08](#req-08--debugging-and-profiling-cover-the-whole-project) | Debugging and profiling cover the whole project | BUG-38 | P2 |
 | ✅ | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
 | ✅ | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
-| | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
+| ✅ | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
 | | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
 | | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |
 
@@ -628,19 +628,20 @@ makes [REQ-13](#req-13--tests-at-the-seams) easier.
 ### REQ-11 · A supported Python window
 
 **Why it is required.** Python 3.10 reached its end of life in October 2026
-(PEP 619). The worker still declares `requires-python = ">=3.10"`, a CI
-lane runs 3.10, and the development environment of this repository is 3.10.
+(PEP 619). At the time of the review, the worker declared
+`requires-python = ">=3.10"`, a CI lane ran 3.10, and the development
+environment of this repository was 3.10.
 Libraries following the scientific Python support schedule (SPEC 0) have
 already dropped it.
 
 **What changes.** A written support policy: the Python versions still
 receiving security fixes, and the last two CadQuery minor releases with
 their OCP. `requires-python` moves to `>=3.11`, and the CadQuery 2.7 lane
-moves to 3.11 or is retired. The development setup described in the docs
-moves too. The installer already bundles Python 3.12.
+moves to 3.11. The development setup described in the docs moves too. The
+installer already bundles Python 3.12.
 
 **How it helps the code.** Newer syntax (`except*`, `tomllib`,
-`contextlib.chdir`, which `execution.working_directory` emulates), and
+`contextlib.chdir`) and
 fewer compatibility shims.
 
 ### REQ-12 · Signed installers

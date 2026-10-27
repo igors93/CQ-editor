@@ -4,7 +4,7 @@
 
 * **Rust 1.88 or newer** (edition 2024), installed with
   [rustup](https://rustup.rs).
-* A Python environment with CadQuery, to *run* the editor and the worker
+* Python 3.11–3.14 with a matching supported CadQuery/OCP environment, to *run* the editor and the worker
   tests (see [Installation](../getting-started/installation.md)). Python is
   not needed to compile.
 

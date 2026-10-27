@@ -170,21 +170,10 @@ def script_environment(path: str | None, settings: RunSettings) -> Iterator[None
                 sys.path.insert(0, script_dir)
                 stack.callback(_remove_path, script_dir)
             if settings.change_working_dir:
-                stack.enter_context(working_directory(script_dir))
+                stack.enter_context(contextlib.chdir(script_dir))
         if settings.reload_imported_modules:
             stack.enter_context(unload_new_user_modules())
         yield
-
-
-@contextlib.contextmanager
-def working_directory(path: str) -> Iterator[None]:
-    # contextlib.chdir only exists from Python 3.11 on.
-    previous = os.getcwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
 
 
 def _remove_path(entry: str) -> None:

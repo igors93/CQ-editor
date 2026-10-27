@@ -179,12 +179,7 @@ class LineProfiler:
     ):
         # Its own lines are not followed, only its return.
         frame.f_trace_lines = False
-        name = getattr(code, "co_qualname", None)
-        if name is None:  # Python 3.10: the method's class from its self
-            owner = frame.f_locals.get("self")
-            name = code.co_name
-            if owner is not None:
-                name = f"{type(owner).__name__}.{name}"
+        name = code.co_qualname
         started = time.perf_counter()
 
         def returned(frame: types.FrameType, event: str, arg: Any):

@@ -8,12 +8,12 @@ version = "0.8.0"
 description = "CadQuery execution backend for the CQ-editor GUI"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 dependencies = [
-    "cadquery>=2.7,<2.10",
-    # The worker imports OCP directly. CadQuery 2.7/2.8 use OCCT 7.8/7.9,
-    # while the 2.9 development line uses OCCT 8.0.
-    "cadquery-ocp>=7.8.1,<8.1",
+    "cadquery>=2.7,<2.9",
+    # The worker imports OCP directly. Released CadQuery 2.7/2.8 use
+    # OCCT 7.8/7.9; the 2.9/OCP 8 development lane is tested separately.
+    "cadquery-ocp>=7.8.1,<8.0",
     "numpy",
 ]
 

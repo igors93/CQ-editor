@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import tempfile
 from xml.etree import ElementTree as ET
@@ -113,7 +114,18 @@ def export(
                     raise RuntimeError("Cannot set the STEP source unit")
                 if not Interface_Static.SetCVal_s("write.step.unit", UNITS[unit][0]):
                     raise RuntimeError(f"Cannot set the STEP output unit to {unit}")
-                assembly.export(path, "STEP", mode=step_mode)
+                if "outputUnit" in inspect.signature(cq.Assembly.export).parameters:
+                    # CadQuery 2.8 sets both interface units inside export().
+                    # Its defaults would overwrite the caller's model unit.
+                    assembly.export(
+                        path,
+                        "STEP",
+                        mode=step_mode,
+                        unit=UNITS[unit][0],
+                        outputUnit=UNITS[unit][0],
+                    )
+                else:
+                    assembly.export(path, "STEP", mode=step_mode)
             finally:
                 Interface_Static.SetCVal_s("write.step.schema", previous)
                 Interface_Static.SetCVal_s("write.step.unit", previous_unit)

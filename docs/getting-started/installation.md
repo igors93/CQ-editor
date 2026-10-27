@@ -98,9 +98,9 @@ development or source builds.
 
 | | Supported |
 | --- | --- |
-| Python | 3.10–3.14 with a matching supported CadQuery version |
+| Python | 3.11–3.14 with a matching supported CadQuery version |
 | Recommended external environment | Python 3.11–3.14 with CadQuery 2.8 |
-| Legacy supported environment | Python 3.10 with CadQuery 2.7 |
+| Previous CadQuery release | Python 3.11 with CadQuery 2.7 |
 
 The exact tested combinations are in the
 [CadQuery/OCP compatibility matrix](../development/dependency-compatibility.md).
@@ -113,7 +113,7 @@ environments without a terminal:
   pick one, then **Restart Python with this interpreter**.
 * **Create Environment…** makes a virtual environment (`python -m venv`) in a
   folder of your choice, by default `environments/cadquery` in the folder
-  below, with the Python of your choice (3.10 or newer, the one in use by
+  below, with a supported Python (3.11 or newer, the one in use by
   default), and installs CadQuery and jedi into it. Add other packages to the
   list as for `pip install`. Downloading CadQuery takes a few minutes; the
   window shows pip's output and can cancel it. **Use this environment**
