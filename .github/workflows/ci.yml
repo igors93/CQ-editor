@@ -114,7 +114,10 @@ jobs:
         run: |
           python -m pip install "${{ matrix.cadquery }}" "${{ matrix.ocp }}" jedi pytest black coverage ruff mypy==2.4.0
           python -m pip install --no-deps --editable worker
-          python -m pip check
+
+      - name: Check supported dependencies
+        if: ${{ !matrix.experimental }}
+        run: python -m pip check
 
       - name: Report environment
         run: python -c "from cq_worker.environment import summary; print(summary())"
