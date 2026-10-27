@@ -7,6 +7,13 @@ installer_type: sh  # [linux]
 installer_type: exe  # [win]
 installer_type: pkg  # [osx]
 
+# Constructor signs the package and its embedded conda bootstrap when CI has
+# installed both Developer ID identities. Local builds can omit the identities.
+{% if environ.get("CQ_MAC_INSTALLER_IDENTITY") and environ.get("CQ_MAC_APPLICATION_IDENTITY") %}
+signing_identity_name: {{ environ["CQ_MAC_INSTALLER_IDENTITY"] | tojson }}  # [osx]
+notarization_identity_name: {{ environ["CQ_MAC_APPLICATION_IDENTITY"] | tojson }}  # [osx]
+{% endif %}
+
 icon_image: ../../assets/icons/cadquery_logo_dark.ico
 license_file: ../../LICENSE
 register_python: false

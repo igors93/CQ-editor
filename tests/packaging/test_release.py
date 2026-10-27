@@ -98,6 +98,62 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertIn("softprops/action-gh-release@v2", workflow)
         self.assertIn("SHA256SUMS.txt", workflow)
 
+    def test_release_requires_signed_and_notarized_platform_artifacts(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        construct = CONSTRUCT.read_text(encoding="utf-8")
+        windows_signer = (ROOT / "packaging" / "sign_windows.ps1").read_text(
+            encoding="utf-8"
+        )
+        mac_notary = (ROOT / "packaging" / "notarize_macos.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'signing_identity_name: {{ environ["CQ_MAC_INSTALLER_IDENTITY"]', construct
+        )
+        self.assertIn(
+            'notarization_identity_name: {{ environ["CQ_MAC_APPLICATION_IDENTITY"]',
+            construct,
+        )
+        for secret in (
+            "WINDOWS_SIGNING_PFX_BASE64",
+            "WINDOWS_SIGNING_PFX_PASSWORD",
+            "MACOS_APPLICATION_P12_BASE64",
+            "MACOS_INSTALLER_P12_BASE64",
+            "MACOS_NOTARY_KEY_P8_BASE64",
+            "MACOS_NOTARY_KEY_ID",
+            "MACOS_NOTARY_ISSUER_ID",
+        ):
+            self.assertIn(f"secrets.{secret}", workflow)
+        self.assertLess(
+            workflow.index("Sign native editor (Windows)"),
+            workflow.index("Build installer"),
+        )
+        self.assertLess(
+            workflow.index("Sign native editor (macOS)"),
+            workflow.index("Build installer"),
+        )
+        self.assertLess(
+            workflow.index("Sign installer (Windows)"),
+            workflow.index("Upload installer"),
+        )
+        self.assertLess(
+            workflow.index("Notarize and staple installer (macOS)"),
+            workflow.index("Upload installer"),
+        )
+        self.assertIn(
+            "/fd SHA256 /tr https://timestamp.digicert.com /td SHA256", windows_signer
+        )
+        self.assertIn("verify /pa /all /v /tw", windows_signer)
+        for command in (
+            "notarytool submit",
+            "stapler staple",
+            "stapler validate",
+            "pkgutil --check-signature",
+            "spctl --assess --type install",
+        ):
+            self.assertIn(command, mac_notary)
+
     def test_packaging_scripts_and_static_inputs_exist(self):
         for relative in (
             "packaging/constructor/post_install.sh",

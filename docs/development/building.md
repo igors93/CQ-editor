@@ -107,6 +107,33 @@ menuinst. The Rust executable is copied into the same private prefix and
 `src/worker/launch.rs` discovers that bundled Python before global or active
 environments. Explicit user choices still win.
 
+The Windows job signs the native executable and the finished installer with
+Authenticode and an RFC 3161 timestamp. The macOS jobs sign the native editor
+with Developer ID Application; constructor signs the embedded bootstrap and
+package with the Application and Installer identities. Apple notarization must
+accept each package, and the ticket is stapled and verified before upload.
+Missing credentials or a failed signature stops the release. Linux continues
+to publish its checksum without platform code signing.
+
+Configure these GitHub Actions repository secrets before pushing a release tag:
+
+| Platform | Secret | Value |
+| --- | --- | --- |
+| Windows | `WINDOWS_SIGNING_PFX_BASE64` | Base64 of the Authenticode `.pfx` including its private key |
+| Windows | `WINDOWS_SIGNING_PFX_PASSWORD` | Password for that `.pfx` |
+| macOS | `MACOS_APPLICATION_P12_BASE64`, `MACOS_APPLICATION_P12_PASSWORD` | Base64 of the Developer ID Application `.p12` and its password |
+| macOS | `MACOS_INSTALLER_P12_BASE64`, `MACOS_INSTALLER_P12_PASSWORD` | Base64 of the Developer ID Installer `.p12` and its password |
+| macOS | `MACOS_APPLICATION_IDENTITY`, `MACOS_INSTALLER_IDENTITY` | Full identity names, including team ID, matching the certificates |
+| macOS | `MACOS_NOTARY_KEY_P8_BASE64`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID` | Base64 App Store Connect API private key, key ID and issuer ID for `notarytool` |
+
+The signing certificates are written only to the hosted runner's temporary
+directory. The Windows PFX is deleted after each signature, and the macOS
+temporary keychain is deleted at the end of the job. The workflow never puts
+certificates in the repository or release artifacts. Constructor's
+[signing options](https://conda.github.io/constructor/howto/#signing-and-notarization)
+are enabled only when the macOS identities are supplied; local builds without
+credentials are still possible but must not be published as release artifacts.
+
 Each matrix job installs its finished artifact, imports the bundled CAD
 runtime and starts the installed executable with `--help`. Publication waits
 for all four smoke tests, generates `SHA256SUMS.txt`, creates the GitHub

@@ -65,6 +65,35 @@ jobs:
         env:
           CQ_EDITOR_REQUIRE_RESOURCES: "1"
 
+      - name: Sign native editor (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CQ_WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          CQ_WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: ./packaging/sign_windows.ps1 target/release/cq-editor.exe
+
+      - name: Prepare Developer ID identities (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CQ_MAC_APP_CERT_BASE64: ${{ secrets.MACOS_APPLICATION_P12_BASE64 }}
+          CQ_MAC_APP_CERT_PASSWORD: ${{ secrets.MACOS_APPLICATION_P12_PASSWORD }}
+          CQ_MAC_INSTALLER_CERT_BASE64: ${{ secrets.MACOS_INSTALLER_P12_BASE64 }}
+          CQ_MAC_INSTALLER_CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_P12_PASSWORD }}
+          CQ_MAC_APPLICATION_IDENTITY: ${{ secrets.MACOS_APPLICATION_IDENTITY }}
+          CQ_MAC_INSTALLER_IDENTITY: ${{ secrets.MACOS_INSTALLER_IDENTITY }}
+        run: bash packaging/prepare_macos_signing.sh
+
+      - name: Sign native editor (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CQ_MAC_APPLICATION_IDENTITY: ${{ secrets.MACOS_APPLICATION_IDENTITY }}
+        run: |
+          codesign --force --options runtime --timestamp --sign "$CQ_MAC_APPLICATION_IDENTITY" target/release/cq-editor
+          codesign --verify --strict --verbose=2 target/release/cq-editor
+
       - name: Set up installer toolchain
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -88,6 +117,9 @@ jobs:
 
       - name: Build installer
         shell: bash -el {0}
+        env:
+          CQ_MAC_APPLICATION_IDENTITY: ${{ runner.os == 'macOS' && secrets.MACOS_APPLICATION_IDENTITY || '' }}
+          CQ_MAC_INSTALLER_IDENTITY: ${{ runner.os == 'macOS' && secrets.MACOS_INSTALLER_IDENTITY || '' }}
         run: |
           mkdir dist
           cd dist
@@ -100,6 +132,26 @@ jobs:
           mv dist/lockfile.base.txt "dist/cq-editor-${{ matrix.platform }}-lockfile.txt"
           mv dist/licenses.json "dist/cq-editor-${{ matrix.platform }}-licenses.json"
           mv dist/pkg-list.base.txt "dist/cq-editor-${{ matrix.platform }}-packages.txt"
+
+      - name: Sign installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CQ_WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          CQ_WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath dist -Filter *.exe -File)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer.' }
+          ./packaging/sign_windows.ps1 $installers[0].FullName
+
+      - name: Notarize and staple installer (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CQ_MAC_NOTARY_KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
+          CQ_MAC_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          CQ_MAC_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: bash packaging/notarize_macos.sh
 
       - name: Smoke test installed runtime (Linux)
         if: runner.os == 'Linux'
@@ -159,6 +211,13 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove temporary macOS signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          keychain="$RUNNER_TEMP/cq-editor-signing.keychain-db"
+          if test -f "$keychain"; then security delete-keychain "$keychain"; fi
 
   publish-release:
     if: github.event_name == 'push'

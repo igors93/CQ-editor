@@ -391,7 +391,7 @@ the code**.
 | ✅ | [REQ-09](#req-09--large-and-unusual-results-travel-safely) | Large and unusual results travel safely | BUG-39, BUG-40 | P2 |
 | ✅ | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
 | ✅ | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
-| | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
+| ✅ | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
 | | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |
 
 ### REQ-01 · Saving checks the disk first
@@ -646,8 +646,9 @@ fewer compatibility shims.
 
 ### REQ-12 · Signed installers
 
-**Why it is required.** The release workflow builds the Windows `.exe` and
-macOS `.pkg` without signing them. Windows SmartScreen and macOS Gatekeeper
+**Why it is required.** At the time of the review, the release workflow built
+the Windows `.exe` and macOS `.pkg` without signing them. Windows SmartScreen
+and macOS Gatekeeper
 warn about, or block, unsigned installers. A tool that runs code on the
 user's machine has to be verifiable. Releases already publish
 `SHA256SUMS.txt` and each installer's resolved lockfile; a checksum proves a
