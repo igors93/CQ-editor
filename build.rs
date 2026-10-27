@@ -34,11 +34,8 @@ fn windows_resources() {
     const ICON: &str = "assets/icons/cadquery_logo_dark.ico";
     println!("cargo:rerun-if-changed={ICON}");
     println!("cargo:rerun-if-env-changed=CQ_EDITOR_REQUIRE_RESOURCES");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
-    }
     #[cfg(windows)]
-    {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut resource = winresource::WindowsResource::new();
         resource
             .set_icon(ICON)
