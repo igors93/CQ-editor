@@ -2,6 +2,54 @@ use super::*;
 use std::io::{BufReader, Cursor};
 
 #[test]
+fn shared_golden_messages_cross_the_python_rust_boundary() {
+    let fixtures: serde_json::Value =
+        serde_json::from_str(include_str!("../../fixtures/protocol/messages.json")).unwrap();
+    for case in fixtures["valid"].as_array().unwrap() {
+        let raw = serde_json::to_vec(&case["message"]).unwrap();
+        assert!(raw.len() <= worker_message_limit(&raw), "{}", case["name"]);
+        let message: Message = serde_json::from_slice(&raw).unwrap();
+        match case["name"].as_str().unwrap() {
+            "ready" => assert!(
+                matches!(message, Message::Ready(info) if info.protocol == protocol::PROTOCOL_VERSION)
+            ),
+            "binary_part" => assert!(
+                matches!(message, Message::RunPart { part, .. } if part.mesh.positions.len() == 3 && part.mesh.indices == [0, 1, 2])
+            ),
+            "referenced_part" => assert!(
+                matches!(message, Message::RunPart { part, .. } if part.mesh.id == "triangle-geometry" && part.mesh.positions.is_empty())
+            ),
+            "finished_scene" => assert!(
+                matches!(message, Message::RunFinished(result) if result.objects.as_ref().unwrap()[0].parts[0].mesh.id == "triangle-geometry")
+            ),
+            other => panic!("Unknown shared fixture: {other}"),
+        }
+    }
+
+    for case in fixtures["invalid"].as_array().unwrap() {
+        assert!(
+            serde_json::from_str::<Message>(case["wire"].as_str().unwrap()).is_err(),
+            "{}",
+            case["name"]
+        );
+    }
+    let oversized = &fixtures["oversized_control"];
+    let payload = format!(
+        r#"{{"type":"output","id":7,"stream":"stdout","text":"{}"}}"#,
+        "x".repeat(oversized["repeat"].as_u64().unwrap() as usize)
+    );
+    assert_eq!(
+        worker_message_limit(payload.as_bytes()),
+        MAX_CONTROL_MESSAGE_BYTES
+    );
+    let mut reader = Cursor::new(payload.into_bytes());
+    assert!(matches!(
+        read_limited_line(&mut reader, MAX_CONTROL_MESSAGE_BYTES).unwrap(),
+        LimitedLine::TooLong(_)
+    ));
+}
+
+#[test]
 fn limited_line_reader_caps_memory_and_resumes_at_the_next_line() {
     let input = Cursor::new(b"123456\nok\nlast".to_vec());
     let mut reader = BufReader::with_capacity(3, input);

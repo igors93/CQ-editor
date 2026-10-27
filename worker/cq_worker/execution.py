@@ -86,13 +86,17 @@ class ShownObjects(dict[str, ShownObject]):
 
     def show(self, obj: Any, name: str | None = None, options=None, **kwargs) -> None:
         merged = {**(options or {}), **kwargs}
-        caller = currentframe().f_back.f_back
+        frame = currentframe()
+        assert frame is not None and frame.f_back is not None
+        caller = frame.f_back.f_back
         if not name:
             name = _variable_name(obj, caller) or self._unique_name(obj)
         self[str(name)] = ShownObject(obj, merged, _script_line(caller))
 
     def debug(self, obj: Any, name: str | None = None) -> None:
-        caller = currentframe().f_back.f_back
+        frame = currentframe()
+        assert frame is not None and frame.f_back is not None
+        caller = frame.f_back.f_back
         if not name:
             name = _variable_name(obj, caller) or self._unique_name(obj)
         self[str(name)] = ShownObject(

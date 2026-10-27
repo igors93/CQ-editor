@@ -114,4 +114,5 @@ def _version_key(version: str) -> tuple[int, int, int]:
     """``"v2.4.0"`` -> ``(2, 4, 0)``; pre-release suffixes are ignored."""
 
     numbers = [int(n) for n in re.findall(r"\d+", version)[:3]]
-    return tuple(numbers + [0] * (3 - len(numbers)))
+    padded = numbers + [0] * (3 - len(numbers))
+    return padded[0], padded[1], padded[2]

@@ -392,7 +392,7 @@ the code**.
 | ✅ | [REQ-10](#req-10--headless-build-and-check) | Headless build and check | | P2 |
 | ✅ | [REQ-11](#req-11--a-supported-python-window) | A supported Python window | | P1 |
 | ✅ | [REQ-12](#req-12--signed-installers) | Signed installers | | P2 |
-| | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |
+| ✅ | [REQ-13](#req-13--tests-at-the-seams) | Tests at the seams | all | P2 |
 
 ### REQ-01 · Saving checks the disk first
 
@@ -664,12 +664,19 @@ systems check by themselves, and the update check
 
 ### REQ-13 · Tests at the seams
 
-**Why it is required.** The bugs above sit at seams the current tests do
-not cover: keyboard focus under dialogs, the dock layout, the file
+**Why it is required.** The bugs above sit at seams that needed direct
+coverage: keyboard focus under dialogs, the dock layout, the file
 system shared with other programs, the pipe between the processes, tabs
 combined with the debugger, and exported files read back by another
-program. The throwaway tests of this review show that each can be tested
-without a window.
+program. These flows can be tested without a native window.
+
+**Implemented.** Each resolved bug above names its regression test. The
+headless egui harness draws a modal and a restored dock, then checks keyboard
+actions and visible panels. Rust and Python read the same golden protocol
+messages for binary parts, geometry references, non-finite values and an
+oversized control reply. CI runs mypy over every worker module, Ruff and the
+worker suite with branch coverage; an in-process CLI test keeps terminal
+dispatch inside the coverage measurement.
 
 **What changes.**
 

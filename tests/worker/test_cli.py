@@ -8,6 +8,8 @@ import sys
 
 import cadquery as cq
 
+from cq_worker.cli import main
+
 WORKER_DIR = Path(__file__).resolve().parents[2] / "worker"
 
 
@@ -73,3 +75,36 @@ def test_check_preserves_script_traceback_and_parameter_errors(tmp_path):
     unknown = invoke("check", str(script), "--set", "missing=3", "--json")
     assert unknown.returncode == 1
     assert "missing" in json.loads(unknown.stdout)["error"]
+
+
+def test_cli_dispatch_and_reports_in_the_test_process(tmp_path, capsys):
+    # Process tests above protect the entry point; this exercises the actual
+    # command handlers under branch coverage in the same Python process.
+    script = tmp_path / "part.py"
+    script.write_text(
+        "width = 2\nshow_object(cq.Workplane().box(width, 3, 4))\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "part.brep"
+    assert (
+        main(
+            [
+                "build",
+                str(script),
+                "--export",
+                str(output),
+                "--set",
+                "width=5",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert abs(cq.importers.importBrep(str(output)).val().BoundingBox().xlen - 5) < 1e-5
+
+    assert main(["check", str(script)]) == 0
+    assert "valid" in capsys.readouterr().out
+
+    assert main(["check", str(script), "--set", "missing=1", "--json"]) == 1
+    assert "missing" in json.loads(capsys.readouterr().out)["error"]

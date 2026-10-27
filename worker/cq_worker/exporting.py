@@ -81,6 +81,8 @@ def export(
         for report in bad:
             key = report["key"]
             shape = registry.get(key).shape
+            if shape is None:
+                raise ValueError(f"Cannot repair empty geometry {key!r}")
             fixed = shape.fix()
             checked = check_shape(fixed)
             if checked["valid"]:
@@ -120,12 +122,12 @@ def export(
                     assembly.export(
                         path,
                         "STEP",
-                        mode=step_mode,
-                        unit=UNITS[unit][0],
-                        outputUnit=UNITS[unit][0],
+                        mode=step_mode,  # type: ignore[arg-type]
+                        unit=UNITS[unit][0],  # type: ignore[arg-type]
+                        outputUnit=UNITS[unit][0],  # type: ignore[arg-type]
                     )
                 else:
-                    assembly.export(path, "STEP", mode=step_mode)
+                    assembly.export(path, "STEP", mode=step_mode)  # type: ignore[arg-type]
             finally:
                 Interface_Static.SetCVal_s("write.step.schema", previous)
                 Interface_Static.SetCVal_s("write.step.unit", previous_unit)
@@ -135,7 +137,7 @@ def export(
                 _scale_assembly(assembly, UNITS[unit][1])
             assembly.export(
                 path,
-                "GLTF" if file_format == "gltf" else file_format.upper(),
+                "GLTF" if file_format == "gltf" else file_format.upper(),  # type: ignore[arg-type]
                 tolerance=tolerance,
                 angularTolerance=angular_tolerance,
             )
@@ -182,7 +184,7 @@ def export(
         cq.exporters.export(
             compound,
             path,
-            file_format.upper(),
+            file_format.upper(),  # type: ignore[arg-type]
             tolerance,
             angular_tolerance,
         )
@@ -354,7 +356,9 @@ def _decorate_3mf(path: str, parts: list[RegistryEntry]) -> None:
             *(round(max(0, min(1, value)) * 255) for value in (r, g, b))
         )
         ET.SubElement(materials, f"{{{core}}}base", name=name, displaycolor=hex_color)
-        mesh.set("pid", materials.get("id"))
+        material_id = materials.get("id")
+        assert material_id is not None
+        mesh.set("pid", material_id)
         mesh.set("pindex", str(index))
     resources.insert(0, materials)
     encoded = ET.tostring(root, encoding="utf-8", xml_declaration=True)

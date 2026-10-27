@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import sys
+import types
 from collections.abc import Iterator
 from typing import Any
 
@@ -53,7 +54,7 @@ def recording(filename: str) -> Iterator[None]:
     """Records creation lines in the code of ``filename`` while active."""
 
     def script_line() -> int | None:
-        frame = sys._getframe(2)
+        frame: types.FrameType | None = sys._getframe(2)
         while frame is not None:
             if frame.f_code.co_filename == filename:
                 return frame.f_lineno
@@ -76,7 +77,7 @@ def recording(filename: str) -> Iterator[None]:
     try:
         for cls in _recorded_classes():
             original = cls.__dict__["__init__"]
-            cls.__init__ = wrapped(original)
+            cls.__init__ = wrapped(original)  # type: ignore[misc]
             patched.append((cls, original))
         yield
     finally:

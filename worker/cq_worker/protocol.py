@@ -31,7 +31,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 
 Message = dict[str, Any]
 
@@ -244,7 +244,9 @@ def _interrupt_main_thread() -> None:
         signal.raise_signal(signal.SIGINT)
     else:
         # The main thread itself, so its blocking calls return with EINTR.
-        signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+        main_ident = threading.main_thread().ident
+        if main_ident is not None:
+            getattr(signal, "pthread_kill")(main_ident, signal.SIGINT)
 
 
 def _bytes_available(fd: int) -> int:
@@ -258,8 +260,10 @@ def _bytes_available(fd: int) -> int:
             import _winapi
             import msvcrt
 
-            available, _ = _winapi.PeekNamedPipe(msvcrt.get_osfhandle(fd), 0)
-            return available
+            # Python versions disagree on the number of trailing values;
+            # the first is the byte count available without blocking.
+            available = _winapi.PeekNamedPipe(msvcrt.get_osfhandle(fd), 0)[0]  # type: ignore[attr-defined]
+            return cast(int, available)
         except OSError as error:
             # The other end is closed: the next read reports the end.
             return 1 if getattr(error, "winerror", None) == 109 else 0
@@ -292,7 +296,7 @@ class OutputStream(io.TextIOBase):
         self._lock = threading.RLock()
 
     @property
-    def encoding(self) -> str:
+    def encoding(self) -> str:  # type: ignore[override]
         return "utf-8"
 
     def writable(self) -> bool:

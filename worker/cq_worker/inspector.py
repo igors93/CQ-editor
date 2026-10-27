@@ -20,8 +20,8 @@ MAX_VALUE_LENGTH = 200
 
 def stack_frames(workplane: cq.Workplane) -> list[cq.Workplane]:
     frames = []
-    current = workplane
-    while getattr(current, "parent", None) is not None:
+    current: cq.Workplane | None = workplane
+    while current is not None and getattr(current, "parent", None) is not None:
         frames.append(current)
         current = current.parent
     return frames

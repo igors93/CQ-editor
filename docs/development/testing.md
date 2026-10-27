@@ -31,6 +31,7 @@ The test folders follow the parts of the application they protect:
 | `tests/rust/editor/` | Document persistence, recovery, text editing and highlighting |
 | `tests/rust/panels/` | Console behavior and the Objects panel layout |
 | `tests/rust/protocol/` | JSON messages, binary mesh decoding and interpreter discovery |
+| `tests/fixtures/protocol/` | Golden worker messages read by both Rust and Python, including references, non-finite data and oversized output |
 | `tests/rust/scene/` | Scene tree, visibility, selection, colors and bounds |
 | `tests/rust/viewer/` | Camera, navigation overlays, picking, section planes, WGSL validation and GPU rendering |
 | `tests/worker/execution/` | Script environment, debugger, console and completion |
@@ -53,7 +54,12 @@ backend's limits on any machine.
 Rust tests live in `tests/rust/` but are **included from the source module
 they test** with `#[cfg(test)] #[path = "…"] mod tests;`. They can therefore
 exercise private items without making them public. Python tests share the
-protocol fixtures of `tests/worker/conftest.py`.
+protocol fixtures of `tests/worker/conftest.py`. Both suites also read
+`tests/fixtures/protocol/messages.json`: the Python writer must emit strict
+JSON, and the Rust reader must accept the same mesh parts and references
+within its message limits. `tests/rust/app/` draws a modal and a restored
+dock with egui's headless `Context::run_ui`, then checks keyboard actions and
+visible panels without opening a native window.
 
 ## Continuous integration
 
@@ -64,8 +70,8 @@ requests:
 | --- | --- |
 | `packaging` (Ubuntu 22.04) | Installer metadata, version and release-workflow contract tests |
 | `rust` (Ubuntu 22.04, Windows, macOS) | `cargo fmt --all -- --check` · `cargo clippy --locked --all-targets --all-features -- -D warnings` · `cargo test --locked` |
-| `worker` released matrix (Ubuntu 22.04) | Python 3.11/CadQuery 2.7/OCP 7.8 and Python 3.11–3.14/CadQuery 2.8/OCP 7.9 · package check · Black · Ruff · full pytest suite with branch coverage at least 85% |
-| `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · Ruff · full pytest suite with branch coverage; early-warning lane, allowed to fail while upstream moves |
+| `worker` released matrix (Ubuntu 22.04) | Python 3.11/CadQuery 2.7/OCP 7.8 and Python 3.11–3.14/CadQuery 2.8/OCP 7.9 · package check · Black · Ruff · mypy across all worker modules · full pytest suite with branch coverage at least 85% |
+| `worker` development probe (Ubuntu 22.04) | Python 3.12 · current `CadQuery/master` · OCP 8.0 · package check · Black · Ruff · mypy · full pytest suite with branch coverage; early-warning lane, allowed to fail while upstream moves |
 
 Run the same checks locally before opening a pull request:
 
@@ -75,6 +81,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked
 black --check worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
 ruff check --isolated --select E4,E7,E9,F worker tests/worker tests/packaging packaging/constructor/prepare_macos_icon.py
+mypy --config-file worker/pyproject.toml worker/cq_worker
 python -m unittest discover -s tests/packaging -p "test_*.py"
 PYTHONPATH=worker python -m coverage run --branch --source worker/cq_worker -m pytest tests/worker
 python -m coverage report --show-missing --fail-under=85

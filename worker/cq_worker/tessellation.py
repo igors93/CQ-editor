@@ -232,8 +232,8 @@ class GeometryCache:
         self, max_bytes: int = DEFAULT_CACHE_BYTES, generator: str | None = None
     ) -> None:
         self.max_bytes = max(0, max_bytes)
-        generator = (generator or mesh_generator()).encode()
-        self._generator = struct.pack("<I", len(generator)) + generator
+        generator_bytes = (generator or mesh_generator()).encode()
+        self._generator = struct.pack("<I", len(generator_bytes)) + generator_bytes
         self._meshes: OrderedDict[str, Mesh] = OrderedDict()
         self._aliases: dict[str, str] = {}
         self._bytes = 0
@@ -780,8 +780,9 @@ def edge_angles(topology: TopologyIndex) -> np.ndarray:
         # A seam is listed twice by its one face, and is smooth.
         if len(found) < 2 or any(normal is None for normal in found):
             continue
+        present = [normal for normal in found if normal is not None]
         cosines = [
-            float(np.dot(a, b)) for i, a in enumerate(found) for b in found[i + 1 :]
+            float(np.dot(a, b)) for i, a in enumerate(present) for b in present[i + 1 :]
         ]
         angles[position] = np.degrees(np.arccos(np.clip(min(cosines), -1.0, 1.0)))
     return angles

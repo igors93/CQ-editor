@@ -197,7 +197,8 @@ class Server:
         request_id = request.get("id")
         previous_id, self.channel.current_id = self.channel.current_id, request_id
         try:
-            handler = self._handlers.get(request.get("cmd"))
+            command = request.get("cmd")
+            handler = self._handlers.get(command) if isinstance(command, str) else None
             if handler is None:
                 raise RequestError(f"Unknown command {request.get('cmd')!r}")
             if request.get("cmd") in _INTERRUPTIBLE:
@@ -336,6 +337,7 @@ class Server:
     ) -> Action:
         hidden = execution.hidden_names()
         local_names = frame.f_locals
+        assert self._debugger is not None
         self.channel.send(
             {
                 "type": "debug_paused",
@@ -451,11 +453,11 @@ class Server:
         except Exception as error:
             log.warning("Cannot determine imports of %s: %s", path, error)
         paths = [
-            module.__file__
+            file
             for name, module in finder.modules.items()
             if name != "__main__"
-            and module.__file__
-            and os.path.isfile(module.__file__)
+            if isinstance(file := getattr(module, "__file__", None), str)
+            and os.path.isfile(file)
         ]
         return {"type": "imports", "paths": sorted(set(paths))}
 
@@ -566,7 +568,7 @@ class Server:
         """Newer CadQuery releases (unless ``cadquery`` is false) and, given
         the running CQ-editor's version as ``editor``, newer CQ-editors."""
 
-        reply = {"type": "updates", "current": cq.__version__, "newer": []}
+        reply: Message = {"type": "updates", "current": cq.__version__, "newer": []}
         if request.get("cadquery", True):
             reply["newer"] = network.newer_releases(cq.__version__)
         editor = request.get("editor")

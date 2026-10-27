@@ -110,10 +110,8 @@ class LineProfiler:
                 }
             )
         slowest = []
-        for line in sorted(operations):
-            ranked = sorted(
-                operations[line], key=lambda op: op["seconds"], reverse=True
-            )
+        for key in sorted(operations):
+            ranked = sorted(operations[key], key=lambda op: op["seconds"], reverse=True)
             slowest.extend(ranked[:OPERATIONS_PER_LINE])
         return {
             "lines": [

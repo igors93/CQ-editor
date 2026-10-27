@@ -272,7 +272,11 @@ def _describe(reference: TopologyReference, shape: cq.Shape) -> dict[str, Any]:
         "geometry_type": geometry_type,
         "center": center,
         "position": center if reference.kind == "vertex" else None,
-        "length": shape.Length() if reference.kind == "edge" else None,
+        "length": (
+            shape.Length()
+            if reference.kind == "edge" and isinstance(shape, cq.Edge)
+            else None
+        ),
         "area": shape.Area() if reference.kind == "face" else None,
         "radius": None,
         "diameter": None,
@@ -286,7 +290,7 @@ def _describe(reference: TopologyReference, shape: cq.Shape) -> dict[str, Any]:
 
 
 def _radius(shape: cq.Shape, kind: str, geometry_type: str) -> float | None:
-    if kind == "edge" and geometry_type == "circle":
+    if kind == "edge" and geometry_type == "circle" and isinstance(shape, cq.Edge):
         return float(shape.radius())
     if kind != "face":
         return None
@@ -335,18 +339,17 @@ def _distance(
 
 
 def _angle(first: cq.Shape, second: cq.Shape) -> tuple[float, str] | None:
-    first_kind, second_kind = type(first), type(second)
-    if first_kind is cq.Edge and second_kind is cq.Edge:
+    if isinstance(first, cq.Edge) and isinstance(second, cq.Edge):
         if first.geomType() != "LINE" or second.geomType() != "LINE":
             return None
         return _vector_angle(first.tangentAt(), second.tangentAt()), "edge_edge"
-    if first_kind is cq.Face and second_kind is cq.Face:
+    if isinstance(first, cq.Face) and isinstance(second, cq.Face):
         if first.geomType() != "PLANE" or second.geomType() != "PLANE":
             return None
         return _vector_angle(first.normalAt(), second.normalAt()), "face_face"
-    if first_kind is cq.Edge and second_kind is cq.Face:
+    if isinstance(first, cq.Edge) and isinstance(second, cq.Face):
         return _edge_face_angle(first, second)
-    if first_kind is cq.Face and second_kind is cq.Edge:
+    if isinstance(first, cq.Face) and isinstance(second, cq.Edge):
         return _edge_face_angle(second, first)
     return None
 

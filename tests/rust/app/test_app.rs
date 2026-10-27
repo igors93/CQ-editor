@@ -971,6 +971,74 @@ fn a_layout_saved_without_the_editor_gets_it_back() {
 }
 
 #[test]
+fn restored_dock_draws_the_editor_and_viewer_without_a_window() {
+    struct Titles(Vec<Tab>);
+    impl egui_dock::TabViewer for Titles {
+        type Tab = Tab;
+
+        fn id(&mut self, tab: &mut Tab) -> egui::Id {
+            egui::Id::new(*tab)
+        }
+
+        fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
+            self.0.push(*tab);
+            tab.title().into()
+        }
+
+        fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+            ui.label(tab.title());
+        }
+    }
+
+    let mut saved = panels::default_layout();
+    let editor = saved.find_tab(&Tab::Editor).unwrap();
+    saved.remove_tab(editor);
+    let mut dock = restored_layout(Some(saved));
+    let ctx = egui::Context::default();
+    let mut titles = Titles(Vec::new());
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut titles);
+    });
+    output.textures_delta.clear();
+    assert!(titles.0.contains(&Tab::Editor));
+    assert!(titles.0.contains(&Tab::Viewer));
+    assert!(!output.shapes.is_empty());
+}
+
+#[test]
+fn a_drawn_modal_blocks_global_shortcuts_behind_it() {
+    let mut state = test_state("value = 1\n");
+    state.dialogs.info(
+        "File changed on disk",
+        "Resolve this before closing the tab",
+    );
+    let ctx = state.ctx.clone();
+    let press_close = || egui::RawInput {
+        events: vec![egui::Event::Key {
+            key: egui::Key::W,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(press_close(), |_| {
+        state.begin_frame(&ctx);
+        crate::dialogs::show(&ctx, &mut state);
+    });
+    output.textures_delta.clear();
+    assert!(!output.shapes.is_empty(), "the modal is actually rendered");
+    assert!(state.dialogs.modal_open());
+    assert!(state.actions.is_empty());
+
+    state.dialogs.message = None;
+    let mut output = ctx.run_ui(press_close(), |_| state.begin_frame(&ctx));
+    output.textures_delta.clear();
+    assert_eq!(state.actions, [Action::CloseTab]);
+}
+
+#[test]
 fn required_panels_return_to_their_workspace() {
     let mut app = test_app();
     for tab in [Tab::Console, Tab::Traceback, Tab::Project] {

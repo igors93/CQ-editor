@@ -76,7 +76,7 @@ def message(data: dict[str, Any], images_left: int) -> dict[str, Any]:
         if raw is _TOO_LARGE:
             text += f"\n[{kind.upper()} image left out: over the limit]"
             continue
-        if raw is None or not raw.startswith(_SIGNATURES[kind]):
+        if not isinstance(raw, bytes) or not raw.startswith(_SIGNATURES[kind]):
             continue
         if len(raw) > MAX_IMAGE_BYTES:
             text += f"\n[{kind.upper()} image of {len(raw) // 1024} KB left out: over the limit]"
@@ -163,9 +163,9 @@ class Displayer:
             return
         import builtins
 
-        builtins._ = None
+        setattr(builtins, "_", None)
         self.display(value)
-        builtins._ = value
+        setattr(builtins, "_", value)
 
 
 _FAILED = object()

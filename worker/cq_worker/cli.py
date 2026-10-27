@@ -10,27 +10,37 @@ import math
 import os
 from pathlib import Path
 import sys
-from typing import Iterator
+from typing import Iterator, cast
+
+from .protocol import Channel
 
 
 def replace_parameters(source: str, assignments: list[str]) -> str:
     """Replace top-level literal parameters without moving traceback lines."""
     overrides: dict[str, str] = {}
     for assignment in assignments:
-        name, separator, value = assignment.partition("=")
-        if not separator or not name.isidentifier() or name.startswith("__"):
+        parameter_name, separator, parameter_value = assignment.partition("=")
+        if (
+            not separator
+            or not parameter_name.isidentifier()
+            or parameter_name.startswith("__")
+        ):
             raise ValueError(
                 f"Invalid parameter assignment {assignment!r}; use name=value"
             )
         try:
-            literal = ast.literal_eval(value)
+            literal = ast.literal_eval(parameter_value)
         except (SyntaxError, ValueError) as error:
-            raise ValueError(f"Parameter {name} needs a Python literal") from error
+            raise ValueError(
+                f"Parameter {parameter_name} needs a Python literal"
+            ) from error
         if type(literal) not in (int, float, bool, str) or (
             isinstance(literal, float) and not math.isfinite(literal)
         ):
-            raise ValueError(f"Parameter {name} needs a finite scalar literal")
-        overrides[name] = repr(literal)
+            raise ValueError(
+                f"Parameter {parameter_name} needs a finite scalar literal"
+            )
+        overrides[parameter_name] = repr(literal)
 
     if not overrides:
         return source
@@ -42,8 +52,8 @@ def replace_parameters(source: str, assignments: list[str]) -> str:
     for line in lines:
         byte_offsets.append(byte_offsets[-1] + len(line.encode("utf-8")))
     for node in tree.body:
-        name = None
-        value = None
+        name: str | None = None
+        value: ast.expr | None = None
         if (
             isinstance(node, ast.Assign)
             and len(node.targets) == 1
@@ -58,6 +68,7 @@ def replace_parameters(source: str, assignments: list[str]) -> str:
             ast.literal_eval(value)
         except (SyntaxError, ValueError):
             continue
+        assert value.end_lineno is not None and value.end_col_offset is not None
         start = byte_offsets[value.lineno - 1] + value.col_offset
         end = byte_offsets[value.end_lineno - 1] + value.end_col_offset
         replacements.append((start, end, overrides[name]))
@@ -67,8 +78,8 @@ def replace_parameters(source: str, assignments: list[str]) -> str:
         missing = sorted(set(overrides) - matched)
         raise ValueError(f"Unknown or non-literal parameter: {', '.join(missing)}")
     encoded = source.encode("utf-8")
-    for start, end, value in reversed(replacements):
-        encoded = encoded[:start] + value.encode("utf-8") + encoded[end:]
+    for start, end, replacement in reversed(replacements):
+        encoded = encoded[:start] + replacement.encode("utf-8") + encoded[end:]
     return encoded.decode("utf-8")
 
 
@@ -161,7 +172,8 @@ def main(argv: list[str] | None = None) -> int:
             path.read_text(encoding="utf-8-sig"), args.parameters
         )
         channel = CliChannel()
-        server = Server(channel)
+        # CliChannel implements the transport methods used by Server.
+        server = Server(cast(Channel, channel))
         with redirect_stdout(sys.stderr):
             server.dispatch(
                 {"cmd": "run", "id": 1, "script": source, "path": str(path)}

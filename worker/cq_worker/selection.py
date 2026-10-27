@@ -161,9 +161,9 @@ class Features:
             geometry = entity.geomType() if kind in ("Face", "Edge") else kind.upper()
             types.append(geometry)
             # The vectors BaseDirSelector tests.
-            if kind == "Face" and geometry == "PLANE":
+            if isinstance(entity, cq.Face) and geometry == "PLANE":
                 directions[i] = entity.normalAt(None).toTuple()
-            elif kind == "Edge" and geometry == "LINE":
+            elif isinstance(entity, cq.Edge) and geometry == "LINE":
                 directions[i] = entity.tangentAt().toTuple()
         return cls(
             list(entities),

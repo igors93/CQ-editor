@@ -593,7 +593,8 @@ class SceneBuilder:
     def _merged_assembly_node(
         self, name: str, assembly: cq.Assembly, options: DisplayOptions
     ) -> dict | None:
-        parts, shapes, topologies, sources, materials = [], [], [], [], []
+        parts, topologies, sources, materials = [], [], [], []
+        shapes: list[cq.Shape] = []
 
         def collect(
             node: cq.Assembly, parent: cq.Location, inherited, inherited_mat

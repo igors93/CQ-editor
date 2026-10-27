@@ -17,6 +17,14 @@ dependencies = [
     "numpy",
 ]
 
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["OCP", "OCP.*", "jedi", "jedi.*"]
+ignore_missing_imports = true
+
 [project.optional-dependencies]
 # Code completion in the editor and the console.
 completion = ["jedi"]
