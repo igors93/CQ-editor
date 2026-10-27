@@ -1,6 +1,6 @@
 [package]
 name = "cq-editor"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Cross-platform CadQuery 3D viewer and script editor"

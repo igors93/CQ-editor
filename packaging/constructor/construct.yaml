@@ -1,6 +1,6 @@
 name: CQ-editor
 company: CQ-editor contributors
-version: 0.8.0
+version: 0.9.0
 
 # Constructor produces the native installer for the host platform.
 installer_type: sh  # [linux]
@@ -53,14 +53,14 @@ welcome_text: >-
   CQ-editor is a CadQuery code editor and 3D viewer. This installer includes
   its own tested Python and CadQuery runtime, so no separate setup is needed.
 conclusion_text: |-
-  CQ-editor 0.8.0 is ready
+  CQ-editor 0.9.0 is ready
   Launch CQ-editor from the application menu. Python files can also be opened
   with CQ-editor on Windows and Linux.
 
 post_install: post_install.sh  # [unix]
 post_install: post_install.bat  # [win]
 pre_uninstall: pre_uninstall.bat  # [win]
-uninstall_name: CQ-editor 0.8.0  # [win]
+uninstall_name: CQ-editor 0.9.0  # [win]
 uninstall_with_conda_exe: true  # [win]
 
 extra_files:

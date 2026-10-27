@@ -44,7 +44,7 @@
           "CFBundleDisplayName": "CQ-editor",
           "CFBundleIdentifier": "io.github.igors93.cq-editor",
           "CFBundleName": "CQ-editor",
-          "CFBundleVersion": "0.8.0",
+          "CFBundleVersion": "0.9.0",
           "LSApplicationCategoryType": "public.app-category.developer-tools",
           "LSMinimumSystemVersion": "12.0",
           "NSSupportsAutomaticGraphicsSwitching": true

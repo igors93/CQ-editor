@@ -24,7 +24,7 @@ class ReleasePackagingTests(unittest.TestCase):
         construct = CONSTRUCT.read_text(encoding="utf-8")
         menu = json.loads(MENU.read_text(encoding="utf-8"))
 
-        self.assertEqual(cargo_version, "0.8.0")
+        self.assertEqual(cargo_version, "0.9.0")
         self.assertEqual(worker_version, cargo_version)
         self.assertIn(f'__version__ = "{cargo_version}"', worker_init)
         self.assertRegex(construct, rf"(?m)^version: {re.escape(cargo_version)}$")

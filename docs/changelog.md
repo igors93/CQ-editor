@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-10-27)
+
 * New: a Presentation display mode (View menu, toolbar ✦, command palette)
   for showing a model: no edges, Studio lights, matte plastic for objects
   without a material, a light grey gradient and no axes, grid or scale bar

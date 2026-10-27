@@ -138,7 +138,7 @@ Each matrix job installs its finished artifact, imports the bundled CAD
 runtime and starts the installed executable with `--help`. Publication waits
 for all four smoke tests, generates `SHA256SUMS.txt`, creates the GitHub
 release and attaches the installers plus constructor's dependency lockfiles.
-The tag must exactly equal the Cargo package version, for example `0.8.0`.
+The tag must exactly equal the Cargo package version, for example `0.9.0`.
 
 To build on one platform manually, first create `target/release/cq-editor`
 (or `.exe`), install constructor 3.17.3 from conda-forge and run:

@@ -81,7 +81,7 @@ console. Your code stays the single source of truth.
 1. **Download the installer** for your computer from the
    [releases page](https://github.com/igors93/CQ-editor/releases):
 
-   * Windows: `CQ-editor-0.8.0-Windows-x86_64.exe`;
+   * Windows: `CQ-editor-0.9.0-Windows-x86_64.exe`;
    * macOS: the Apple Silicon or Intel `.pkg`;
    * Linux: the `.sh` installer (`chmod +x` it, then run it).
 

@@ -48,6 +48,6 @@ interactive console and exporters.
 * [Roadmap](roadmap.md): known bugs, planned features and the direction of the project
 * [Changelog](changelog.md): what changed in each release
 
-> These pages describe the current source tree (version `0.8.0`). If
+> These pages describe the current source tree (version `0.9.0`). If
 > something here does not match what the program does, please
 > [open an issue](https://github.com/igors93/CQ-editor/issues/new).
