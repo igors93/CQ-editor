@@ -893,18 +893,12 @@ fn annotated_face_color_overrides_the_part_color_on_the_gpu() {
             renderer,
             cube(1.0),
             Mat4::IDENTITY,
-            StandardView::Front,
+            StandardView::Iso,
             style,
         );
         let mut painted = cube(1.0);
         painted.vertex_colors = vec![0xff00_00ff; painted.positions.len()];
-        let colored = render_placed(
-            renderer,
-            painted,
-            Mat4::IDENTITY,
-            StandardView::Front,
-            style,
-        );
+        let colored = render_placed(renderer, painted, Mat4::IDENTITY, StandardView::Iso, style);
         // A single pixel at the center can land on a dark triangle edge on
         // software renderers. Check the visible face instead.
         let colored_face_pixels = plain
@@ -917,9 +911,17 @@ fn annotated_face_color_overrides_the_part_color_on_the_gpu() {
                 plain != colored && colored[0] > colored[1].saturating_add(50)
             })
             .count();
+        let changed_pixels = plain
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(colored.pixels.as_chunks::<4>().0)
+            .filter(|(plain, colored)| plain != colored)
+            .count();
         assert!(
             colored_face_pixels > 100,
-            "{colored_face_pixels} colored face pixels"
+            "{colored_face_pixels} colored face pixels; {changed_pixels} changed pixels"
         );
     });
 }
