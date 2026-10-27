@@ -905,10 +905,22 @@ fn annotated_face_color_overrides_the_part_color_on_the_gpu() {
             StandardView::Front,
             style,
         );
-        let plain = plain.at(CENTER, CENTER);
-        let colored = colored.at(CENTER, CENTER);
-        assert_ne!(plain, colored);
-        assert!(colored[0] > colored[1] + 50);
+        // A single pixel at the center can land on a dark triangle edge on
+        // software renderers. Check the visible face instead.
+        let colored_face_pixels = plain
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(colored.pixels.as_chunks::<4>().0)
+            .filter(|(plain, colored)| {
+                plain != colored && colored[0] > colored[1].saturating_add(50)
+            })
+            .count();
+        assert!(
+            colored_face_pixels > 100,
+            "{colored_face_pixels} colored face pixels"
+        );
     });
 }
 
@@ -1003,7 +1015,18 @@ fn a_ground_shadow_darkens_the_floor_around_the_model_on_the_gpu() {
         let tiled = render(renderer, shadow, light, SIZE);
         renderer.tile_side = TILE_SIDE;
         let whole = render(renderer, shadow, light, SIZE);
-        assert_eq!(tiled, whole);
+        // Tiled projections may round one channel by one sRGB level on a
+        // different GPU backend.
+        assert_eq!(tiled.len(), whole.len());
+        let changed_channels = tiled
+            .iter()
+            .zip(&whole)
+            .filter(|(a, b)| a.abs_diff(**b) > 1)
+            .count();
+        assert_eq!(
+            changed_channels, 0,
+            "shadow tiles differ by more than one level"
+        );
     });
 }
 
