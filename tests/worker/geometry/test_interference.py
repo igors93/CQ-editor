@@ -2,7 +2,12 @@
 
 import cadquery as cq
 import pytest
-from cq_worker.interference import analyze_interferences, overlap_shape, summarize
+from cq_worker.interference import (
+    analyze_interferences,
+    apply_allowances,
+    overlap_shape,
+    summarize,
+)
 from cq_worker.scene import Registry, SceneBuilder, ShownObject
 from cq_worker.tessellation import Tolerance
 
@@ -110,4 +115,43 @@ def test_summary_prioritizes_interference_over_uncertainty():
             "contact": 0,
             "clearance": 0,
         },
+        "accepted": 0,
     }
+
+
+def test_explicit_allowance_accepts_only_one_unambiguous_pair():
+    registry = Registry()
+    nodes = SceneBuilder(registry, Tolerance()).build(
+        {
+            "plate": ShownObject(cq.Workplane().box(4, 4, 4)),
+            "pin": ShownObject(cq.Workplane().box(2, 2, 2)),
+            "other": ShownObject(cq.Workplane().box(1, 1, 1)),
+        }
+    )
+    keys = [node["key"] for node in nodes]
+    reports = analyze_interferences(registry, keys)
+    assert len(reports) == 3
+    apply_allowances(registry, keys, reports, [("plate", "pin", "press fit")])
+    assert summarize(reports)["status"] == "interference"
+    assert summarize(reports)["accepted"] == 1
+    assert sum(bool(report.get("allowance_reason")) for report in reports) == 1
+
+
+def test_allowance_does_not_accept_inconclusive_boolean(monkeypatch):
+    registry = Registry()
+    nodes = SceneBuilder(registry, Tolerance()).build(
+        {
+            "plate": ShownObject(cq.Workplane().box(4, 4, 4)),
+            "pin": ShownObject(cq.Workplane().box(2, 2, 2)),
+        }
+    )
+    keys = [node["key"] for node in nodes]
+
+    def fail(*_args):
+        raise RuntimeError("boolean failed")
+
+    monkeypatch.setattr(cq.Shape, "intersect", fail)
+    reports = analyze_interferences(registry, keys)
+    apply_allowances(registry, keys, reports, [("plate", "pin", "press fit")])
+    assert summarize(reports)["status"] == "inconclusive"
+    assert reports[0].get("allowance_reason") is None

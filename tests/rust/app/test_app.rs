@@ -1131,6 +1131,7 @@ fn interference_check_keeps_both_parts_in_the_review() {
             distance: Some(0.0),
             point: Some([0.0, 0.0, 0.0]),
             reason: None,
+            allowance_reason: None,
         }],
     });
     let review = state.dialogs.geometry.as_ref().expect("review opened");

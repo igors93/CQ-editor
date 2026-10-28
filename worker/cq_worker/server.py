@@ -51,6 +51,7 @@ from .protocol import (
     truncate_text,
 )
 from .scene import (
+    MAX_STREAMED_MESH_BYTES,
     BuildCancelled,
     Registry,
     SceneBuilder,
@@ -146,6 +147,7 @@ class Server:
         self.geometry_cache = GeometryCache()
         #: Stack frames of inspected workplanes, by scene key.
         self.inspections: dict[str, list[cq.Workplane]] = {}
+        self.interference_allowances: list[tuple[str, str, str]] = []
         self._debugger: Debugger | None = None
         self._handlers = {
             "run": self.run,
@@ -287,6 +289,8 @@ class Server:
                 cancelled = True
             finally:
                 self.channel.forget_cancel(request_id)
+        if objects is not None and not cancelled:
+            self.interference_allowances = execution.interference_allowances.copy()
         return {
             "type": "run_finished",
             "ok": ok,
@@ -496,6 +500,11 @@ class Server:
         mesh = tessellate(common.wrapped, self._tolerance(request))
         if mesh is None:
             raise RequestError("The shared volume could not be drawn")
+        if mesh.byte_size() > MAX_STREAMED_MESH_BYTES:
+            raise RequestError("The shared-volume mesh exceeds the transfer limit")
+        non_finite = mesh.non_finite_array()
+        if non_finite is not None:
+            raise RequestError(f"The shared-volume mesh has non-finite {non_finite}")
         return {"type": "interference_geometry", "mesh": mesh.to_message()}
 
     def measure(self, request: Message) -> Message:
@@ -534,7 +543,7 @@ class Server:
     # -- files and network -------------------------------------------------
 
     def check(self, request: Message) -> Message:
-        from .interference import analyze_interferences, summarize
+        from .interference import analyze_interferences, apply_allowances, summarize
 
         keys = request.get("keys", [])
         flat_parts = bool(request.get("flat_parts", False))
@@ -544,6 +553,13 @@ class Server:
             flat_parts=flat_parts,
             tolerance=float(request.get("interference_tolerance", 1e-6)),
             clearance=float(request.get("clearance", 0.0)),
+        )
+        apply_allowances(
+            self.registry,
+            keys,
+            interferences,
+            self.interference_allowances,
+            flat_parts=flat_parts,
         )
         return {
             "type": "geometry_checked",
@@ -572,6 +588,7 @@ class Server:
                 unit=request.get("unit", "millimeter"),
                 on_invalid=request.get("on_invalid", "check"),
                 on_interference=request.get("on_interference", "check"),
+                interference_allowances=self.interference_allowances,
             )
         except checking.GeometryInvalid as error:
             return {

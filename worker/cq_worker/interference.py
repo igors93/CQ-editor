@@ -264,6 +264,67 @@ def overlap_shape(registry: Registry, first: dict, second: dict) -> cq.Shape:
     return common
 
 
+def apply_allowances(
+    registry: Registry,
+    keys: list[str],
+    reports: list[dict],
+    allowances: list[tuple[str, str, str]],
+    *,
+    flat_parts: bool = False,
+    replacements: dict[str, cq.Shape] | None = None,
+) -> None:
+    """Mark only explicitly named, unambiguous interference pairs as accepted.
+
+    A basename is accepted when it identifies exactly one solid. Full paths
+    from merged assemblies can disambiguate repeated names. Numerical failures
+    are never accepted, even if the pair was declared.
+    """
+
+    if not allowances:
+        return
+    instances = collect_solids(registry, keys, flat_parts, replacements)
+
+    def resolve(name: str) -> SolidInstance | None:
+        matches = [instance for instance in instances if instance.name == name]
+        if not matches and "/" not in name:
+            matches = [
+                instance
+                for instance in instances
+                if instance.name.rsplit("/", 1)[-1] == name
+            ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise ValueError(
+                f"Interference allowance {name!r} identifies {len(matches)} solids; "
+                "use unique part names or a full assembly path"
+            )
+        return matches[0]
+
+    accepted: dict[frozenset[tuple[str, int, int]], str] = {}
+    for first, second, reason in allowances:
+        a, b = resolve(first), resolve(second)
+        if a is None or b is None:
+            continue  # A geometry check may cover only selected objects.
+        if a is b:
+            raise ValueError("An interference allowance must name two distinct solids")
+        pair = frozenset(((a.key, a.part, a.solid), (b.key, b.part, b.solid)))
+        if pair in accepted:
+            raise ValueError("An interference pair was declared more than once")
+        accepted[pair] = reason
+    for report in reports:
+        if report["kind"] != "interference":
+            continue
+        pair = frozenset(
+            (
+                (side["key"], side["part"], side["solid"])
+                for side in (report["first"], report["second"])
+            )
+        )
+        if pair in accepted:
+            report["allowance_reason"] = accepted[pair]
+
+
 def summarize(reports: list[dict]) -> dict:
     """A tri-state verdict: numerical uncertainty must never count as safe."""
 
@@ -272,9 +333,13 @@ def summarize(reports: list[dict]) -> dict:
     }
     for report in reports:
         counts[report["kind"]] += 1
+    accepted = sum(
+        report["kind"] == "interference" and bool(report.get("allowance_reason"))
+        for report in reports
+    )
     status = (
         "interference"
-        if counts["interference"]
+        if counts["interference"] > accepted
         else "inconclusive" if counts["inconclusive"] else "clear"
     )
-    return {"status": status, "counts": counts}
+    return {"status": status, "counts": counts, "accepted": accepted}

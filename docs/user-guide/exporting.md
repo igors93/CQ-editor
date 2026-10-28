@@ -34,12 +34,15 @@ you can cancel, export anyway, or try OpenCascade ShapeFix on an export copy.
 The script and displayed model are unchanged by that repair. **Tools > Check
 Geometry** also compares the exact solids of the assembled model. Its report
 distinguishes interferences, contacts, clearances and inconclusive calculations;
-**Select pair** highlights both pieces. The Objects panel marks checked objects
+**Select pair** highlights both pieces and draws their exact shared volume in
+red when they interfere. The Objects panel marks checked objects
 with topology problems.
 
 An export with interfering pieces pauses for review. **Export anyway** keeps
 the geometry exactly as scripted; ShapeFix is offered only for topology defects
 and does not resolve an overlap between distinct parts.
+For a known press fit or weld, declare the specific pair and reason with
+`allow_interference(...)` in the script. Other overlaps remain blocked.
 
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the

@@ -78,6 +78,7 @@ The worker handles one request at a time, in arrival order.
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (see Export dialog), `path`, tolerances, STEP mode/schema, STL ASCII, `flat_parts`, `unit`, `on_invalid` (`check`, `fix`, `ignore`), `on_interference` (`check`, `ignore`) | `export_finished` or `geometry_invalid` |
 | `check` | `id`, `keys`, `flat_parts`, optional `interference_tolerance`, `clearance` (model units) | `geometry_checked` |
+| `interference_geometry` | `id`, `first`, `second` (live pair references from a geometry report), `scene` | `interference_geometry` with exact shared-volume mesh |
 | `upload` | `id`, `url`, `file_type` (`step`, `stl`, `py`), `keys`, `source` | `upload_finished` |
 | `check_updates` | `id`, `editor` (the GUI's version: list CQ-editor's newer releases), `cadquery` (also list CadQuery's; true when missing) | `updates` |
 | `imports` | `id`, `path` | `imports` (local module files imported by the script) |
@@ -114,7 +115,8 @@ The worker handles one request at a time, in arrival order.
 | `display` | `id`, `text`, `image` (null, or `format`: `png` or `jpeg`, `data`: base64) | A console result: the value of an expression, or each argument of `display()`. See [Rich console results](#rich-console-results) |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |
 | `export_finished` | `id`, `path` | |
-| `geometry_checked` | `id`, `reports`, `interferences`, `assessment` | Topology per object and exact solid-pair results (`interference`, `contact`, `clearance`, `inconclusive`); assessment is `clear`, `interference`, or `inconclusive` |
+| `geometry_checked` | `id`, `reports`, `interferences`, `assessment` | Topology per object and exact solid-pair results (`interference`, `contact`, `clearance`, `inconclusive`); declared pairs include `allowance_reason`, and assessment includes the accepted count and status (`clear`, `interference`, or `inconclusive`) |
+| `interference_geometry` | `id`, `mesh` | Mesh of the exact positive shared volume for the selected pair |
 | `geometry_invalid` | `id`, `reports`, `interferences` | Export wrote nothing and awaits the user's decision about topology or part interference |
 | `upload_finished` | `id`, `status`, `body` | HTTP status and response body |
 | `updates` | `id`, `current`, `newer`, `editor` | CadQuery release tags newer than `current` (empty when not asked); with `editor`, CQ-editor's newer releases (`current`, `newer`: `tag`, `name`, `url`, newest first, drafts and pre-releases left out) |

@@ -12,7 +12,8 @@ cq-editor check part.py --json
 writing and returns a nonzero exit status if the script, topology, interference
 check or export fails. `--allow-interference` explicitly permits export despite
 an interfering or inconclusive pair, while invalid topology remains blocked.
-`check` reports each displayed object's exact geometry and checks pairs of
+For a specific intentional overlap, `allow_interference("first", "second",
+reason="press fit")` in the script accepts only that pair. `check` reports each displayed object's exact geometry and checks pairs of
 solids for interference. It exits nonzero for invalid topology, open shells,
 non-manifold edges, interference or an inconclusive exact comparison.
 `--clearance DISTANCE` also lists nearby parts below that distance in model

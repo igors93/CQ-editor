@@ -141,6 +141,22 @@ value of diametral clearance. Optional pairs `insertion_depth`/`hole_depth`,
 calculation is conservative and does not identify an actual hole in a shape;
 **Check Geometry** separately verifies the solids as modeled.
 
+### Intentional interference
+
+An intentional press fit or welded overlap can be declared in the model script:
+
+```python
+allow_interference("plate", "pin", reason="specified press fit")
+```
+
+The two names must each identify one solid in the checked scene. Give parts
+unique names; merged assemblies also accept the full path shown in
+**Check Geometry** if a basename is ambiguous. The
+check still reports the exact overlap and its reason. Only that pair is
+accepted for export; other collisions and inconclusive Boolean calculations
+still block it. A new script run replaces the declarations, so an old
+allowance cannot silently apply to a new model.
+
 ### Assembly motion paths
 
 For insertion or moving mechanisms, declare a path in the script. Each pose is

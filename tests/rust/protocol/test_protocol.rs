@@ -138,6 +138,41 @@ fn parses_errors_and_output() {
 }
 
 #[test]
+fn overlap_geometry_request_and_mesh_reply_round_trip() {
+    use crate::worker::protocol::InterferencePart;
+    let first = InterferencePart {
+        key: "n1".into(),
+        name: "plate".into(),
+        part: 0,
+        solid: 0,
+    };
+    let request = Request::InterferenceGeometry {
+        id: 8,
+        first: first.clone(),
+        second: InterferencePart {
+            key: "n2".into(),
+            name: "pin".into(),
+            part: 0,
+            solid: 0,
+        },
+        scene: SceneSettings {
+            linear_tolerance: 0.001,
+            angular_tolerance: 0.2,
+            merge_assemblies: false,
+            units: "millimeter".into(),
+        },
+    };
+    let json = serde_json::to_value(request).unwrap();
+    assert_eq!(json["cmd"], "interference_geometry");
+    assert_eq!(json["first"]["name"], "plate");
+    let reply: Message = serde_json::from_value(serde_json::json!({
+        "type": "interference_geometry", "id": 8, "mesh": {}
+    }))
+    .unwrap();
+    assert!(matches!(reply, Message::InterferenceGeometry { id: 8, .. }));
+}
+
+#[test]
 fn serializes_run_request_with_worker_settings() {
     let request = Request::Run {
         id: 9,

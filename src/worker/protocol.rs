@@ -293,6 +293,8 @@ pub struct InterferenceReport {
     pub distance: Option<f64>,
     pub point: Option<[f64; 3]>,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub allowance_reason: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -359,7 +361,7 @@ pub enum Message {
     },
     InterferenceGeometry {
         id: RequestId,
-        mesh: Mesh,
+        mesh: Box<Mesh>,
     },
     Measurement(Box<Measurement>),
     MeasurementCode {

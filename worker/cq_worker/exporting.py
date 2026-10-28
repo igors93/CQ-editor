@@ -14,7 +14,7 @@ from OCP.Interface import Interface_Static
 from OCP.STEPControl import STEPControl_Controller
 
 from .checking import GeometryInvalid, check_registry, check_shape, invalid_reports
-from .interference import analyze_interferences
+from .interference import analyze_interferences, apply_allowances
 from .scene import Registry, RegistryEntry, to_compound
 
 FORMATS = (
@@ -53,6 +53,7 @@ def export(
     unit: str = "millimeter",
     on_invalid: str = "check",
     on_interference: str = "check",
+    interference_allowances: list[tuple[str, str, str]] | None = None,
 ) -> None:
     """Export the objects behind ``keys`` (with their descendants).
 
@@ -108,8 +109,19 @@ def export(
     physical = analyze_interferences(
         registry, keys, flat_parts=flat_parts, replacements=repaired
     )
+    apply_allowances(
+        registry,
+        keys,
+        physical,
+        interference_allowances or [],
+        flat_parts=flat_parts,
+        replacements=repaired,
+    )
     unsafe = [
-        pair for pair in physical if pair["kind"] in ("interference", "inconclusive")
+        pair
+        for pair in physical
+        if pair["kind"] == "inconclusive"
+        or (pair["kind"] == "interference" and not pair.get("allowance_reason"))
     ]
     if unsafe and on_interference == "check":
         raise GeometryInvalid([], unsafe)

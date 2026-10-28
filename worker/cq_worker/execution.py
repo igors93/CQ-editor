@@ -141,7 +141,9 @@ def _variable_name(obj: Any, frame) -> str | None:
     return None
 
 
-def script_api(shown: ShownObjects) -> dict[str, Any]:
+def script_api(
+    shown: ShownObjects, allowances: list[tuple[str, str, str]] | None = None
+) -> dict[str, Any]:
     """Names injected into the script namespace."""
 
     def show_object(obj, name=None, options=None, **kwargs):
@@ -149,6 +151,21 @@ def script_api(shown: ShownObjects) -> dict[str, Any]:
 
     def debug(obj, name=None):
         shown.debug(obj, name)
+
+    def allow_interference(first: str, second: str, *, reason: str) -> None:
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (first, second, reason)
+        ):
+            raise ValueError(
+                "An interference allowance needs two part names and a reason"
+            )
+        first, second, reason = first.strip(), second.strip(), reason.strip()
+        if first == second:
+            raise ValueError("An interference allowance needs two distinct part names")
+        if allowances is None:
+            raise RuntimeError("Declare interference allowances in the model script")
+        allowances.append((first, second, reason))
 
     return {
         "show_object": show_object,
@@ -166,6 +183,7 @@ def script_api(shown: ShownObjects) -> dict[str, Any]:
         "require_beam": require_beam,
         "tool_access": tool_access,
         "require_tool_access": require_tool_access,
+        "allow_interference": allow_interference,
         "log": lambda value: script_log.info(str(value)),
         "cq": cq,
     }
@@ -342,7 +360,8 @@ class Execution:
         self.settings = settings
         self.module = new_module(path)
         self.shown = ShownObjects()
-        self.api = script_api(self.shown)
+        self.interference_allowances: list[tuple[str, str, str]] = []
+        self.api = script_api(self.shown, self.interference_allowances)
         self.error: dict | None = None
         #: Set when a debugging session was ended by the user.
         self.stopped = False

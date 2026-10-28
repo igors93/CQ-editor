@@ -592,7 +592,12 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
             let collisions = dialog
                 .interferences
                 .iter()
-                .filter(|pair| pair.kind == "interference")
+                .filter(|pair| pair.kind == "interference" && pair.allowance_reason.is_none())
+                .count();
+            let accepted = dialog
+                .interferences
+                .iter()
+                .filter(|pair| pair.allowance_reason.is_some())
                 .count();
             let uncertain = dialog
                 .interferences
@@ -624,7 +629,7 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
             }
             if !dialog.interferences.is_empty() {
                 ui.label(format!(
-                    "{collisions} interfering pair(s); {uncertain} inconclusive pair(s)."
+                    "{collisions} interfering pair(s); {accepted} accepted pair(s); {uncertain} inconclusive pair(s)."
                 ));
                 egui::ScrollArea::vertical()
                     .max_height(250.0)
@@ -657,6 +662,9 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                             }
                             if let Some(reason) = &pair.reason {
                                 ui.weak(reason);
+                            }
+                            if let Some(reason) = &pair.allowance_reason {
+                                ui.small(format!("Accepted in script: {reason}"));
                             }
                             if let Some([x, y, z]) = pair.point {
                                 ui.small(format!("Overlap center: ({x:.3}, {y:.3}, {z:.3})"));

@@ -357,7 +357,7 @@ impl AppState {
                     })
                 {
                     self.scene.overlay = Overlay {
-                        meshes: vec![Arc::new(Mesh::from(mesh))],
+                        meshes: vec![Arc::new(Mesh::from(*mesh))],
                         grid: None,
                     };
                 }

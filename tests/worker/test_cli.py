@@ -89,6 +89,20 @@ def test_check_rejects_overlapping_solids_and_names_the_pair(tmp_path):
     )
     assert allowed.returncode == 0, allowed.stderr
     assert output.stat().st_size > 100
+    script.write_text(
+        script.read_text(encoding="utf-8")
+        + "allow_interference('plate', 'pin', reason='specified press fit')\n",
+        encoding="utf-8",
+    )
+    declared = invoke("check", str(script), "--json")
+    assert declared.returncode == 0, declared.stderr
+    assessed = json.loads(declared.stdout)
+    assert assessed["assessment"]["accepted"] == 1
+    assert assessed["interferences"][0]["allowance_reason"] == "specified press fit"
+    declared_output = tmp_path / "declared.step"
+    exported = invoke("build", str(script), "--export", str(declared_output), "--json")
+    assert exported.returncode == 0, exported.stderr
+    assert declared_output.stat().st_size > 100
 
 
 def test_check_preserves_script_traceback_and_parameter_errors(tmp_path):
