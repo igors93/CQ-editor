@@ -125,6 +125,28 @@ class ReleasePackagingTests(unittest.TestCase):
             "MACOS_NOTARY_ISSUER_ID",
         ):
             self.assertIn(f"secrets.{secret}", workflow)
+        for step, platform in (
+            ("Sign native editor (Windows)", "Windows"),
+            ("Sign installer (Windows)", "Windows"),
+            ("Prepare Developer ID identities (macOS)", "macOS"),
+            ("Sign native editor (macOS)", "macOS"),
+            ("Notarize and staple installer (macOS)", "macOS"),
+        ):
+            self.assertIn(
+                f"- name: {step}\n        if: runner.os == '{platform}' "
+                "&& github.ref_name != '0.9.0'",
+                workflow,
+            )
+        self.assertIn(
+            "runner.os == 'macOS' && github.ref_name != '0.9.0' "
+            "&& secrets.MACOS_APPLICATION_IDENTITY",
+            workflow,
+        )
+        self.assertIn(
+            "runner.os == 'macOS' && github.ref_name != '0.9.0' "
+            "&& secrets.MACOS_INSTALLER_IDENTITY",
+            workflow,
+        )
         self.assertLess(
             workflow.index("Sign native editor (Windows)"),
             workflow.index("Build installer"),

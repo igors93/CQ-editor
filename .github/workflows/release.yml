@@ -65,8 +65,10 @@ jobs:
         env:
           CQ_EDITOR_REQUIRE_RESOURCES: "1"
 
+      # 0.9.0 follows the unsigned 0.8.0 release while certificates are obtained.
+      # Later tags still require signing and notarization before publication.
       - name: Sign native editor (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && github.ref_name != '0.9.0'
         shell: pwsh
         env:
           CQ_WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
@@ -74,7 +76,7 @@ jobs:
         run: ./packaging/sign_windows.ps1 target/release/cq-editor.exe
 
       - name: Prepare Developer ID identities (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && github.ref_name != '0.9.0'
         shell: bash
         env:
           CQ_MAC_APP_CERT_BASE64: ${{ secrets.MACOS_APPLICATION_P12_BASE64 }}
@@ -86,7 +88,7 @@ jobs:
         run: bash packaging/prepare_macos_signing.sh
 
       - name: Sign native editor (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && github.ref_name != '0.9.0'
         shell: bash
         env:
           CQ_MAC_APPLICATION_IDENTITY: ${{ secrets.MACOS_APPLICATION_IDENTITY }}
@@ -118,8 +120,8 @@ jobs:
       - name: Build installer
         shell: bash -el {0}
         env:
-          CQ_MAC_APPLICATION_IDENTITY: ${{ runner.os == 'macOS' && secrets.MACOS_APPLICATION_IDENTITY || '' }}
-          CQ_MAC_INSTALLER_IDENTITY: ${{ runner.os == 'macOS' && secrets.MACOS_INSTALLER_IDENTITY || '' }}
+          CQ_MAC_APPLICATION_IDENTITY: ${{ runner.os == 'macOS' && github.ref_name != '0.9.0' && secrets.MACOS_APPLICATION_IDENTITY || '' }}
+          CQ_MAC_INSTALLER_IDENTITY: ${{ runner.os == 'macOS' && github.ref_name != '0.9.0' && secrets.MACOS_INSTALLER_IDENTITY || '' }}
         run: |
           mkdir dist
           cd dist
@@ -134,7 +136,7 @@ jobs:
           mv dist/pkg-list.base.txt "dist/cq-editor-${{ matrix.platform }}-packages.txt"
 
       - name: Sign installer (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && github.ref_name != '0.9.0'
         shell: pwsh
         env:
           CQ_WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
@@ -145,7 +147,7 @@ jobs:
           ./packaging/sign_windows.ps1 $installers[0].FullName
 
       - name: Notarize and staple installer (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && github.ref_name != '0.9.0'
         shell: bash
         env:
           CQ_MAC_NOTARY_KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
@@ -246,6 +248,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: CQ-editor ${{ github.ref_name }}
+          body: ${{ github.ref_name == '0.9.0' && 'Windows and macOS installers for 0.9.0 are unsigned, as in 0.8.0. Verify downloaded files with SHA256SUMS.txt before installing.' || '' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
