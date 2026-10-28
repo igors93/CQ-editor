@@ -10,7 +10,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::scene::NodeKey;
-use crate::worker::{self, protocol::RequestId};
+use crate::worker::{
+    self,
+    protocol::{InterferencePart, RequestId},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
@@ -65,6 +68,10 @@ pub enum Pending {
     InspectGeometry {
         key: NodeKey,
         entry: (usize, Option<usize>),
+    },
+    InterferenceGeometry {
+        first: InterferencePart,
+        second: InterferencePart,
     },
     Console,
     Export,

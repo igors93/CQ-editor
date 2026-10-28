@@ -346,6 +346,22 @@ impl AppState {
                     };
                 }
             }
+            Message::InterferenceGeometry { id, mesh } => {
+                if let Some(Pending::InterferenceGeometry { first, second }) =
+                    self.execution.answer(id)
+                    && self.dialogs.geometry.as_ref().is_some_and(|dialog| {
+                        dialog
+                            .interferences
+                            .iter()
+                            .any(|pair| pair.first == first && pair.second == second)
+                    })
+                {
+                    self.scene.overlay = Overlay {
+                        meshes: vec![Arc::new(Mesh::from(mesh))],
+                        grid: None,
+                    };
+                }
+            }
             Message::Measurement(result) => {
                 let id = result.id;
                 let tracked = matches!(self.execution.answer(id), Some(Pending::Measure));
@@ -535,6 +551,12 @@ impl AppState {
                 self.dialogs.error("Export failed", message);
             }
             Some((_, Pending::Check)) => self.dialogs.error("Geometry check failed", message),
+            Some((_, Pending::InterferenceGeometry { .. })) => {
+                self.set_status(
+                    StatusKind::Warning,
+                    format!("Cannot draw overlap: {message}"),
+                );
+            }
             Some((_, Pending::Upload)) => {
                 if let Some(upload) = &mut self.dialogs.upload {
                     upload.failed(&message);

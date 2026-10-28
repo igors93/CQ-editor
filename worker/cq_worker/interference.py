@@ -235,6 +235,35 @@ def analyze_interferences(
     return reports
 
 
+def overlap_shape(registry: Registry, first: dict, second: dict) -> cq.Shape:
+    """Rebuild the exact common volume for a reported pair of live solids."""
+
+    keys = list(dict.fromkeys((first["key"], second["key"])))
+    instances = collect_solids(registry, keys)
+
+    def resolve(reference: dict) -> SolidInstance:
+        matches = [
+            instance
+            for instance in instances
+            if instance.key == reference["key"]
+            and instance.part == reference["part"]
+            and instance.solid == reference["solid"]
+            and instance.name == reference["name"]
+        ]
+        if len(matches) != 1:
+            raise ValueError("Interference pair is no longer in the live scene")
+        return matches[0]
+
+    a, b = resolve(first), resolve(second)
+    if a is b:
+        raise ValueError("An interference pair must contain two distinct solids")
+    common = a.shape.intersect(b.shape)
+    volume = float(common.Volume())
+    if not common.isValid() or not math.isfinite(volume) or volume <= 0:
+        raise ValueError("The pair has no valid positive shared volume")
+    return common
+
+
 def summarize(reports: list[dict]) -> dict:
     """A tri-state verdict: numerical uncertainty must never count as safe."""
 

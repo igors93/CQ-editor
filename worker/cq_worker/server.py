@@ -154,6 +154,7 @@ class Server:
             "describe": self.describe,
             "inspect": self.inspect,
             "inspect_geometry": self.inspect_geometry,
+            "interference_geometry": self.interference_geometry,
             "measure": self.measure,
             "selector": self.selector,
             "measurement_code": self.measurement_code,
@@ -486,6 +487,16 @@ class Server:
             frame, None if item is None else int(item), self._tolerance(request)
         )
         return {"type": "inspection_geometry", **geometry}
+
+    def interference_geometry(self, request: Message) -> Message:
+        from .interference import overlap_shape
+        from .tessellation import tessellate
+
+        common = overlap_shape(self.registry, request["first"], request["second"])
+        mesh = tessellate(common.wrapped, self._tolerance(request))
+        if mesh is None:
+            raise RequestError("The shared volume could not be drawn")
+        return {"type": "interference_geometry", "mesh": mesh.to_message()}
 
     def measure(self, request: Message) -> Message:
         try:

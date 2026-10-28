@@ -9,7 +9,8 @@ use crate::editor::{CompletionRequest, HoverRequest};
 use crate::panels::{EntryKind, SelectorUse};
 use crate::scene::{NodeKey, Overlay, TopologySelection};
 use crate::worker::protocol::{
-    CompletionTarget, ConsoleSelection, ExportFormat, Request, SelectorCandidate, TopologyReference,
+    CompletionTarget, ConsoleSelection, ExportFormat, InterferenceReport, Request,
+    SelectorCandidate, TopologyReference,
 };
 
 #[derive(Clone)]
@@ -498,6 +499,28 @@ impl AppState {
             }
             crate::dialogs::GeometryChoice::SelectPair(_) => {}
         }
+    }
+
+    pub(crate) fn show_interference(&mut self, pair: &InterferenceReport) {
+        self.scene.overlay = Overlay::default();
+        if pair.kind != "interference" {
+            return;
+        }
+        let first = pair.first.clone();
+        let second = pair.second.clone();
+        let scene = self.settings.scene_settings();
+        self.send_tracked(
+            Pending::InterferenceGeometry {
+                first: first.clone(),
+                second: second.clone(),
+            },
+            |id| Request::InterferenceGeometry {
+                id,
+                first,
+                second,
+                scene,
+            },
+        );
     }
 
     pub(super) fn check_geometry(&mut self) {

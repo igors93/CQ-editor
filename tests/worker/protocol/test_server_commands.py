@@ -5,6 +5,34 @@ from cq_worker import network
 BOX = "part = cq.Workplane().box(1, 2, 3)\nshow_object(part)"
 
 
+def test_interference_geometry_returns_shared_volume_mesh(conversation):
+    first = {"key": "n1", "name": "first", "part": 0, "solid": 0}
+    second = {"key": "n2", "name": "second", "part": 0, "solid": 0}
+    talk = conversation(
+        {
+            "cmd": "run",
+            "id": 1,
+            "script": (
+                "show_object(cq.Workplane().box(2, 2, 2), name='first')\n"
+                "show_object(cq.Workplane().box(2, 2, 2).translate((1, 0, 0)), "
+                "name='second')"
+            ),
+        },
+        {"cmd": "interference_geometry", "id": 2, "first": first, "second": second},
+        {
+            "cmd": "interference_geometry",
+            "id": 3,
+            "first": {**first, "solid": 99},
+            "second": second,
+        },
+    )
+    talk.serve()
+    (reply,) = talk.of_type("interference_geometry")
+    assert reply["id"] == 2
+    assert reply["mesh"]["positions"]
+    assert talk.of_type("error")[0]["id"] == 3
+
+
 def test_check_and_export_share_the_geometry_report(conversation, tmp_path):
     script = (
         "box = cq.Workplane().box(1, 1, 1).val()\n"

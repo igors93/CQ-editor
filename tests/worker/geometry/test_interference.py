@@ -2,7 +2,7 @@
 
 import cadquery as cq
 import pytest
-from cq_worker.interference import analyze_interferences, summarize
+from cq_worker.interference import analyze_interferences, overlap_shape, summarize
 from cq_worker.scene import Registry, SceneBuilder, ShownObject
 from cq_worker.tessellation import Tolerance
 
@@ -41,6 +41,21 @@ def test_smaller_pin_passes_through_exact_hole_without_interference():
 def test_misaligned_pin_interferes_even_when_its_diameter_is_smaller():
     reports = assembly_report(6.5, 6, pin_x=0.5)
     assert len(reports) == 1 and reports[0]["kind"] == "interference"
+
+
+def test_overlap_shape_matches_report_and_rejects_stale_pair():
+    first = cq.Workplane().box(2, 2, 2)
+    second = cq.Workplane().box(2, 2, 2).translate((1, 0, 0))
+    registry = Registry()
+    nodes = SceneBuilder(registry, Tolerance()).build(
+        {"first": ShownObject(first), "second": ShownObject(second)}
+    )
+    (report,) = analyze_interferences(registry, [node["key"] for node in nodes])
+    common = overlap_shape(registry, report["first"], report["second"])
+    assert common.Volume() == pytest.approx(report["overlap_volume"])
+    stale = {**report["first"], "solid": 99}
+    with pytest.raises(ValueError, match="no longer in the live scene"):
+        overlap_shape(registry, stale, report["second"])
 
 
 def test_face_contact_is_separate_from_penetration():

@@ -76,6 +76,12 @@ pub enum Request {
         item: Option<usize>,
         scene: SceneSettings,
     },
+    InterferenceGeometry {
+        id: RequestId,
+        first: InterferencePart,
+        second: InterferencePart,
+        scene: SceneSettings,
+    },
     /// Measures one entity, or the exact relationship between two entities,
     /// against the live OCCT shapes retained by the worker.
     Measure {
@@ -270,7 +276,7 @@ pub struct GeometryReport {
     pub issues: Vec<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InterferencePart {
     pub key: String,
     pub name: String,
@@ -350,6 +356,10 @@ pub enum Message {
         id: RequestId,
         meshes: Vec<Mesh>,
         plane: Option<Plane>,
+    },
+    InterferenceGeometry {
+        id: RequestId,
+        mesh: Mesh,
     },
     Measurement(Box<Measurement>),
     MeasurementCode {

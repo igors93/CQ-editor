@@ -409,6 +409,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                 .as_ref()
                 .and_then(|dialog| dialog.interferences.get(index))
             {
+                let pair = pair.clone();
                 let first = pair.first.key.clone();
                 let second = pair.second.key.clone();
                 state.scene.select_only(&first);
@@ -418,6 +419,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                 state
                     .viewer
                     .fit_selection(&state.scene, true, ctx.input(|input| input.time));
+                state.show_interference(&pair);
             }
         } else if let Some(dialog) = state.dialogs.geometry.take()
             && dialog.for_export
