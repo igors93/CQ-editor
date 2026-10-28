@@ -174,6 +174,36 @@ underconstraint; zero does not prove full constraint because redundant or
 dependent constraints can hide further freedom. Nested assemblies return an
 inconclusive degree-of-freedom result instead of a false assurance.
 
+### Material, beam and tool-access checks
+
+For prismatic parts, declare engineering material properties and a section in
+the script. The following check includes self-weight, an end load, yielding,
+deflection and a minimum wall thickness:
+
+```python
+steel = EngineeringMaterial("Steel", density_g_cm3=7.85,
+                            youngs_modulus_mpa=210000, yield_strength_mpa=250)
+tube = BeamSection.hollow_rectangle(20, 20, wall_mm=1.5)
+require_beam(section=tube, material=steel, length_mm=700,
+             transverse_load_n=100, required_safety_factor=2,
+             maximum_deflection_mm=10, required_wall_mm=1.2)
+```
+
+Dimensions are millimeters, forces newtons and stresses megapascals. Supported
+sections are `rectangle`, `hollow_rectangle` and `round_tube`; support cases are
+`cantilever` (end point load) and `simply_supported_center_load` (center point
+load). `beam_check` returns the calculation without raising. Compression is
+checked against Euler buckling; free thermal expansion or restrained thermal
+stress can be included explicitly. The model is a one-dimensional linear
+elastic beam with ideal supports. It does not evaluate local buckling, welds,
+joint stiffness or a general three-dimensional stress field.
+
+For tool access, `tool_access(diameter, length, obstacles, poses)` checks a
+cylindrical tool envelope along the declared approach path;
+`require_tool_access(...)` stops the script if blocked or inconclusive. Model
+the actual wrench, drill or driver envelope and its approach when a cylinder
+is insufficient.
+
 ## `debug`
 
 `debug(obj)` displays `obj` in translucent red (`color="red"`, `alpha=0.2`)

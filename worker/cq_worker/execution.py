@@ -36,6 +36,14 @@ from typing import Any
 import cadquery as cq
 
 from .assembly_checks import assembly_diagnostics, require_constrained_assembly
+from .engineering import (
+    BeamSection,
+    EngineeringMaterial,
+    beam_check,
+    require_beam,
+    require_tool_access,
+    tool_access,
+)
 from . import provenance
 from .debugger import DebugStop
 from .fit import cylindrical_fit, require_fit
@@ -152,6 +160,12 @@ def script_api(shown: ShownObjects) -> dict[str, Any]:
         "require_clear_path": require_clear_path,
         "assembly_diagnostics": assembly_diagnostics,
         "require_constrained_assembly": require_constrained_assembly,
+        "BeamSection": BeamSection,
+        "EngineeringMaterial": EngineeringMaterial,
+        "beam_check": beam_check,
+        "require_beam": require_beam,
+        "tool_access": tool_access,
+        "require_tool_access": require_tool_access,
         "log": lambda value: script_log.info(str(value)),
         "cq": cq,
     }
