@@ -351,9 +351,9 @@ impl AppState {
                     self.execution.answer(id)
                     && self.dialogs.geometry.as_ref().is_some_and(|dialog| {
                         dialog
-                            .interferences
-                            .iter()
-                            .any(|pair| pair.first == first && pair.second == second)
+                            .selected_pair
+                            .and_then(|index| dialog.interferences.get(index))
+                            .is_some_and(|pair| pair.first == first && pair.second == second)
                     })
                 {
                     self.scene.overlay = Overlay {
@@ -437,6 +437,7 @@ impl AppState {
                         reports,
                         interferences,
                         for_export: false,
+                        selected_pair: None,
                     });
                 }
             }
@@ -454,6 +455,7 @@ impl AppState {
                         reports,
                         interferences,
                         for_export: true,
+                        selected_pair: None,
                     });
                     self.set_status(StatusKind::Warning, "Export waits for a geometry decision");
                 }

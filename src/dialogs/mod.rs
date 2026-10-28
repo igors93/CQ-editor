@@ -147,6 +147,7 @@ pub struct GeometryDialog {
     pub reports: Vec<GeometryReport>,
     pub interferences: Vec<InterferenceReport>,
     pub for_export: bool,
+    pub selected_pair: Option<usize>,
 }
 
 impl ExportDialog {
@@ -403,13 +404,10 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         .and_then(|dialog| geometry_review(ctx, dialog));
     if let Some(choice) = geometry_choice {
         if let GeometryChoice::SelectPair(index) = choice {
-            if let Some(pair) = state
-                .dialogs
-                .geometry
-                .as_ref()
-                .and_then(|dialog| dialog.interferences.get(index))
-            {
-                let pair = pair.clone();
+            if let Some(pair) = state.dialogs.geometry.as_mut().and_then(|dialog| {
+                dialog.selected_pair = Some(index);
+                dialog.interferences.get(index).cloned()
+            }) {
                 let first = pair.first.key.clone();
                 let second = pair.second.key.clone();
                 state.scene.select_only(&first);

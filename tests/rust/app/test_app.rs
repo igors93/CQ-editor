@@ -1140,6 +1140,67 @@ fn interference_check_keeps_both_parts_in_the_review() {
 }
 
 #[test]
+fn overlap_mesh_reply_only_applies_to_the_pair_still_selected() {
+    use crate::worker::protocol::{InterferencePart, InterferenceReport, Mesh, Message};
+    let mut state = test_state("");
+    let first = InterferencePart {
+        key: "plate".into(),
+        name: "plate".into(),
+        part: 0,
+        solid: 0,
+    };
+    let second = InterferencePart {
+        key: "pin".into(),
+        name: "pin".into(),
+        part: 0,
+        solid: 0,
+    };
+    state.execution.track(20, Pending::Check);
+    state.handle_message(Message::GeometryChecked {
+        id: 20,
+        reports: vec![],
+        interferences: vec![InterferenceReport {
+            first: first.clone(),
+            second: second.clone(),
+            kind: "interference".into(),
+            overlap_volume: Some(1.0),
+            distance: Some(0.0),
+            point: Some([0.0, 0.0, 0.0]),
+            reason: None,
+            allowance_reason: None,
+        }],
+    });
+    let review = state.dialogs.geometry.as_mut().unwrap();
+    let mut other_pair = review.interferences[0].clone();
+    other_pair.second.key = "other".into();
+    other_pair.second.name = "other".into();
+    review.interferences.push(other_pair);
+    review.selected_pair = Some(1);
+    state.execution.track(
+        21,
+        Pending::InterferenceGeometry {
+            first: first.clone(),
+            second: second.clone(),
+        },
+    );
+    state.handle_message(Message::InterferenceGeometry {
+        id: 21,
+        mesh: Box::<Mesh>::default(),
+    });
+    assert!(state.scene.overlay.meshes.is_empty());
+
+    state.dialogs.geometry.as_mut().unwrap().selected_pair = Some(0);
+    state
+        .execution
+        .track(22, Pending::InterferenceGeometry { first, second });
+    state.handle_message(Message::InterferenceGeometry {
+        id: 22,
+        mesh: Box::<Mesh>::default(),
+    });
+    assert_eq!(state.scene.overlay.meshes.len(), 1);
+}
+
+#[test]
 fn the_empty_view_says_when_the_editor_is_closed() {
     let mut state = test_state("");
     assert_eq!(state.empty_view_hint(), "Press F5 to render the script");
