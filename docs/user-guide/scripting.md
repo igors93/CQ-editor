@@ -113,6 +113,34 @@ show_object(assy)
 
 Example *08 Assembly* (**File > Examples**) is a complete bolted joint.
 
+### Dimensional fit checks
+
+Call `require_fit` in the script to make rendering, headless checking and
+building fail when the stated worst-case cylindrical fit cannot meet its
+requirements:
+
+```python
+require_fit(
+    hole_diameter=6.5,
+    pin_diameter=6.0,
+    hole_lower=-0.1,
+    hole_upper=0.1,
+    pin_lower=-0.05,
+    pin_upper=0.05,
+    center_offset=0.1,
+    required_clearance=0.1,
+)
+```
+
+All numbers use the same model unit. Lower and upper deviations are signed;
+`center_offset` is the maximum radial misalignment and consumes twice that
+value of diametral clearance. Optional pairs `insertion_depth`/`hole_depth`,
+`head_diameter`/`counterbore_diameter` and
+`head_height`/`counterbore_depth` check blind-hole and head seating dimensions.
+`cylindrical_fit(...)` returns the report without raising. This dimensional
+calculation is conservative and does not identify an actual hole in a shape;
+**Check Geometry** separately verifies the solids as modeled.
+
 ## `debug`
 
 `debug(obj)` displays `obj` in translucent red (`color="red"`, `alpha=0.2`)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import cadquery as cq
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
@@ -152,7 +153,7 @@ def _distance(first: cq.Shape, second: cq.Shape) -> float:
 def inspect_pair(first: SolidInstance, second: SolidInstance, tolerance: float) -> dict:
     """Classify a candidate using exact B-rep intersection and distance."""
 
-    report = {
+    report: dict[str, Any] = {
         "first": first.reference(),
         "second": second.reference(),
         "kind": "inconclusive",
