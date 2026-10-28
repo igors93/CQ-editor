@@ -38,6 +38,7 @@ import cadquery as cq
 from . import provenance
 from .debugger import DebugStop
 from .fit import cylindrical_fit, require_fit
+from .motion import require_clear_path, trace_path
 from .scene import ShownObject
 
 #: Pseudo file name of the editor buffer in code objects and tracebacks.
@@ -146,6 +147,8 @@ def script_api(shown: ShownObjects) -> dict[str, Any]:
         "rand_color": rand_color,
         "cylindrical_fit": cylindrical_fit,
         "require_fit": require_fit,
+        "trace_path": trace_path,
+        "require_clear_path": require_clear_path,
         "log": lambda value: script_log.info(str(value)),
         "cq": cq,
     }

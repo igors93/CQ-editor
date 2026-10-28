@@ -141,6 +141,28 @@ value of diametral clearance. Optional pairs `insertion_depth`/`hole_depth`,
 calculation is conservative and does not identify an actual hole in a shape;
 **Check Geometry** separately verifies the solids as modeled.
 
+### Assembly motion paths
+
+For insertion or moving mechanisms, declare a path in the script. Each pose is
+`(x, y, z, rx, ry, rz)`: translation in model units and XYZ Euler rotation in
+degrees. The moving shape is defined around its local origin; obstacles remain
+fixed in world coordinates.
+
+```python
+require_clear_path(
+    pin,
+    [plate, bracket],
+    [(0, 0, -20, 0, 0, 0), (0, 0, 0, 0, 0, 0)],
+    required_clearance=0.1,
+)
+```
+
+`trace_path(...)` returns `clear`, `blocked` or `inconclusive` without raising.
+`require_clear_path(...)` stops the run unless the *whole* path is certified
+clear. A pose budget and subdivision limit prevent an indefinite check; contact
+or numerical uncertainty can therefore remain inconclusive. Paths are
+explicit because the final assembly cannot reveal how a part was inserted.
+
 ## `debug`
 
 `debug(obj)` displays `obj` in translucent red (`color="red"`, `alpha=0.2`)
