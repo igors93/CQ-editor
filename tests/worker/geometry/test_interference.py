@@ -2,7 +2,7 @@
 
 import cadquery as cq
 import pytest
-from cq_worker.interference import analyze_interferences
+from cq_worker.interference import analyze_interferences, summarize
 from cq_worker.scene import Registry, SceneBuilder, ShownObject
 from cq_worker.tessellation import Tolerance
 
@@ -65,3 +65,34 @@ def test_two_instances_of_same_shape_are_not_deduplicated_inside_assembly():
     (report,) = analyze_interferences(registry, [node["key"]])
     assert report["kind"] == "interference"
     assert report["overlap_volume"] == pytest.approx(8)
+
+
+def test_equal_diameters_are_contact_not_assured_manufacturing_clearance():
+    reports = assembly_report(6, 6)
+    assert len(reports) == 1
+    assert reports[0]["kind"] == "contact"
+    assert summarize(reports)["status"] == "clear"
+
+
+def test_failed_exact_operation_is_inconclusive_not_safe(monkeypatch):
+    def fail(*_args):
+        raise RuntimeError("boolean operation failed")
+
+    monkeypatch.setattr(cq.Shape, "intersect", fail)
+    (report,) = assembly_report(5, 6)
+    assert report["kind"] == "inconclusive"
+    assert "boolean operation failed" in report["reason"]
+    assert summarize([report])["status"] == "inconclusive"
+
+
+def test_summary_prioritizes_interference_over_uncertainty():
+    reports = [{"kind": "inconclusive"}, {"kind": "interference"}]
+    assert summarize(reports) == {
+        "status": "interference",
+        "counts": {
+            "interference": 1,
+            "inconclusive": 1,
+            "contact": 0,
+            "clearance": 0,
+        },
+    }

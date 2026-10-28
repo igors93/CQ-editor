@@ -92,7 +92,7 @@ def collect_solids(
             for solid_index, solid in enumerate(shape.Solids()):
                 bounds = exact_bounds(solid)
                 if not all(math.isfinite(value) for value in bounds):
-                    continue
+                    raise ValueError(f"Non-finite bounds for {entry.name or key}")
                 result.append(
                     SolidInstance(
                         key,
@@ -158,16 +158,20 @@ def inspect_pair(first: SolidInstance, second: SolidInstance, tolerance: float) 
         if not common.isValid():
             raise ValueError("Open Cascade returned an invalid intersection")
         volume = float(common.Volume())
-        if not math.isfinite(volume):
-            raise ValueError("Open Cascade returned a non-finite overlap volume")
+        if not math.isfinite(volume) or volume < 0:
+            raise ValueError("Open Cascade returned an invalid overlap volume")
         report["overlap_volume"] = volume
         threshold = max(
             tolerance**3, min(first.shape.Volume(), second.shape.Volume()) * 1e-12
         )
         if volume > threshold:
             report["kind"] = "interference"
+            report["distance"] = 0.0
             center = common.Center()
-            report["point"] = [center.x, center.y, center.z]
+            point = [center.x, center.y, center.z]
+            if not all(math.isfinite(value) for value in point):
+                raise ValueError("Open Cascade returned a non-finite overlap center")
+            report["point"] = point
         elif volume > 0:
             report["reason"] = "Overlap is below the numerical tolerance"
         else:
@@ -216,3 +220,19 @@ def analyze_interferences(
                 reports.append(report)
         active.append(part)
     return reports
+
+
+def summarize(reports: list[dict]) -> dict:
+    """A tri-state verdict: numerical uncertainty must never count as safe."""
+
+    counts = {
+        kind: 0 for kind in ("interference", "inconclusive", "contact", "clearance")
+    }
+    for report in reports:
+        counts[report["kind"]] += 1
+    status = (
+        "interference"
+        if counts["interference"]
+        else "inconclusive" if counts["inconclusive"] else "clear"
+    )
+    return {"status": status, "counts": counts}
