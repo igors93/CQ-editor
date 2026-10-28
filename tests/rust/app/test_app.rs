@@ -1105,6 +1105,39 @@ fn invalid_geometry_stops_export_for_a_user_decision() {
 }
 
 #[test]
+fn interference_check_keeps_both_parts_in_the_review() {
+    use crate::worker::protocol::{InterferencePart, InterferenceReport, Message};
+    let mut state = test_state("");
+    state.execution.track(18, Pending::Check);
+    state.handle_message(Message::GeometryChecked {
+        id: 18,
+        reports: vec![],
+        interferences: vec![InterferenceReport {
+            first: InterferencePart {
+                key: "plate".into(),
+                name: "plate".into(),
+                part: 0,
+                solid: 0,
+            },
+            second: InterferencePart {
+                key: "pin".into(),
+                name: "pin".into(),
+                part: 0,
+                solid: 0,
+            },
+            kind: "interference".into(),
+            overlap_volume: Some(43.2),
+            distance: Some(0.0),
+            point: Some([0.0, 0.0, 0.0]),
+            reason: None,
+        }],
+    });
+    let review = state.dialogs.geometry.as_ref().expect("review opened");
+    assert_eq!(review.interferences.len(), 1);
+    assert_eq!(review.interferences[0].second.name, "pin");
+}
+
+#[test]
 fn the_empty_view_says_when_the_editor_is_closed() {
     let mut state = test_state("");
     assert_eq!(state.empty_view_hint(), "Press F5 to render the script");

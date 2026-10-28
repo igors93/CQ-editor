@@ -269,6 +269,25 @@ pub struct GeometryReport {
     pub issues: Vec<String>,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct InterferencePart {
+    pub key: String,
+    pub name: String,
+    pub part: usize,
+    pub solid: usize,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct InterferenceReport {
+    pub first: InterferencePart,
+    pub second: InterferencePart,
+    pub kind: String,
+    pub overlap_volume: Option<f64>,
+    pub distance: Option<f64>,
+    pub point: Option<[f64; 3]>,
+    pub reason: Option<String>,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
@@ -360,6 +379,8 @@ pub enum Message {
     GeometryChecked {
         id: RequestId,
         reports: Vec<GeometryReport>,
+        #[serde(default)]
+        interferences: Vec<InterferenceReport>,
     },
     GeometryInvalid {
         id: RequestId,

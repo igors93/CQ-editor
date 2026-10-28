@@ -17,7 +17,7 @@ use crate::document::{DiskVersion, Encoding};
 use crate::recovery::RecoverySnapshot;
 use crate::settings::Units;
 use crate::worker::Problem;
-use crate::worker::protocol::{ExportFormat, GeometryReport};
+use crate::worker::protocol::{ExportFormat, GeometryReport, InterferenceReport};
 
 /// Something that would discard unsaved changes, waiting for confirmation.
 #[derive(Clone, Debug, PartialEq)]
@@ -140,10 +140,12 @@ pub enum GeometryChoice {
     Cancel,
     ExportAnyway,
     TryFix,
+    SelectPair(usize),
 }
 
 pub struct GeometryDialog {
     pub reports: Vec<GeometryReport>,
+    pub interferences: Vec<InterferenceReport>,
     pub for_export: bool,
 }
 
@@ -399,11 +401,29 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         .geometry
         .as_ref()
         .and_then(|dialog| geometry_review(ctx, dialog));
-    if let Some(choice) = geometry_choice
-        && let Some(dialog) = state.dialogs.geometry.take()
-        && dialog.for_export
-    {
-        state.resolve_geometry_export(choice);
+    if let Some(choice) = geometry_choice {
+        if let GeometryChoice::SelectPair(index) = choice {
+            if let Some(pair) = state
+                .dialogs
+                .geometry
+                .as_ref()
+                .and_then(|dialog| dialog.interferences.get(index))
+            {
+                let first = pair.first.key.clone();
+                let second = pair.second.key.clone();
+                state.scene.select_only(&first);
+                if first != second {
+                    state.scene.toggle_selected(&second);
+                }
+                state
+                    .viewer
+                    .fit_selection(&state.scene, true, ctx.input(|input| input.time));
+            }
+        } else if let Some(dialog) = state.dialogs.geometry.take()
+            && dialog.for_export
+        {
+            state.resolve_geometry_export(choice);
+        }
     }
 
     if let Some(message) = &state.dialogs.message
@@ -567,9 +587,19 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                 .iter()
                 .filter(|report| !report.valid)
                 .collect();
+            let collisions = dialog
+                .interferences
+                .iter()
+                .filter(|pair| pair.kind == "interference")
+                .count();
+            let uncertain = dialog
+                .interferences
+                .iter()
+                .filter(|pair| pair.kind == "inconclusive")
+                .count();
             if invalid.is_empty() {
                 ui.label(format!(
-                    "{} object(s) checked; no geometry problems found.",
+                    "{} object(s) have valid topology.",
                     dialog.reports.len()
                 ));
             } else {
@@ -589,6 +619,50 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                             ));
                         }
                     });
+            }
+            if !dialog.for_export {
+                ui.label(format!(
+                    "{collisions} interfering pair(s); {uncertain} inconclusive pair(s)."
+                ));
+                if !dialog.interferences.is_empty() {
+                    egui::ScrollArea::vertical()
+                        .max_height(250.0)
+                        .show(ui, |ui| {
+                            for (index, pair) in dialog.interferences.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Select pair").clicked() {
+                                        choice = Some(GeometryChoice::SelectPair(index));
+                                    }
+                                    ui.label(format!(
+                                        "{} [part {}, solid {}] / {} [part {}, solid {}]: {}",
+                                        pair.first.name,
+                                        pair.first.part + 1,
+                                        pair.first.solid + 1,
+                                        pair.second.name,
+                                        pair.second.part + 1,
+                                        pair.second.solid + 1,
+                                        pair.kind
+                                    ));
+                                });
+                                if let Some(volume) = pair.overlap_volume
+                                    && pair.kind == "interference"
+                                {
+                                    ui.small(format!("Shared volume: {volume:.6} model units³"));
+                                }
+                                if let Some(distance) = pair.distance
+                                    && pair.kind == "clearance"
+                                {
+                                    ui.small(format!("Clearance: {distance:.6} model units"));
+                                }
+                                if let Some(reason) = &pair.reason {
+                                    ui.weak(reason);
+                                }
+                                if let Some([x, y, z]) = pair.point {
+                                    ui.small(format!("Overlap center: ({x:.3}, {y:.3}, {z:.3})"));
+                                }
+                            }
+                        });
+                }
             }
             ui.add_space(10.0);
             ui.horizontal(|ui| {

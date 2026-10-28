@@ -10,8 +10,11 @@ cq-editor check part.py --json
 `build` writes the format named by the output extension: STEP, STL, BREP,
 3MF, glTF, GLB, AMF, VRML, VTKJS, XBF, SVG or DXF. It checks geometry before
 writing and returns a nonzero exit status if the script or export fails.
-`check` reports each displayed object's exact geometry and exits nonzero for
-invalid topology, open shells or non-manifold edges. Both commands use the
+`check` reports each displayed object's exact geometry and checks pairs of
+solids for interference. It exits nonzero for invalid topology, open shells,
+non-manifold edges, interference or an inconclusive exact comparison.
+`--clearance DISTANCE` also lists nearby parts below that distance in model
+units. Both commands use the
 same `show_object` calls, assembly hierarchy and script directory as the GUI.
 
 Use `--set name=value` more than once to override top-level literal assignments

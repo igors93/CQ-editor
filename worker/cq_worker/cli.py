@@ -128,6 +128,14 @@ def _parser() -> argparse.ArgumentParser:
             metavar="NAME=VALUE",
         )
         sub.add_argument("--json", action="store_true", help="Print the result as JSON")
+        if command == "check":
+            sub.add_argument(
+                "--clearance",
+                type=float,
+                default=0.0,
+                metavar="MODEL_UNITS",
+                help="Also report pairs with less than this clearance",
+            )
         if command == "build":
             sub.add_argument("--export", required=True, type=Path)
             sub.add_argument(
@@ -148,6 +156,13 @@ def _report(args: argparse.Namespace, payload: dict, status: int) -> int:
                     print(
                         f"{item['name']}: {', '.join(item['issues'])}", file=sys.stderr
                     )
+            for pair in payload.get("interferences", []):
+                if pair["kind"] in ("interference", "inconclusive"):
+                    print(
+                        f"{pair['first']['name']} / {pair['second']['name']}: "
+                        f"{pair['kind']} ({pair['overlap_volume']} volume units)",
+                        file=sys.stderr,
+                    )
         else:
             print(
                 payload.get("traceback") or payload.get("error") or payload,
@@ -156,6 +171,8 @@ def _report(args: argparse.Namespace, payload: dict, status: int) -> int:
     elif args.command == "check":
         for item in payload["reports"]:
             print(f"{item['name']}: valid ({item['solids']} solids)")
+        for pair in payload.get("interferences", []):
+            print(f"{pair['first']['name']} / {pair['second']['name']}: {pair['kind']}")
     else:
         print(payload["path"])
     return status
@@ -203,13 +220,33 @@ def main(argv: list[str] | None = None) -> int:
         channel.replies.clear()
         if args.command == "check":
             with redirect_stdout(sys.stderr):
-                server.dispatch({"cmd": "check", "id": 2, "keys": keys})
+                server.dispatch(
+                    {
+                        "cmd": "check",
+                        "id": 2,
+                        "keys": keys,
+                        "clearance": args.clearance,
+                    }
+                )
             checked = channel.replies[-1]
             if checked["type"] == "error":
                 return _report(args, {"ok": False, "error": checked["message"]}, 1)
             reports = checked["reports"]
-            valid = bool(reports) and all(report["valid"] for report in reports)
-            return _report(args, {"ok": valid, "reports": reports}, 0 if valid else 1)
+            valid = (
+                bool(reports)
+                and all(report["valid"] for report in reports)
+                and checked["assessment"]["status"] == "clear"
+            )
+            return _report(
+                args,
+                {
+                    "ok": valid,
+                    "reports": reports,
+                    "interferences": checked["interferences"],
+                    "assessment": checked["assessment"],
+                },
+                0 if valid else 1,
+            )
 
         output = args.export.resolve()
         file_format = output.suffix.lstrip(".").lower()

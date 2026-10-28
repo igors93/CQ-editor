@@ -523,13 +523,26 @@ class Server:
     # -- files and network -------------------------------------------------
 
     def check(self, request: Message) -> Message:
+        from .interference import analyze_interferences, summarize
+
+        keys = request.get("keys", [])
+        flat_parts = bool(request.get("flat_parts", False))
+        interferences = analyze_interferences(
+            self.registry,
+            keys,
+            flat_parts=flat_parts,
+            tolerance=float(request.get("interference_tolerance", 1e-6)),
+            clearance=float(request.get("clearance", 0.0)),
+        )
         return {
             "type": "geometry_checked",
             "reports": checking.check_registry(
                 self.registry,
-                request.get("keys", []),
-                bool(request.get("flat_parts", False)),
+                keys,
+                flat_parts,
             ),
+            "interferences": interferences,
+            "assessment": summarize(interferences),
         }
 
     def export(self, request: Message) -> Message:

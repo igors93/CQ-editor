@@ -63,6 +63,24 @@ def test_check_reports_invalid_geometry_as_json_and_failure(tmp_path):
     assert not output.exists()
 
 
+def test_check_rejects_overlapping_solids_and_names_the_pair(tmp_path):
+    script = tmp_path / "joint.py"
+    script.write_text(
+        "plate = cq.Workplane().box(20,20,5).faces('>Z').workplane().hole(5)\n"
+        "pin = cq.Workplane().circle(3).extrude(10).translate((0,0,-5))\n"
+        "show_object(cq.Assembly().add(plate,name='plate').add(pin,name='pin'))\n",
+        encoding="utf-8",
+    )
+    checked = invoke("check", str(script), "--json")
+    assert checked.returncode == 1, checked.stderr
+    payload = json.loads(checked.stdout)
+    assert payload["assessment"]["status"] == "interference"
+    (pair,) = payload["interferences"]
+    assert pair["kind"] == "interference"
+    assert {pair["first"]["name"], pair["second"]["name"]} == {"plate", "pin"}
+    assert pair["overlap_volume"] > 40
+
+
 def test_check_preserves_script_traceback_and_parameter_errors(tmp_path):
     script = tmp_path / "part.py"
     script.write_text(

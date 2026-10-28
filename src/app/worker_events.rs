@@ -407,7 +407,11 @@ impl AppState {
                 self.export_job = None;
                 self.set_status(StatusKind::Success, format!("Exported {path}"));
             }
-            Message::GeometryChecked { id, reports } => {
+            Message::GeometryChecked {
+                id,
+                reports,
+                interferences,
+            } => {
                 if matches!(self.execution.answer(id), Some(Pending::Check)) {
                     for report in &reports {
                         self.geometry_checks
@@ -415,6 +419,7 @@ impl AppState {
                     }
                     self.dialogs.geometry = Some(crate::dialogs::GeometryDialog {
                         reports,
+                        interferences,
                         for_export: false,
                     });
                 }
@@ -427,6 +432,7 @@ impl AppState {
                     }
                     self.dialogs.geometry = Some(crate::dialogs::GeometryDialog {
                         reports,
+                        interferences: Vec::new(),
                         for_export: true,
                     });
                     self.set_status(StatusKind::Warning, "Export waits for a geometry decision");

@@ -490,6 +490,7 @@ impl AppState {
             crate::dialogs::GeometryChoice::TryFix => {
                 self.send_export("fix");
             }
+            crate::dialogs::GeometryChoice::SelectPair(_) => {}
         }
     }
 
