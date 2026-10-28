@@ -163,6 +163,17 @@ clear. A pose budget and subdivision limit prevent an indefinite check; contact
 or numerical uncertainty can therefore remain inconclusive. Paths are
 explicit because the final assembly cannot reveal how a part was inserted.
 
+### Assembly constraint diagnostics
+
+After calling CadQuery's `assy.solve()`, use `assembly_diagnostics(assy)` for
+the constraint list, unconstrained components, solver status and residual,
+a conservative lower bound on remaining degrees of freedom, and exact
+interference results. `require_constrained_assembly(assy)` fails the script
+unless the report is clear. A positive degree-of-freedom lower bound proves
+underconstraint; zero does not prove full constraint because redundant or
+dependent constraints can hide further freedom. Nested assemblies return an
+inconclusive degree-of-freedom result instead of a false assurance.
+
 ## `debug`
 
 `debug(obj)` displays `obj` in translucent red (`color="red"`, `alpha=0.2`)

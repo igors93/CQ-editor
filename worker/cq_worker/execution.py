@@ -35,6 +35,7 @@ from typing import Any
 
 import cadquery as cq
 
+from .assembly_checks import assembly_diagnostics, require_constrained_assembly
 from . import provenance
 from .debugger import DebugStop
 from .fit import cylindrical_fit, require_fit
@@ -149,6 +150,8 @@ def script_api(shown: ShownObjects) -> dict[str, Any]:
         "require_fit": require_fit,
         "trace_path": trace_path,
         "require_clear_path": require_clear_path,
+        "assembly_diagnostics": assembly_diagnostics,
+        "require_constrained_assembly": require_constrained_assembly,
         "log": lambda value: script_log.info(str(value)),
         "cq": cq,
     }
