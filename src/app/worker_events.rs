@@ -424,7 +424,11 @@ impl AppState {
                     });
                 }
             }
-            Message::GeometryInvalid { id, reports } => {
+            Message::GeometryInvalid {
+                id,
+                reports,
+                interferences,
+            } => {
                 if matches!(self.execution.answer(id), Some(Pending::Export)) {
                     for report in &reports {
                         self.geometry_checks
@@ -432,7 +436,7 @@ impl AppState {
                     }
                     self.dialogs.geometry = Some(crate::dialogs::GeometryDialog {
                         reports,
-                        interferences: Vec::new(),
+                        interferences,
                         for_export: true,
                     });
                     self.set_status(StatusKind::Warning, "Export waits for a geometry decision");

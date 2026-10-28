@@ -40,3 +40,26 @@ def test_open_shell_blocks_export_until_the_user_decides(tmp_path):
 
     exporting.export(registry, [key], "step", str(path), on_invalid="ignore")
     assert path.stat().st_size > 100
+
+
+def test_interfering_parts_pause_export_before_the_writer_opens_file(tmp_path):
+    plate = cq.Workplane().box(20, 20, 5).faces(">Z").workplane().hole(5).val()
+    pin = cq.Workplane().circle(3).extrude(10).translate((0, 0, -5)).val()
+    registry = Registry()
+    plate_key = registry.add(RegistryEntry(plate, plate, name="plate"))
+    pin_key = registry.add(RegistryEntry(pin, pin, name="pin"))
+    path = tmp_path / "joint.step"
+    with pytest.raises(checking.GeometryInvalid) as error:
+        exporting.export(registry, [plate_key, pin_key], "step", str(path))
+    assert error.value.reports == []
+    assert error.value.interferences[0]["kind"] == "interference"
+    assert not path.exists()
+
+    exporting.export(
+        registry,
+        [plate_key, pin_key],
+        "step",
+        str(path),
+        on_interference="ignore",
+    )
+    assert path.stat().st_size > 100

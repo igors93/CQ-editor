@@ -9,7 +9,9 @@ cq-editor check part.py --json
 
 `build` writes the format named by the output extension: STEP, STL, BREP,
 3MF, glTF, GLB, AMF, VRML, VTKJS, XBF, SVG or DXF. It checks geometry before
-writing and returns a nonzero exit status if the script or export fails.
+writing and returns a nonzero exit status if the script, topology, interference
+check or export fails. `--allow-interference` explicitly permits export despite
+an interfering or inconclusive pair, while invalid topology remains blocked.
 `check` reports each displayed object's exact geometry and checks pairs of
 solids for interference. It exits nonzero for invalid topology, open shells,
 non-manifold edges, interference or an inconclusive exact comparison.

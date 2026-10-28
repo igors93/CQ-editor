@@ -477,6 +477,12 @@ impl AppState {
             stl_ascii: job.stl_ascii,
             flat_parts: job.flat_parts,
             unit: job.unit,
+            on_interference: if on_invalid == "ignore" {
+                "ignore"
+            } else {
+                "check"
+            }
+            .to_owned(),
             on_invalid,
         })
     }

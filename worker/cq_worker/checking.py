@@ -10,10 +10,19 @@ from .scene import Registry, RegistryEntry
 
 
 class GeometryInvalid(Exception):
-    def __init__(self, reports: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        reports: list[dict[str, Any]],
+        interferences: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.reports = reports
+        self.interferences = interferences or []
         names = ", ".join(report["name"] for report in reports)
-        super().__init__(f"Geometry needs review before export: {names}")
+        super().__init__(
+            f"Geometry needs review before export: {names}"
+            if names
+            else "Assembly interference needs review before export"
+        )
 
 
 def check_shape(shape: cq.Shape) -> dict[str, Any]:

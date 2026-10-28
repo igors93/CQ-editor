@@ -139,6 +139,11 @@ def _parser() -> argparse.ArgumentParser:
         if command == "build":
             sub.add_argument("--export", required=True, type=Path)
             sub.add_argument(
+                "--allow-interference",
+                action="store_true",
+                help="Export despite interference or an inconclusive pair",
+            )
+            sub.add_argument(
                 "--unit",
                 choices=("millimeter", "centimeter", "meter", "inch"),
                 default="millimeter",
@@ -150,7 +155,7 @@ def _report(args: argparse.Namespace, payload: dict, status: int) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, allow_nan=False))
     elif status:
-        if payload.get("reports"):
+        if payload.get("reports") or payload.get("interferences"):
             for item in payload["reports"]:
                 if not item["valid"]:
                     print(
@@ -259,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
                     "format": file_format,
                     "path": str(output),
                     "unit": args.unit,
+                    "on_interference": "ignore" if args.allow_interference else "check",
                 }
             )
         exported = channel.replies[-1]
@@ -273,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ok": False,
                     "error": "Invalid geometry",
                     "reports": exported["reports"],
+                    "interferences": exported.get("interferences", []),
                 },
                 1,
             )

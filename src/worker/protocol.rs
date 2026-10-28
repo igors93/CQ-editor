@@ -119,6 +119,7 @@ pub enum Request {
         flat_parts: bool,
         unit: String,
         on_invalid: String,
+        on_interference: String,
     },
     Check {
         id: RequestId,
@@ -385,6 +386,8 @@ pub enum Message {
     GeometryInvalid {
         id: RequestId,
         reports: Vec<GeometryReport>,
+        #[serde(default)]
+        interferences: Vec<InterferenceReport>,
     },
     UploadFinished {
         id: RequestId,

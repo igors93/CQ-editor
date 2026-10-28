@@ -1092,6 +1092,7 @@ fn invalid_geometry_stops_export_for_a_user_decision() {
             non_manifold_edges: 0,
             issues: vec!["1 open shell(s)".into()],
         }],
+        interferences: vec![],
     });
     assert!(
         state

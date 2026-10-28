@@ -14,6 +14,7 @@ from OCP.Interface import Interface_Static
 from OCP.STEPControl import STEPControl_Controller
 
 from .checking import GeometryInvalid, check_registry, check_shape, invalid_reports
+from .interference import analyze_interferences
 from .scene import Registry, RegistryEntry, to_compound
 
 FORMATS = (
@@ -51,6 +52,7 @@ def export(
     flat_parts: bool = False,
     unit: str = "millimeter",
     on_invalid: str = "check",
+    on_interference: str = "check",
 ) -> None:
     """Export the objects behind ``keys`` (with their descendants).
 
@@ -72,6 +74,8 @@ def export(
         raise ValueError("Choose the model unit before exporting")
     if on_invalid not in ("check", "ignore", "fix"):
         raise ValueError(f"Unsupported invalid-geometry action {on_invalid!r}")
+    if on_interference not in ("check", "ignore"):
+        raise ValueError(f"Unsupported interference action {on_interference!r}")
     bad = invalid_reports(check_registry(registry, keys, flat_parts))
     if bad and on_invalid == "check":
         raise GeometryInvalid(bad)
@@ -100,6 +104,15 @@ def export(
                 )
         if still_bad:
             raise GeometryInvalid(still_bad)
+
+    physical = analyze_interferences(
+        registry, keys, flat_parts=flat_parts, replacements=repaired
+    )
+    unsafe = [
+        pair for pair in physical if pair["kind"] in ("interference", "inconclusive")
+    ]
+    if unsafe and on_interference == "check":
+        raise GeometryInvalid([], unsafe)
 
     if file_format in ("step", "gltf", "glb", "vrml", "vtkjs", "xbf"):
         assembly = export_assembly(registry, keys, flat_parts, repaired)

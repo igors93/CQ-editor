@@ -79,6 +79,16 @@ def test_check_rejects_overlapping_solids_and_names_the_pair(tmp_path):
     assert pair["kind"] == "interference"
     assert {pair["first"]["name"], pair["second"]["name"]} == {"plate", "pin"}
     assert pair["overlap_volume"] > 40
+    output = tmp_path / "joint.step"
+    blocked = invoke("build", str(script), "--export", str(output), "--json")
+    assert blocked.returncode == 1
+    assert not output.exists()
+    assert json.loads(blocked.stdout)["interferences"][0]["kind"] == "interference"
+    allowed = invoke(
+        "build", str(script), "--export", str(output), "--allow-interference", "--json"
+    )
+    assert allowed.returncode == 0, allowed.stderr
+    assert output.stat().st_size > 100
 
 
 def test_check_preserves_script_traceback_and_parameter_errors(tmp_path):

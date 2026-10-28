@@ -610,7 +610,7 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                 egui::ScrollArea::vertical()
                     .max_height(250.0)
                     .show(ui, |ui| {
-                        for report in invalid {
+                        for report in &invalid {
                             ui.label(RichText::new(&report.name).strong());
                             ui.weak(report.issues.join(" · "));
                             ui.small(format!(
@@ -620,49 +620,47 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                         }
                     });
             }
-            if !dialog.for_export {
+            if !dialog.interferences.is_empty() {
                 ui.label(format!(
                     "{collisions} interfering pair(s); {uncertain} inconclusive pair(s)."
                 ));
-                if !dialog.interferences.is_empty() {
-                    egui::ScrollArea::vertical()
-                        .max_height(250.0)
-                        .show(ui, |ui| {
-                            for (index, pair) in dialog.interferences.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Select pair").clicked() {
-                                        choice = Some(GeometryChoice::SelectPair(index));
-                                    }
-                                    ui.label(format!(
-                                        "{} [part {}, solid {}] / {} [part {}, solid {}]: {}",
-                                        pair.first.name,
-                                        pair.first.part + 1,
-                                        pair.first.solid + 1,
-                                        pair.second.name,
-                                        pair.second.part + 1,
-                                        pair.second.solid + 1,
-                                        pair.kind
-                                    ));
-                                });
-                                if let Some(volume) = pair.overlap_volume
-                                    && pair.kind == "interference"
-                                {
-                                    ui.small(format!("Shared volume: {volume:.6} model units³"));
+                egui::ScrollArea::vertical()
+                    .max_height(250.0)
+                    .show(ui, |ui| {
+                        for (index, pair) in dialog.interferences.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                if ui.button("Select pair").clicked() {
+                                    choice = Some(GeometryChoice::SelectPair(index));
                                 }
-                                if let Some(distance) = pair.distance
-                                    && pair.kind == "clearance"
-                                {
-                                    ui.small(format!("Clearance: {distance:.6} model units"));
-                                }
-                                if let Some(reason) = &pair.reason {
-                                    ui.weak(reason);
-                                }
-                                if let Some([x, y, z]) = pair.point {
-                                    ui.small(format!("Overlap center: ({x:.3}, {y:.3}, {z:.3})"));
-                                }
+                                ui.label(format!(
+                                    "{} [part {}, solid {}] / {} [part {}, solid {}]: {}",
+                                    pair.first.name,
+                                    pair.first.part + 1,
+                                    pair.first.solid + 1,
+                                    pair.second.name,
+                                    pair.second.part + 1,
+                                    pair.second.solid + 1,
+                                    pair.kind
+                                ));
+                            });
+                            if let Some(volume) = pair.overlap_volume
+                                && pair.kind == "interference"
+                            {
+                                ui.small(format!("Shared volume: {volume:.6} model units³"));
                             }
-                        });
-                }
+                            if let Some(distance) = pair.distance
+                                && pair.kind == "clearance"
+                            {
+                                ui.small(format!("Clearance: {distance:.6} model units"));
+                            }
+                            if let Some(reason) = &pair.reason {
+                                ui.weak(reason);
+                            }
+                            if let Some([x, y, z]) = pair.point {
+                                ui.small(format!("Overlap center: ({x:.3}, {y:.3}, {z:.3})"));
+                            }
+                        }
+                    });
             }
             ui.add_space(10.0);
             ui.horizontal(|ui| {
@@ -677,7 +675,7 @@ fn geometry_review(ctx: &egui::Context, dialog: &GeometryDialog) -> Option<Geome
                     choice = Some(GeometryChoice::Cancel);
                 }
                 if dialog.for_export {
-                    if ui.button("Try ShapeFix").clicked() {
+                    if !invalid.is_empty() && ui.button("Try ShapeFix").clicked() {
                         choice = Some(GeometryChoice::TryFix);
                     }
                     if ui.button("Export anyway").clicked() {

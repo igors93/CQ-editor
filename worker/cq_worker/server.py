@@ -560,9 +560,14 @@ class Server:
                 flat_parts=bool(request.get("flat_parts", False)),
                 unit=request.get("unit", "millimeter"),
                 on_invalid=request.get("on_invalid", "check"),
+                on_interference=request.get("on_interference", "check"),
             )
         except checking.GeometryInvalid as error:
-            return {"type": "geometry_invalid", "reports": error.reports}
+            return {
+                "type": "geometry_invalid",
+                "reports": error.reports,
+                "interferences": error.interferences,
+            }
         return {"type": "export_finished", "path": request["path"]}
 
     def upload(self, request: Message) -> Message:

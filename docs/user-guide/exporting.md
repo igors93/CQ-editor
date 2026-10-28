@@ -37,6 +37,10 @@ distinguishes interferences, contacts, clearances and inconclusive calculations;
 **Select pair** highlights both pieces. The Objects panel marks checked objects
 with topology problems.
 
+An export with interfering pieces pauses for review. **Export anyway** keeps
+the geometry exactly as scripted; ShapeFix is offered only for topology defects
+and does not resolve an overlap between distinct parts.
+
 The file dialog proposes the script's name (`bracket.step`) and adds the
 extension if you leave it out. The status bar shows *Exporting …* while the
 file is written.

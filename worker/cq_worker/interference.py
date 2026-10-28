@@ -54,7 +54,10 @@ def _merged_names(assembly: cq.Assembly) -> list[str]:
 
 
 def collect_solids(
-    registry: Registry, keys: list[str], flat_parts: bool = False
+    registry: Registry,
+    keys: list[str],
+    flat_parts: bool = False,
+    replacements: dict[str, cq.Shape] | None = None,
 ) -> list[SolidInstance]:
     """Flatten actual solids, retaining each assembly occurrence and placement.
 
@@ -72,10 +75,17 @@ def collect_solids(
             return
         visited.add(key)
         entry: RegistryEntry = registry.get(key)
-        shapes = entry.part_shapes or ([entry.shape] if entry.shape is not None else [])
+        replacement = (replacements or {}).get(key)
+        shapes = (
+            [replacement]
+            if replacement is not None
+            else entry.part_shapes or ([entry.shape] if entry.shape is not None else [])
+        )
         names = (
             _merged_names(entry.obj)
-            if entry.part_shapes and isinstance(entry.obj, cq.Assembly)
+            if replacement is None
+            and entry.part_shapes
+            and isinstance(entry.obj, cq.Assembly)
             else [entry.name or key] * len(shapes)
         )
         for part, shape in enumerate(shapes):
@@ -192,6 +202,7 @@ def analyze_interferences(
     flat_parts: bool = False,
     tolerance: float = 1e-6,
     clearance: float = 0.0,
+    replacements: dict[str, cq.Shape] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> list[dict]:
     """Report nearby pairs; never claim a failed exact calculation is safe."""
@@ -201,7 +212,8 @@ def analyze_interferences(
     if not math.isfinite(clearance) or clearance < 0:
         raise ValueError("Clearance limit must be finite and non-negative")
     parts = sorted(
-        collect_solids(registry, keys, flat_parts), key=lambda part: part.bounds[0]
+        collect_solids(registry, keys, flat_parts, replacements),
+        key=lambda part: part.bounds[0],
     )
     active: list[SolidInstance] = []
     reports: list[dict] = []
