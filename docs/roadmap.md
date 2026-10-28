@@ -702,7 +702,7 @@ advanced users · ⚪ both.
 
 | Status | Id | Suggestion | Why it fits |
 | :---: | --- | --- | --- |
-| | SUG-01 🟢 | **Friendly kernel errors** (former FEAT-A3): translate `StdFail_NotDone`, `BRep_API: command not done` and similar into the likely cause, such as *the fillet radius may be larger than the edge allows*, and show the `Workplane` step that failed in the CQ Inspector | The most common dead end of CadQuery beginners. The traceback stays, with advice added |
+| ✅ | SUG-01 🟢 | **Friendly kernel errors** (former FEAT-A3): identify the CAD operation and script line behind common kernel and selector errors, then offer possible causes | The traceback remains intact; hints are qualified rather than presented as proven geometric facts |
 | ✅ | SUG-02 🟢 | **Selector preview** (former FEAT-A4): with the caret on a literal call such as `part.faces(">Z")`, matching entities light up in the view | Uses the last run's displayed variable and exact topology; moving the caret never evaluates dynamic Python expressions |
 | | SUG-03 🟢 | **Start page** (former FEAT-A1) with templates, recent files and projects, and an examples gallery with thumbnails | Every template is code; thumbnails come from the screenshot code (FEAT-C5) |
 | | SUG-04 🟢 | **Snippets** (former FEAT-A5) for frequent patterns, including the free-function API (`cadquery.func`) and `cq.Sketch` | Inserts ordinary code |

@@ -102,7 +102,7 @@ The worker handles one request at a time, in arrival order.
 | `output` | `id`, `stream` (`stdout`/`stderr`), `text` | Captured `print` / `sys.stderr` text |
 | `log` | `id`, `level`, `source`, `message` | A Python logging record (including the script's `log()`) |
 | `run_part` | `id`, `name`, `part` | A complete mesh part, sent before the final scene. The GUI draws received parts progressively and retains their meshes for this request. A single part exceeding the wire limit fails with an error naming the object. |
-| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `duration`, `timings`, `profile` | End of a run. Meshes in `objects` refer by id to preceding `run_part` messages. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `timings` is described below. `profile`, for a run asked to profile (null otherwise): `lines` (`file` null for main, `line`, `seconds` with everything the line called, `hits`), `operations` (`file`, `line`, `name`, `seconds`, `calls`), at most 8 per line, and `sources` for project modules |
+| `run_finished` | `id`, `ok`, `debug`, `stopped`, `cancelled`, `interrupted`, `objects`, `variables`, `error`, `checks`, `duration`, `timings`, `profile` | End of a run. Meshes in `objects` refer by id to preceding `run_part` messages. `objects` is null when a failed, cancelled or interrupted run should keep the current scene; an interrupted run's `error` is the `KeyboardInterrupt` and its line. `checks` contains script requirements. `timings` is described below. `profile`, for a run asked to profile (null otherwise): `lines` (`file` null for main, `line`, `seconds` with everything the line called, `hits`), `operations` (`file`, `line`, `name`, `seconds`, `calls`), at most 8 per line, and `sources` for project modules |
 | `progress` | `id`, `stage` (`meshing`), `done`, `total` | How many of the run's parts (one per shape of an assembly) are meshed: first `0`, at most every 0.1 s, and `total` at the end |
 | `debug_paused` | `id`, `line`, `path` (null for the main buffer), `variables`, `objects` | The debugger stopped in this document at `line`. `objects` are the CadQuery locals |
 | `completions` | `id`, `available`, `items` (`name`, `insert`, `kind`), `signatures` | |
@@ -127,7 +127,8 @@ The worker handles one request at a time, in arrival order.
 
 `error` (in `run_finished`) is a ScriptError: `type_name`, `message`,
 `frames` (`file`, `line`, `function`, `code`), `line` (the last line of the
-script involved) and `text` (Python's formatted traceback). The editor
+script involved), `text` (Python's formatted traceback), and `diagnostic`
+(null or `operation`, `receiver`, `line`, `hints`). The editor
 buffer appears as the file `<cq-editor>`.
 
 ## Scene nodes

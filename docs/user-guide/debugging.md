@@ -100,6 +100,13 @@ show *Select a workplane in Objects to inspect it*.
 
 ## Debugging tips
 
+When a recognized CadQuery operation fails with a related kernel or selector
+error, the **Traceback** panel shows possible CAD causes above the original
+Python traceback. The operation and script line are linked; click its line
+button to return to the code. These hints are troubleshooting suggestions,
+not a geometric diagnosis proven by OpenCascade. The full traceback remains
+available for copying, and ordinary Python errors receive no CAD advice.
+
 * **Check a selection without changing the model:** `debug(part.edges("|Z"))`
   draws the edges in translucent red.
 * **Measure from the console:** after a run, `bracket.val().Volume()` or

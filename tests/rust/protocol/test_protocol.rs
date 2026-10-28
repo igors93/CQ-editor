@@ -413,6 +413,25 @@ fn run_finished(extra: &str) -> RunFinished {
 }
 
 #[test]
+fn cad_advice_is_optional_and_keeps_the_original_traceback() {
+    let error: ScriptError = serde_json::from_value(serde_json::json!({
+        "type_name": "StdFail_NotDone", "message": "BRep_API: command not done",
+        "frames": [], "line": 2, "text": "original traceback",
+        "diagnostic": {"operation":"fillet", "receiver":"part", "line":2,
+            "hints":["Try a smaller radius"]}
+    }))
+    .unwrap();
+    assert_eq!(error.text, "original traceback");
+    assert_eq!(error.diagnostic.unwrap().operation, "fillet");
+    let old: ScriptError = serde_json::from_value(serde_json::json!({
+        "type_name": "ValueError", "message": "x", "frames": [],
+        "line": null, "text": "old traceback"
+    }))
+    .unwrap();
+    assert!(old.diagnostic.is_none());
+}
+
+#[test]
 fn run_results_carry_script_requirements() {
     let result = run_finished(
         r#","checks":[{"name":"wall","kind":"volume","ok":false,

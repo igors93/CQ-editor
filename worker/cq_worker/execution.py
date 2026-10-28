@@ -31,7 +31,7 @@ import types
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from inspect import currentframe
-from typing import Any
+from typing import Any, cast
 
 import cadquery as cq
 
@@ -46,6 +46,7 @@ from .engineering import (
     tool_access,
 )
 from . import provenance
+from . import diagnostics
 from .debugger import DebugStop
 from .fit import cylindrical_fit, require_fit
 from .motion import require_clear_path, trace_path
@@ -347,7 +348,7 @@ def describe_variables(namespace: dict[str, Any], hidden: set[str]) -> list[dict
     return rows
 
 
-def describe_exception(error: BaseException) -> dict:
+def describe_exception(error: BaseException, source: str = "") -> dict:
     """Traceback summary for the GUI, starting at the first script frame."""
 
     frames = traceback.extract_tb(error.__traceback__)
@@ -373,13 +374,18 @@ def describe_exception(error: BaseException) -> dict:
             }
         )
 
-    script_lines = [row["line"] for row in rows if row["file"] == SCRIPT_FILENAME]
+    script_lines = [
+        cast(int, row["line"]) for row in rows if row["file"] == SCRIPT_FILENAME
+    ]
     return {
         "type_name": type(error).__name__,
         "message": str(error),
         "frames": rows,
         "line": script_lines[-1] if script_lines else None,
         "text": "".join(traceback.format_exception(error)),
+        "diagnostic": diagnostics.diagnose(
+            error, source, script_lines[-1] if script_lines else None
+        ),
     }
 
 
@@ -424,7 +430,7 @@ class Execution:
         try:
             code = compile_script(self.source)
         except SyntaxError as error:
-            self.error = describe_exception(error)
+            self.error = describe_exception(error, self.source)
             return False
 
         self.namespace.update(self.api)
@@ -438,12 +444,12 @@ class Execution:
             pass  # a script calling sys.exit() simply ends early
         except KeyboardInterrupt as error:
             self.interrupted = True
-            self.error = describe_exception(error)
+            self.error = describe_exception(error, self.source)
             return False
         except Exception as error:
             # Lets the console's %debug-style post mortem tools find it.
             sys.last_traceback = error.__traceback__
-            self.error = describe_exception(error)
+            self.error = describe_exception(error, self.source)
             return False
         finally:
             self._remove_api()

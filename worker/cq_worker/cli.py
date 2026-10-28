@@ -221,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ok": False,
                     "error": failure.get("message", "Script failed"),
                     "traceback": failure.get("text"),
+                    "diagnostic": failure.get("diagnostic"),
                     "checks": result.get("checks", []),
                 },
                 1,

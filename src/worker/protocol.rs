@@ -720,6 +720,17 @@ pub struct ScriptError {
     pub line: Option<usize>,
     /// Python's own formatting of the traceback.
     pub text: String,
+    /// Conservative troubleshooting hints tied to a CAD call in the script.
+    #[serde(default)]
+    pub diagnostic: Option<CadDiagnostic>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CadDiagnostic {
+    pub operation: String,
+    pub receiver: Option<String>,
+    pub line: usize,
+    pub hints: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

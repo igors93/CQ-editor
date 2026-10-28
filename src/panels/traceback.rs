@@ -46,6 +46,33 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             });
         });
 
+    if let Some(diagnostic) = &error.diagnostic {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                let operation = diagnostic.receiver.as_ref().map_or_else(
+                    || diagnostic.operation.clone(),
+                    |receiver| format!("{receiver}.{}", diagnostic.operation),
+                );
+                ui.strong(format!("Possible CAD causes · {operation}"));
+                if ui.button(format!("Line {}", diagnostic.line)).clicked() {
+                    if let Some(document) = script {
+                        actions.push(Action::GoToScriptLine {
+                            document,
+                            line: diagnostic.line,
+                        });
+                    } else {
+                        actions.push(Action::GoToLine(diagnostic.line));
+                    }
+                }
+            });
+            for hint in &diagnostic.hints {
+                ui.label(format!("• {hint}"));
+            }
+            ui.weak("These are suggestions; the original traceback below is unchanged.");
+        });
+        ui.add_space(4.0);
+    }
+
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
     TableBuilder::new(ui)
         .striped(true)
