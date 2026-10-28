@@ -63,6 +63,7 @@ pub(crate) fn test_state(text: &str) -> AppState {
         measurements: MeasurementState::default(),
         selector: SelectorState::default(),
         selector_preview: SelectorPreviewState::default(),
+        navigation: NavigationState::default(),
         parameters: ParametersState::default(),
         parameter_render_at: None,
         document_generation: 0,
@@ -195,6 +196,50 @@ fn stale_selector_preview_replies_do_not_replace_the_current_caret() {
         state.selector_preview.message.as_deref(),
         Some("No displayed match")
     );
+}
+
+#[test]
+fn navigation_discards_replies_for_edited_source_and_old_outline_requests() {
+    use crate::worker::protocol::{Message, NavigationLocation, NavigationMode, OutlineSymbol};
+
+    let mut state = test_state("old_name = 1\n");
+    state.navigation.document = 0;
+    state.navigation.source = state.document.text.clone();
+    state.navigation.outline_request = Some(8);
+    state.execution.track(7, Pending::Outline { document: 0 });
+    state.execution.track(8, Pending::Outline { document: 0 });
+    let symbols = vec![OutlineSymbol {
+        name: "old_name".into(),
+        kind: "variable".into(),
+        line: 1,
+        depth: 0,
+    }];
+    state.handle_message(Message::Outline {
+        id: 7,
+        symbols: symbols.clone(),
+    });
+    assert!(state.navigation.symbols.is_empty());
+    state.document.text = "new_name = 1\n".into();
+    state.handle_message(Message::Outline { id: 8, symbols });
+    assert!(state.navigation.symbols.is_empty());
+
+    state.navigation.navigation_request = Some(9);
+    state.navigation.navigation_source = "old_name = 1\n".into();
+    state.execution.track(9, Pending::Navigate { document: 0 });
+    state.handle_message(Message::Navigation {
+        id: 9,
+        available: true,
+        mode: NavigationMode::References,
+        locations: vec![NavigationLocation {
+            name: "old_name".into(),
+            kind: "statement".into(),
+            path: None,
+            line: 1,
+            column: 0,
+        }],
+        truncated: false,
+    });
+    assert!(state.navigation.locations.is_empty());
 }
 
 #[test]

@@ -12,9 +12,33 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 pub type RequestId = u64;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationMode {
+    Definition,
+    References,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct OutlineSymbol {
+    pub name: String,
+    pub kind: String,
+    pub line: usize,
+    pub depth: usize,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct NavigationLocation {
+    pub name: String,
+    pub kind: String,
+    pub path: Option<String>,
+    pub line: usize,
+    pub column: usize,
+}
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -64,6 +88,19 @@ pub enum Request {
         /// 0-based, in characters.
         column: usize,
         path: Option<String>,
+    },
+    Outline {
+        id: RequestId,
+        source: String,
+    },
+    Navigate {
+        id: RequestId,
+        source: String,
+        line: usize,
+        column: usize,
+        path: Option<String>,
+        project_root: Option<String>,
+        mode: NavigationMode,
     },
     Inspect {
         id: RequestId,
@@ -356,6 +393,17 @@ pub enum Message {
         id: RequestId,
         #[serde(flatten)]
         documentation: Documentation,
+    },
+    Outline {
+        id: RequestId,
+        symbols: Vec<OutlineSymbol>,
+    },
+    Navigation {
+        id: RequestId,
+        available: bool,
+        mode: NavigationMode,
+        locations: Vec<NavigationLocation>,
+        truncated: bool,
     },
     Inspection {
         id: RequestId,

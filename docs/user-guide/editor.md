@@ -45,6 +45,22 @@ example `Workplane.box`), the docstring of a module, or the type a variable
 holds (`box: Workplane`). It also comes from jedi, and appears only while
 no script is running.
 
+## Code navigation
+
+**Alt+O** opens the Navigation panel. Its outline lists top-level
+variables, functions, classes and methods from the current script, including
+unsaved edits. Filter by name and click a symbol to jump to its line. The
+outline uses Python's parser and works without Jedi; it is empty while the
+script has a syntax error.
+
+Place the caret on a name and press **F12** to go to its definition, or
+**Ctrl+Shift+F12** to list its references. Both commands are in the **Edit**
+menu and command palette. These queries use Jedi's static analysis, so they
+do not run the script. Open a project folder to include its other Python
+files in the reference search. Results are capped at 200 and the panel says
+when there are more. Install `jedi` in the selected Python environment to
+enable definitions and references.
+
 ## Selector preview
 
 After rendering, place the caret inside a literal selector call such as

@@ -4,7 +4,7 @@
       "name": "ready",
       "message": {
         "type": "ready",
-        "protocol": 12,
+        "protocol": 13,
         "python": "3.12.15",
         "cadquery": "2.8.0",
         "ocp": "7.9.3.1",

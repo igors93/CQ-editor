@@ -49,8 +49,8 @@ use crate::embedded::{self, Example};
 use crate::file_watcher::FileWatcher;
 use crate::logging;
 use crate::panels::{
-    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, ParametersState,
-    SelectorPreviewState, SelectorState, SelectorUse, Tab, TabContext,
+    self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, NavigationState,
+    ParametersState, SelectorPreviewState, SelectorState, SelectorUse, Tab, TabContext,
 };
 use crate::project::Project;
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
@@ -59,7 +59,7 @@ use crate::settings::{self, Projection, Settings};
 use crate::theme::{self, Palette};
 use crate::updates;
 use crate::viewer::{ViewInput, Viewer, ViewerEvent};
-use crate::worker::protocol::{CadCheck, Request, RequestId, Variable};
+use crate::worker::protocol::{CadCheck, NavigationMode, Request, RequestId, Variable};
 use crate::worker::{self, Worker};
 
 use execution::{Execution, Pending, Phase};
@@ -125,13 +125,14 @@ pub struct AppState {
     /// The CadQuery selector of the topology selection.
     pub selector: SelectorState,
     pub selector_preview: SelectorPreviewState,
+    pub navigation: NavigationState,
     pub parameters: ParametersState,
     /// When to render after a parameter changed (`ctx` time, seconds).
     parameter_render_at: Option<f64>,
     /// Identifies the shown document among those opened or created; a
     /// reload of the same file keeps it, so the lines of its objects still
     /// apply.
-    document_generation: u64,
+    pub(crate) document_generation: u64,
     /// The script the current run executes, for its objects' lines.
     run_script: Option<(RequestId, Arc<RunScript>)>,
     pub console: ConsoleState,
@@ -492,6 +493,9 @@ impl AppState {
             Action::Find => self.editor.open_search(&self.document),
             Action::Replace => self.editor.open_replace(&self.document),
             Action::GoToLinePrompt => self.editor.open_go_to_line(),
+            Action::ShowOutline => self.request_outline(),
+            Action::GoToDefinition => self.request_navigation(NavigationMode::Definition),
+            Action::FindReferences => self.request_navigation(NavigationMode::References),
             Action::CopySelector => self.use_selector(SelectorUse::Copy),
             Action::InsertSelector => self.use_selector(SelectorUse::Insert),
             Action::CopyMeasurementCode => self.request_measurement_code(),
@@ -866,6 +870,7 @@ impl CqEditorApp {
             measurements: MeasurementState::default(),
             selector: SelectorState::default(),
             selector_preview: SelectorPreviewState::default(),
+            navigation: NavigationState::default(),
             parameters: ParametersState::default(),
             parameter_render_at: None,
             document_generation: 0,
@@ -1009,6 +1014,10 @@ impl CqEditorApp {
                 // The file or line is shown in the editor, wherever its
                 // panel is.
                 self.show_panel(Tab::Editor);
+                self.state.execute(action);
+            }
+            Action::ShowOutline | Action::GoToDefinition | Action::FindReferences => {
+                self.show_panel(Tab::Navigation);
                 self.state.execute(action);
             }
             Action::OpenFolder | Action::OpenFolderPath(_) => {

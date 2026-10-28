@@ -249,6 +249,27 @@ fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
         "Go to Line…",
         Action::GoToLinePrompt,
     );
+    item(
+        ui,
+        actions,
+        icon::TREE_STRUCTURE,
+        "Show Outline",
+        Action::ShowOutline,
+    );
+    item(
+        ui,
+        actions,
+        icon::ARROW_SQUARE_OUT,
+        "Go to Definition",
+        Action::GoToDefinition,
+    );
+    item(
+        ui,
+        actions,
+        icon::MAGNIFYING_GLASS,
+        "Find References",
+        Action::FindReferences,
+    );
     ui.separator();
     let picked = !state.scene.topology_selections.is_empty();
     item_enabled(

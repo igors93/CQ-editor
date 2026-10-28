@@ -9,7 +9,7 @@ use crate::editor::{CompletionRequest, HoverRequest};
 use crate::panels::{EntryKind, SelectorUse};
 use crate::scene::{NodeKey, Overlay, TopologySelection};
 use crate::worker::protocol::{
-    CompletionTarget, ConsoleSelection, ExportFormat, InterferenceReport, Request,
+    CompletionTarget, ConsoleSelection, ExportFormat, InterferenceReport, NavigationMode, Request,
     SelectorCandidate, TopologyReference,
 };
 
@@ -28,6 +28,72 @@ pub(super) struct ExportJob {
 }
 
 impl AppState {
+    pub(crate) fn request_outline(&mut self) {
+        if !self.worker.is_ready() || self.is_busy() {
+            return;
+        }
+        let source = self.document.text.clone();
+        let id = self.worker.next_id();
+        if self.worker.send(&Request::Outline {
+            id,
+            source: source.clone(),
+        }) {
+            self.execution.track(
+                id,
+                Pending::Outline {
+                    document: self.document_generation,
+                },
+            );
+            self.navigation.document = self.document_generation;
+            self.navigation.source = source;
+            self.navigation.outline_request = Some(id);
+            self.navigation.symbols.clear();
+            self.navigation.locations.clear();
+            self.navigation.mode = None;
+        }
+    }
+
+    pub(super) fn request_navigation(&mut self, mode: NavigationMode) {
+        if !self.worker.is_ready() || self.is_busy() {
+            self.set_status(
+                StatusKind::Info,
+                "Code navigation is available when Python is ready",
+            );
+            return;
+        }
+        let (line, column) = self.editor.cursor_position(&self.document.text);
+        let source = self.document.text.clone();
+        let path = self.document.path().map(|p| p.display().to_string());
+        let project_root = self
+            .project
+            .as_ref()
+            .map(|p| p.root().display().to_string());
+        let id = self.worker.next_id();
+        if self.worker.send(&Request::Navigate {
+            id,
+            source,
+            line,
+            column,
+            path,
+            project_root,
+            mode,
+        }) {
+            self.execution.track(
+                id,
+                Pending::Navigate {
+                    document: self.document_generation,
+                },
+            );
+            self.navigation.document = self.document_generation;
+            self.navigation.mode = Some(mode);
+            self.navigation.navigation_request = Some(id);
+            self.navigation.navigation_source = self.document.text.clone();
+            self.navigation.navigation_document = self.document_generation;
+            self.navigation.locations.clear();
+            self.navigation.truncated = false;
+        }
+    }
+
     /// Schedule a preview only for the unchanged script that produced the scene.
     pub(super) fn update_selector_preview_cursor(&mut self) {
         let run = self.run_script.as_ref().and_then(|(id, script)| {

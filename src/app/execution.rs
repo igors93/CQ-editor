@@ -62,6 +62,12 @@ pub enum Pending {
     Describe {
         document: u64,
     },
+    Outline {
+        document: u64,
+    },
+    Navigate {
+        document: u64,
+    },
     Inspect,
     /// The construction geometry of one inspector entry: the workplane and
     /// its selected (frame, item).

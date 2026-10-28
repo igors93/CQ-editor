@@ -89,6 +89,9 @@ pub fn menu_commands() -> Vec<Command> {
         c("Edit", "Find Previous", Action::FindPrevious),
         c("Edit", "Replace", Action::Replace),
         c("Edit", "Go to Line…", Action::GoToLinePrompt),
+        c("Edit", "Show Outline", Action::ShowOutline),
+        c("Edit", "Go to Definition", Action::GoToDefinition),
+        c("Edit", "Find References", Action::FindReferences),
         c("Edit", "Copy Selector", Action::CopySelector),
         c("Edit", "Insert Selector", Action::InsertSelector),
         c(

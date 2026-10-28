@@ -5,6 +5,33 @@ from cq_worker import network
 BOX = "part = cq.Workplane().box(1, 2, 3)\nshow_object(part)"
 
 
+def test_editor_navigation_requests_use_unsaved_source(conversation, tmp_path):
+    source = "def make_part():\n    return 1\nvalue = make_part()\n"
+    path = tmp_path / "main.py"
+    talk = conversation(
+        {"cmd": "outline", "id": 1, "source": source},
+        {
+            "cmd": "navigate",
+            "id": 2,
+            "source": source,
+            "path": str(path),
+            "project_root": str(tmp_path),
+            "line": 3,
+            "column": 13,
+            "mode": "definition",
+        },
+    )
+    talk.serve()
+    assert [symbol["name"] for symbol in talk.of_type("outline")[0]["symbols"]] == [
+        "make_part",
+        "value",
+    ]
+    result = talk.of_type("navigation")[0]
+    assert result["available"] and result["mode"] == "definition"
+    assert result["locations"][0]["path"] is None
+    assert result["locations"][0]["line"] == 1
+
+
 def test_interference_geometry_returns_shared_volume_mesh(conversation):
     first = {"key": "n1", "name": "first", "part": 0, "solid": 0}
     second = {"key": "n2", "name": "second", "part": 0, "solid": 0}

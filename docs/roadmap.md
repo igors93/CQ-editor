@@ -708,7 +708,7 @@ advanced users · ⚪ both.
 | | SUG-04 🟢 | **Snippets** (former FEAT-A5) for frequent patterns, including the free-function API (`cadquery.func`) and `cq.Sketch` | Inserts ordinary code |
 | | SUG-05 🟢 | **Guided lessons** (former FEAT-A2): steps that each explain one concept and check the result, such as the expected volume | Learning by editing and running real code |
 | | SUG-06 ⚪ | **Translations** (former FEAT-A6), starting with Portuguese and Spanish | Lowers the entry barrier; the API stays English |
-| | SUG-07 🔵 | **Outline and go to definition**: the script's functions, classes and parameters in a panel; F12 with jedi `goto`; `@symbol` in the command palette | Navigation in multi-file projects |
+| ✅ | SUG-07 🔵 | **Outline and go to definition**: script symbols in a panel, F12 for definitions and Ctrl+Shift+F12 for project references through Jedi | Static navigation in multi-file projects; outline works without Jedi |
 | | SUG-08 🟢 | **Warn when `show_object` reuses a name**: in a loop such as `for i in …: part = …; show_object(part)`, each object replaces the previous one, as documented and as in the original editor. A log line could suggest `name=f"part{i}"` | Explains a frequent surprise without breaking compatibility |
 
 ### Code and model

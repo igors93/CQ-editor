@@ -26,6 +26,7 @@ from . import (
     inspector,
     measurement,
     measurement_code,
+    navigation,
     network,
     selection,
     selector_preview,
@@ -72,6 +73,8 @@ _INTERRUPTIBLE = {"run", "console"}
 #: Requests that are safe to serve while a debugging session is paused.
 _ALLOWED_WHILE_PAUSED = {
     "complete",
+    "outline",
+    "navigate",
     "inspect",
     "inspect_geometry",
     "measure",
@@ -158,6 +161,8 @@ class Server:
             "release": self.release,
             "complete": self.complete,
             "describe": self.describe,
+            "outline": self.outline,
+            "navigate": self.navigate,
             "inspect": self.inspect,
             "inspect_geometry": self.inspect_geometry,
             "interference_geometry": self.interference_geometry,
@@ -457,6 +462,23 @@ class Server:
             self._script_namespace(),
         )
         return {"type": "description", **result}
+
+    def outline(self, request: Message) -> Message:
+        return {
+            "type": "outline",
+            "symbols": navigation.outline(request.get("source", "")),
+        }
+
+    def navigate(self, request: Message) -> Message:
+        result = navigation.navigate(
+            request.get("source", ""),
+            request.get("path"),
+            request.get("project_root"),
+            int(request.get("line", 1)),
+            int(request.get("column", 0)),
+            request.get("mode", ""),
+        )
+        return {"type": "navigation", "mode": request["mode"], **result}
 
     @staticmethod
     def _script_namespace() -> dict:

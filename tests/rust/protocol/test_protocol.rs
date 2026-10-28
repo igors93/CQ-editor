@@ -86,6 +86,40 @@ fn hover_documentation_travels_as_describe_and_description() {
 }
 
 #[test]
+fn source_navigation_uses_current_text_and_project_locations() {
+    let request = serde_json::to_value(Request::Navigate {
+        id: 7,
+        source: "value = make_part()".into(),
+        line: 1,
+        column: 14,
+        path: Some("/project/main.py".into()),
+        project_root: Some("/project".into()),
+        mode: NavigationMode::Definition,
+    })
+    .unwrap();
+    assert_eq!(request["cmd"], "navigate");
+    assert_eq!(request["mode"], "definition");
+    assert_eq!(request["source"], "value = make_part()");
+    assert_eq!(request["project_root"], "/project");
+
+    let message: Message = serde_json::from_value(serde_json::json!({
+        "type": "navigation", "id": 7, "mode": "definition", "available": true,
+        "locations": [{"name": "make_part", "kind": "function", "path": "/project/helper.py",
+            "line": 2, "column": 4}], "truncated": false
+    }))
+    .unwrap();
+    let Message::Navigation {
+        locations, mode, ..
+    } = message
+    else {
+        panic!("expected navigation response");
+    };
+    assert_eq!(mode, NavigationMode::Definition);
+    assert_eq!(locations[0].line, 2);
+    assert_eq!(locations[0].path.as_deref(), Some("/project/helper.py"));
+}
+
+#[test]
 fn measurement_request_and_exact_response_share_topology_references() {
     let request = Request::Measure {
         id: 12,

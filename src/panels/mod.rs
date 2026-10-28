@@ -5,6 +5,7 @@ mod console;
 mod inspector;
 mod log;
 mod measurements;
+mod navigation;
 mod objects;
 mod parameters;
 mod project;
@@ -17,6 +18,7 @@ pub use log::LogView;
 pub use measurements::{
     MeasurementState, SelectorPreviewState, SelectorState, SelectorUse, format_measurement,
 };
+pub use navigation::NavigationState;
 pub use parameters::ParametersState;
 
 use egui_dock::{DockState, NodeIndex, NodePath, TabViewer};
@@ -33,6 +35,7 @@ pub enum Tab {
     Objects,
     Measurements,
     Checks,
+    Navigation,
     Parameters,
     Variables,
     Inspector,
@@ -43,12 +46,13 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 12] = [
+    pub const ALL: [Tab; 13] = [
         Tab::Editor,
         Tab::Viewer,
         Tab::Objects,
         Tab::Measurements,
         Tab::Checks,
+        Tab::Navigation,
         Tab::Parameters,
         Tab::Variables,
         Tab::Inspector,
@@ -65,6 +69,7 @@ impl Tab {
             Tab::Objects => "Objects",
             Tab::Measurements => "Measurements",
             Tab::Checks => "Checks",
+            Tab::Navigation => "Navigation",
             Tab::Parameters => "Parameters",
             Tab::Variables => "Variables",
             Tab::Inspector => "CQ Inspector",
@@ -82,6 +87,7 @@ impl Tab {
             Tab::Objects => icon::TREE_STRUCTURE,
             Tab::Measurements => icon::RULER,
             Tab::Checks => icon::CHECKS,
+            Tab::Navigation => icon::TREE_STRUCTURE,
             Tab::Parameters => icon::SLIDERS_HORIZONTAL,
             Tab::Variables => icon::BRACKETS_CURLY,
             Tab::Inspector => icon::STACK,
@@ -169,6 +175,7 @@ impl TabViewer for TabContext<'_> {
             Tab::Objects => objects::ui(ui, self.state),
             Tab::Measurements => measurements::ui(ui, self.state),
             Tab::Checks => checks::ui(ui, self.state),
+            Tab::Navigation => navigation::ui(ui, self.state),
             Tab::Parameters => parameters::ui(ui, self.state),
             Tab::Variables => variables::ui(ui, self.state),
             Tab::Inspector => inspector::ui(ui, self.state),

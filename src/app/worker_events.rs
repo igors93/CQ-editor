@@ -316,6 +316,61 @@ impl AppState {
                     self.editor.show_documentation(documentation);
                 }
             }
+            Message::Outline { id, symbols } => {
+                if self.execution.answer(id)
+                    == Some(Pending::Outline {
+                        document: self.document_generation,
+                    })
+                    && self.navigation.outline_request == Some(id)
+                    && self.navigation.source == self.document.text
+                {
+                    self.navigation.symbols = symbols;
+                    self.navigation.outline_request = None;
+                }
+            }
+            Message::Navigation {
+                id,
+                available,
+                mode,
+                locations,
+                truncated,
+            } => {
+                if self.execution.answer(id)
+                    == Some(Pending::Navigate {
+                        document: self.document_generation,
+                    })
+                    && self.navigation.navigation_request == Some(id)
+                    && self.navigation.navigation_source == self.document.text
+                {
+                    self.navigation.navigation_request = None;
+                    self.navigation.available = available;
+                    self.navigation.mode = Some(mode);
+                    self.navigation.truncated = truncated;
+                    self.navigation.locations = locations;
+                    if !available {
+                        self.set_status(
+                            StatusKind::Info,
+                            "Code navigation needs jedi: pip install jedi",
+                        );
+                    } else if mode == crate::worker::protocol::NavigationMode::Definition
+                        && self.navigation.locations.len() == 1
+                    {
+                        let location = &self.navigation.locations[0];
+                        let action = if let Some(path) = &location.path {
+                            crate::commands::Action::OpenFileAt {
+                                path: path.into(),
+                                line: location.line,
+                            }
+                        } else {
+                            crate::commands::Action::GoToScriptLine {
+                                document: self.document_generation,
+                                line: location.line,
+                            }
+                        };
+                        self.queue([action]);
+                    }
+                }
+            }
             Message::Inspection { id, key, frames } => {
                 self.execution.answer(id);
                 if self.inspector.key.as_deref() == Some(key.as_str()) {
@@ -639,7 +694,11 @@ impl AppState {
             }
             Some((
                 _,
-                Pending::Completion { .. } | Pending::ConsoleCompletion | Pending::Imports(_),
+                Pending::Completion { .. }
+                | Pending::ConsoleCompletion
+                | Pending::Imports(_)
+                | Pending::Outline { .. }
+                | Pending::Navigate { .. },
             ))
             | None => {
                 log::warn!("{message}");
