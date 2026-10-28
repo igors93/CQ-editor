@@ -187,6 +187,8 @@ impl AppState {
             return;
         }
         self.execution.started(id, debug);
+        self.cad_checks.clear();
+        self.cad_checks_document = Some(target);
         self.scene.clear_preview();
         // The times of an earlier profile no longer describe the script.
         self.clear_line_profiles();
@@ -238,6 +240,10 @@ impl AppState {
             }
             return;
         }
+
+        self.cad_checks = result.checks;
+        self.cad_checks_document = Some(target);
+        let failed_checks = self.cad_checks.iter().filter(|check| !check.ok).count();
 
         match &result.error {
             Some(error) if result.interrupted => {
@@ -337,6 +343,12 @@ impl AppState {
             self.set_status(
                 StatusKind::Info,
                 "Meshing cancelled; the model shown before stays",
+            );
+        }
+        if ok && !result.cancelled && failed_checks > 0 {
+            self.set_status(
+                StatusKind::Warning,
+                format!("{failed_checks} CAD requirement(s) failed — see Checks"),
             );
         }
         if let Some(profile) = result.profile {

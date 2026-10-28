@@ -59,7 +59,7 @@ use crate::settings::{self, Projection, Settings};
 use crate::theme::{self, Palette};
 use crate::updates;
 use crate::viewer::{ViewInput, Viewer, ViewerEvent};
-use crate::worker::protocol::{Request, RequestId, Variable};
+use crate::worker::protocol::{CadCheck, Request, RequestId, Variable};
 use crate::worker::{self, Worker};
 
 use execution::{Execution, Pending, Phase};
@@ -138,6 +138,8 @@ pub struct AppState {
     pub status: Option<Status>,
     pub dialogs: Dialogs,
     pub geometry_checks: HashMap<String, crate::worker::protocol::GeometryReport>,
+    pub cad_checks: Vec<CadCheck>,
+    pub cad_checks_document: Option<u64>,
     export_job: Option<ExportJob>,
     ctx: egui::Context,
     execution: Execution,
@@ -869,6 +871,8 @@ impl CqEditorApp {
             status: None,
             dialogs,
             geometry_checks: HashMap::new(),
+            cad_checks: Vec::new(),
+            cad_checks_document: None,
             export_job: None,
             execution: Execution::default(),
             actions: Vec::new(),

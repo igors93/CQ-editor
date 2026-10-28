@@ -303,6 +303,7 @@ class Server:
             "objects": objects,
             "variables": variables,
             "error": execution.error,
+            "checks": execution.checks.results,
             "duration": duration,
             "timings": {
                 "script": duration,

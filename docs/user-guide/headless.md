@@ -19,6 +19,10 @@ non-manifold edges, interference or an inconclusive exact comparison.
 `--clearance DISTANCE` also lists nearby parts below that distance in model
 units. Both commands use the
 same `show_object` calls, assembly hierarchy and script directory as the GUI.
+Requirements declared with `expect(...)` also appear in `check --json` under
+`checks`, with their script line and result. A failed requirement makes
+`check` exit nonzero and stops `build` before creating an output file. The GUI
+shows the same results in its **Checks** panel.
 
 Use `--set name=value` more than once to override top-level literal assignments
 without editing the file. Values are Python scalar literals, such as `40`,

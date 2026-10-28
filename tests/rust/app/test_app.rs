@@ -71,6 +71,8 @@ pub(crate) fn test_state(text: &str) -> AppState {
         status: None,
         dialogs: Dialogs::default(),
         geometry_checks: std::collections::HashMap::new(),
+        cad_checks: Vec::new(),
+        cad_checks_document: None,
         export_job: None,
         execution: Execution::default(),
         actions: Vec::new(),

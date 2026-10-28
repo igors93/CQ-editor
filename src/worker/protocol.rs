@@ -465,12 +465,24 @@ pub struct RunFinished {
     pub objects: Option<Vec<SceneNode>>,
     pub variables: Option<Vec<Variable>>,
     pub error: Option<ScriptError>,
+    /// Requirements declared with expect() during this run.
+    #[serde(default)]
+    pub checks: Vec<CadCheck>,
     pub duration: f64,
     #[serde(default)]
     pub timings: Option<RunTimings>,
     /// Filled in by the reader thread, not sent by the worker.
     #[serde(skip)]
     pub receipt: Receipt,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CadCheck {
+    pub name: String,
+    pub kind: String,
+    pub ok: bool,
+    pub detail: String,
+    pub line: Option<usize>,
 }
 
 /// The largest image the console shows, on either side, in pixels.

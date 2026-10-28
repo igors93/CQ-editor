@@ -155,6 +155,12 @@ def _report(args: argparse.Namespace, payload: dict, status: int) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, allow_nan=False))
     elif status:
+        for check in payload.get("checks", []):
+            if not check["ok"]:
+                print(
+                    f"{check['name']} (line {check['line']}): {check['detail']}",
+                    file=sys.stderr,
+                )
         if payload.get("reports") or payload.get("interferences"):
             for item in payload["reports"]:
                 if not item["valid"]:
@@ -174,6 +180,10 @@ def _report(args: argparse.Namespace, payload: dict, status: int) -> int:
                 file=sys.stderr,
             )
     elif args.command == "check":
+        for check in payload.get("checks", []):
+            print(
+                f"{check['name']}: {'passed' if check['ok'] else 'failed'} — {check['detail']}"
+            )
         for item in payload["reports"]:
             print(f"{item['name']}: valid ({item['solids']} solids)")
         for pair in payload.get("interferences", []):
@@ -211,14 +221,26 @@ def main(argv: list[str] | None = None) -> int:
                     "ok": False,
                     "error": failure.get("message", "Script failed"),
                     "traceback": failure.get("text"),
+                    "checks": result.get("checks", []),
                 },
                 1,
             )
         keys = [node["key"] for node in result.get("objects") or []]
+        checks = result.get("checks", [])
+        if args.command == "build" and any(not check["ok"] for check in checks):
+            return _report(
+                args,
+                {"ok": False, "error": "CAD requirements failed", "checks": checks},
+                1,
+            )
         if not keys:
             return _report(
                 args,
-                {"ok": False, "error": "Script produced no displayable objects"},
+                {
+                    "ok": False,
+                    "error": "Script produced no displayable objects",
+                    "checks": checks,
+                },
                 1,
             )
 
@@ -241,6 +263,7 @@ def main(argv: list[str] | None = None) -> int:
                 bool(reports)
                 and all(report["valid"] for report in reports)
                 and checked["assessment"]["status"] == "clear"
+                and all(check["ok"] for check in checks)
             )
             return _report(
                 args,
@@ -249,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
                     "reports": reports,
                     "interferences": checked["interferences"],
                     "assessment": checked["assessment"],
+                    "checks": checks,
                 },
                 0 if valid else 1,
             )
@@ -270,7 +294,14 @@ def main(argv: list[str] | None = None) -> int:
         exported = channel.replies[-1]
         if exported["type"] == "export_finished":
             return _report(
-                args, {"ok": True, "path": str(output), "format": file_format}, 0
+                args,
+                {
+                    "ok": True,
+                    "path": str(output),
+                    "format": file_format,
+                    "checks": checks,
+                },
+                0,
             )
         if exported["type"] == "geometry_invalid":
             return _report(
@@ -280,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
                     "error": "Invalid geometry",
                     "reports": exported["reports"],
                     "interferences": exported.get("interferences", []),
+                    "checks": checks,
                 },
                 1,
             )

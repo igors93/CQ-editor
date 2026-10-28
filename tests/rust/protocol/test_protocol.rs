@@ -389,6 +389,18 @@ fn run_finished(extra: &str) -> RunFinished {
 }
 
 #[test]
+fn run_results_carry_script_requirements() {
+    let result = run_finished(
+        r#","checks":[{"name":"wall","kind":"volume","ok":false,
+            "detail":"Volume 4; expected [5, 6]","line":12}]"#,
+    );
+    assert_eq!(result.checks.len(), 1);
+    assert_eq!(result.checks[0].line, Some(12));
+    assert!(!result.checks[0].ok);
+    assert!(run_finished("").checks.is_empty());
+}
+
+#[test]
 fn run_results_carry_stage_timings() {
     let result = run_finished(
         r#","timings":{"script":1.5,"identify":0.01,"tessellate":0.25,"encode":0.02,

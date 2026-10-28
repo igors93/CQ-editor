@@ -1,5 +1,6 @@
 //! The dockable panels and their default arrangement.
 
+mod checks;
 mod console;
 mod inspector;
 mod log;
@@ -29,6 +30,7 @@ pub enum Tab {
     Viewer,
     Objects,
     Measurements,
+    Checks,
     Parameters,
     Variables,
     Inspector,
@@ -39,11 +41,12 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 11] = [
+    pub const ALL: [Tab; 12] = [
         Tab::Editor,
         Tab::Viewer,
         Tab::Objects,
         Tab::Measurements,
+        Tab::Checks,
         Tab::Parameters,
         Tab::Variables,
         Tab::Inspector,
@@ -59,6 +62,7 @@ impl Tab {
             Tab::Viewer => "3D View",
             Tab::Objects => "Objects",
             Tab::Measurements => "Measurements",
+            Tab::Checks => "Checks",
             Tab::Parameters => "Parameters",
             Tab::Variables => "Variables",
             Tab::Inspector => "CQ Inspector",
@@ -75,6 +79,7 @@ impl Tab {
             Tab::Viewer => icon::CUBE,
             Tab::Objects => icon::TREE_STRUCTURE,
             Tab::Measurements => icon::RULER,
+            Tab::Checks => icon::CHECKS,
             Tab::Parameters => icon::SLIDERS_HORIZONTAL,
             Tab::Variables => icon::BRACKETS_CURLY,
             Tab::Inspector => icon::STACK,
@@ -94,7 +99,7 @@ pub fn default_layout() -> DockState<Tab> {
     let tree = dock.main_surface_mut();
     // Fractions give the share of the left (or top) child of each split.
     let [top, bottom] = tree.split_below(NodeIndex::root(), 0.74, vec![Tab::Console]);
-    tree.split_right(bottom, 0.45, vec![Tab::Traceback, Tab::Log]);
+    tree.split_right(bottom, 0.45, vec![Tab::Checks, Tab::Traceback, Tab::Log]);
     let [viewer, _editor] = tree.split_left(top, 0.36, vec![Tab::Editor]);
     let [_viewer, objects] = tree.split_right(viewer, 0.72, vec![Tab::Objects]);
     tree.split_below(
@@ -141,6 +146,9 @@ impl TabViewer for TabContext<'_> {
                 }
             }
             Tab::Traceback if self.state.traceback.is_some() => title.push_str(" •"),
+            Tab::Checks if self.state.cad_checks.iter().any(|check| !check.ok) => {
+                title.push_str(" •");
+            }
             Tab::Project => {
                 if let Some(project) = &self.state.project {
                     title = format!("{}  {}", tab.icon(), project.name());
@@ -158,6 +166,7 @@ impl TabViewer for TabContext<'_> {
             Tab::Viewer => self.state.viewer_ui(ui, self.frame),
             Tab::Objects => objects::ui(ui, self.state),
             Tab::Measurements => measurements::ui(ui, self.state),
+            Tab::Checks => checks::ui(ui, self.state),
             Tab::Parameters => parameters::ui(ui, self.state),
             Tab::Variables => variables::ui(ui, self.state),
             Tab::Inspector => inspector::ui(ui, self.state),

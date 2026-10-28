@@ -36,6 +36,7 @@ from typing import Any
 import cadquery as cq
 
 from .assembly_checks import assembly_diagnostics, require_constrained_assembly
+from .cad_checks import CheckSuite
 from .engineering import (
     BeamSection,
     EngineeringMaterial,
@@ -164,7 +165,9 @@ def _variable_name(obj: Any, frame) -> str | None:
 
 
 def script_api(
-    shown: ShownObjects, allowances: list[tuple[str, str, str]] | None = None
+    shown: ShownObjects,
+    allowances: list[tuple[str, str, str]] | None = None,
+    checks: CheckSuite | None = None,
 ) -> dict[str, Any]:
     """Names injected into the script namespace."""
 
@@ -173,6 +176,12 @@ def script_api(
 
     def debug(obj, name=None):
         shown.debug(obj, name)
+
+    def expect(obj, name=None):
+        frame = currentframe()
+        assert frame is not None
+        suite = checks if checks is not None else CheckSuite()
+        return suite.expect(obj, name, _script_line(frame.f_back))
 
     def allow_interference(first: str, second: str, *, reason: str) -> None:
         if not all(
@@ -192,6 +201,7 @@ def script_api(
     return {
         "show_object": show_object,
         "debug": debug,
+        "expect": expect,
         "rand_color": rand_color,
         "cylindrical_fit": cylindrical_fit,
         "require_fit": require_fit,
@@ -383,7 +393,8 @@ class Execution:
         self.module = new_module(path)
         self.shown = ShownObjects()
         self.interference_allowances: list[tuple[str, str, str]] = []
-        self.api = script_api(self.shown, self.interference_allowances)
+        self.checks = CheckSuite()
+        self.api = script_api(self.shown, self.interference_allowances, self.checks)
         self.error: dict | None = None
         #: Set when a debugging session was ended by the user.
         self.stopped = False

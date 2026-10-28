@@ -11,6 +11,7 @@ adds a few names to the script's namespace so you can display results.
 | --- | --- |
 | `show_object(obj, name=None, options=None, **options)` | Display `obj` in the 3D view and the Objects panel |
 | `debug(obj, name=None)` | Display `obj` as a translucent red overlay, handy for checking a selection or a construction shape |
+| `expect(obj, name=None)` | Record CAD requirements for the Checks panel and headless CI |
 | `log(value)` | Write `str(value)` to the Log panel |
 | `rand_color(alpha=1.0, cfloat=False)` | A random, not-too-bright color for `show_object` options |
 | `cq` | The `cadquery` module, even if the script did not import it |
@@ -219,6 +220,36 @@ cylindrical tool envelope along the declared approach path;
 `require_tool_access(...)` stops the script if blocked or inconclusive. Model
 the actual wrench, drill or driver envelope and its approach when a cylinder
 is insufficient.
+
+### CAD requirements
+
+Use `expect` to keep measurable requirements next to the model. Every call
+records a result; a failure does not stop subsequent checks. The **Checks**
+panel lists passes and failures, and clicking a row opens its script line.
+
+```python
+part = cq.Workplane().box(20, 10, 4)
+pin = cq.Workplane().circle(2).extrude(4).translate((30, 0, 0))
+expect(part, "housing").is_valid().volume_between(790, 810)
+expect(part, "envelope").dimensions_within(x=(19.99, 20.01), z=(3.99, 4.01))
+expect(part, "pin gap").clearance_at_least(pin, 5)
+show_object(part)
+show_object(pin)
+```
+
+Ranges are inclusive and use the script's model units (volume uses cubed
+model units). `is_valid()` checks topology, open shells and non-manifold
+edges; `volume_between()` requires a solid. `dimensions_within()` accepts
+any combination of `x`, `y` and `z` ranges. `clearance_at_least()` measures
+the minimum exact distance between two shapes; touching or overlapping
+shapes have zero clearance. Leave room for geometric tolerance in exact
+dimension ranges. Invalid arguments such as a reversed range raise a script
+error. A general minimum-wall-thickness test is not provided: the beam
+section check above applies only to the declared beam geometry.
+
+`expect` is a CQ-editor script helper. Scripts intended to run in other
+CadQuery tools can guard these optional requirements or provide their own
+compatible helper.
 
 ## `debug`
 
