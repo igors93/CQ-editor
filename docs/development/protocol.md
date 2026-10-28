@@ -1,4 +1,4 @@
-# Worker protocol (version 11)
+# Worker protocol (version 12)
 
 The GUI and the Python worker exchange **one JSON object per line**, encoded
 as UTF-8:
@@ -37,7 +37,7 @@ The worker then:
 4. sends **`ready`**, or **`fatal`** if the import failed.
 
 ```json
-{"type":"ready","protocol":11,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
+{"type":"ready","protocol":12,"python":"3.12.10","cadquery":"2.8.0","ocp":"7.9.3.1.1","executable":"C:\\…\\python.exe","completion":true,"pid":1234}
 {"type":"fatal","message":"Cannot load CadQuery: ModuleNotFoundError: …","detail":"Traceback …","executable":"…"}
 ```
 
@@ -74,6 +74,7 @@ The worker handles one request at a time, in arrival order.
 | `measure` | `id`, up to 64 `selections` (`key`, zero-based `part`, `kind`, one-based `identifier`), and `objects` (keys) measured when `selections` is empty | `measurement` |
 | `measurement_code` | `id`, `selections`, `objects` as for `measure` | `measurement_code` |
 | `selector` | `id`, `selections` of one object, part and kind | `selector` |
+| `selector_preview` | `id`, `run_id`, 1-based `line` and character `column`, optional `preferred_key` | `selector_preview` |
 | `console` | `id`, `source`, `scene`, `known_geometry`, `selection` (`entities`: picked topology references, `objects`: selected keys) for `selected()` | `display` for each result, `scene_add` (if objects were shown), then `console_result` |
 | `console_reset` | `id` | `console_result` |
 | `export` | `id`, `keys`, `format` (see Export dialog), `path`, tolerances, STEP mode/schema, STL ASCII, `flat_parts`, `unit`, `on_invalid` (`check`, `fix`, `ignore`), `on_interference` (`check`, `ignore`) | `export_finished` or `geometry_invalid` |
@@ -111,6 +112,7 @@ The worker handles one request at a time, in arrival order.
 | `measurement` | `id`, `identity`, `entities`, `pair`, `objects`, `bounding_box` | Exact properties of each entity, each with its `bounding_box` (`min`, `max`, `size`, `center`); `pair` (the relationship) only for exactly two. Without entities, `objects` describes the selected objects (`shape_type`, `volume`, `area`, `length`, center of mass, `bounding_box`, topology counts). `bounding_box` surrounds everything measured; boxes come from the exact geometry, not the mesh |
 | `measurement_code` | `id`, `code`, `verified`, `problem` | Python repeating the measurement with the script's variables; `verified` when running it on a copy of the console namespace reproduced every value |
 | `selector` | `id`, `method` (`faces`, `edges` or `vertices`), `candidates` | CadQuery selectors for the entities, best first. Each candidate has `expression` (to append to the object, e.g. `.faces(">Z")`), `selector` (`">Z"`, null for an index), `description` and `index_based`. Every candidate was verified with CadQuery on the object the script holds |
+| `selector_preview` | `id`, `active`, `count`, `matches`, `message` | Exact topology references for a literal selector on a displayed variable from `run_id`; at most 64 highlights. Dynamic expressions are never evaluated for a preview |
 | `scene_add` | `id`, `objects` | Objects shown from the console |
 | `display` | `id`, `text`, `image` (null, or `format`: `png` or `jpeg`, `data`: base64) | A console result: the value of an expression, or each argument of `display()`. See [Rich console results](#rich-console-results) |
 | `console_result` | `id`, `more` | `more` is true when the statement is incomplete |

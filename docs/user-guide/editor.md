@@ -45,6 +45,20 @@ example `Workplane.box`), the docstring of a module, or the type a variable
 holds (`box: Workplane`). It also comes from jedi, and appears only while
 no script is running.
 
+## Selector preview
+
+After rendering, place the caret inside a literal selector call such as
+`part.faces(">Z")`, `part.edges("|Z")` or `part.vertices(">X")`. Matching
+entities light up in the 3D view, and **Measurements** shows the match count
+or why a preview is unavailable. The highlight is temporary and does not
+change the user's selection. It updates after a short pause while moving the
+caret and disappears when the caret leaves the call or the script changes.
+
+The receiver must be a variable from the last successful run that is shown
+in the view. The selector must be a literal string. Expressions that compute
+the receiver or selector are not run merely to provide a preview. Render the
+script again after editing it; old topology IDs cannot be reused safely.
+
 ## Search
 
 **Ctrl+F** opens the search bar above the editor:

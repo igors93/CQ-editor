@@ -50,7 +50,7 @@ use crate::file_watcher::FileWatcher;
 use crate::logging;
 use crate::panels::{
     self, ConsoleState, EntryKind, InspectorState, LogView, MeasurementState, ParametersState,
-    SelectorState, SelectorUse, Tab, TabContext,
+    SelectorPreviewState, SelectorState, SelectorUse, Tab, TabContext,
 };
 use crate::project::Project;
 use crate::recovery::{CHECKPOINT_INTERVAL, RecoveryStore};
@@ -124,6 +124,7 @@ pub struct AppState {
     pub measurements: MeasurementState,
     /// The CadQuery selector of the topology selection.
     pub selector: SelectorState,
+    pub selector_preview: SelectorPreviewState,
     pub parameters: ParametersState,
     /// When to render after a parameter changed (`ctx` time, seconds).
     parameter_render_at: Option<f64>,
@@ -238,6 +239,7 @@ impl AppState {
         self.process_worker_events();
         self.poll_stop(ctx);
         self.poll_parameter_render(ctx);
+        self.poll_selector_preview(ctx);
         let focused = ctx.input(|input| input.focused);
         if focused && !self.focused_last_frame {
             self.check_disk_on_focus();
@@ -324,6 +326,7 @@ impl AppState {
         if let Some(request) = output.hover_request {
             self.request_description(request);
         }
+        self.update_selector_preview_cursor();
     }
 
     pub fn viewer_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
@@ -862,6 +865,7 @@ impl CqEditorApp {
             inspector: InspectorState::default(),
             measurements: MeasurementState::default(),
             selector: SelectorState::default(),
+            selector_preview: SelectorPreviewState::default(),
             parameters: ParametersState::default(),
             parameter_render_at: None,
             document_generation: 0,

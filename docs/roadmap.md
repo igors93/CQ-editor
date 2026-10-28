@@ -587,7 +587,7 @@ run target's", which removes the special case that BUG-38 slipped through.
 path. The worker traces project modules, reports the paused file, and the
 editor opens that module at its paused line. Profiling records file paths
 and source snapshots so module tabs receive line timings. Closing the run
-script or paused module ends debugging. The protocol is version 11.
+script or paused module ends debugging. The protocol is version 12.
 
 ### REQ-09 · Large and unusual results travel safely
 
@@ -703,7 +703,7 @@ advanced users · ⚪ both.
 | Status | Id | Suggestion | Why it fits |
 | :---: | --- | --- | --- |
 | | SUG-01 🟢 | **Friendly kernel errors** (former FEAT-A3): translate `StdFail_NotDone`, `BRep_API: command not done` and similar into the likely cause, such as *the fillet radius may be larger than the edge allows*, and show the `Workplane` step that failed in the CQ Inspector | The most common dead end of CadQuery beginners. The traceback stays, with advice added |
-| | SUG-02 🟢 | **Selector preview** (former FEAT-A4): with the caret on `.faces(">Z")`, the matching entities light up in the view | The worker already evaluates selectors exactly (FEAT-B1); this runs it the other way |
+| ✅ | SUG-02 🟢 | **Selector preview** (former FEAT-A4): with the caret on a literal call such as `part.faces(">Z")`, matching entities light up in the view | Uses the last run's displayed variable and exact topology; moving the caret never evaluates dynamic Python expressions |
 | | SUG-03 🟢 | **Start page** (former FEAT-A1) with templates, recent files and projects, and an examples gallery with thumbnails | Every template is code; thumbnails come from the screenshot code (FEAT-C5) |
 | | SUG-04 🟢 | **Snippets** (former FEAT-A5) for frequent patterns, including the free-function API (`cadquery.func`) and `cq.Sketch` | Inserts ordinary code |
 | | SUG-05 🟢 | **Guided lessons** (former FEAT-A2): steps that each explain one concept and check the result, such as the expected volume | Learning by editing and running real code |

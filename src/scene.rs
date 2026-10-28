@@ -1072,6 +1072,7 @@ pub struct Scene {
     /// Measurements relate the last two; selectors describe them all.
     pub topology_selections: Vec<TopologySelection>,
     topology_highlights: Vec<Part>,
+    selector_preview: Vec<(NodeKey, usize, Part)>,
     pub overlay: Overlay,
     meshes: MeshLibrary,
     /// Changes only when the set, placement or visibility of pickable parts
@@ -1116,6 +1117,7 @@ impl Default for Scene {
             selection: Vec::new(),
             topology_selections: Vec::new(),
             topology_highlights: Vec::new(),
+            selector_preview: Vec::new(),
             overlay: Overlay::default(),
             meshes: MeshLibrary::default(),
             pick_revision: next_pick_revision(),
@@ -1194,6 +1196,7 @@ impl Scene {
     }
 
     pub fn append(&mut self, mut nodes: Vec<SceneNode>, preserved: Option<&PreservedProperties>) {
+        self.clear_selector_preview();
         if let Some(preserved) = preserved {
             for node in &mut nodes {
                 restore(node, "", preserved);
@@ -1207,6 +1210,7 @@ impl Scene {
     /// Removes all objects; returns the removed top-level keys.
     pub fn clear(&mut self) -> Vec<NodeKey> {
         self.clear_preview();
+        self.clear_selector_preview();
         self.clear_selection();
         let removed: Vec<_> = self.nodes.drain(..).map(|n| n.key).collect();
         if !removed.is_empty() {
@@ -1217,6 +1221,7 @@ impl Scene {
 
     /// Removes the given top-level nodes (keys of nested nodes are ignored).
     pub fn remove_top_level(&mut self, keys: &[NodeKey]) -> Vec<NodeKey> {
+        self.clear_selector_preview();
         let mut removed = Vec::new();
         self.nodes.retain(|node| {
             let remove = keys.contains(&node.key);
@@ -1597,6 +1602,48 @@ impl Scene {
         self.topology_highlights.clear();
     }
 
+    /// Highlights selector results without replacing the user's selection.
+    pub fn set_selector_preview(&mut self, references: &[protocol::TopologyReference]) {
+        self.clear_selector_preview();
+        for reference in references.iter().take(64) {
+            let entity = match reference.kind {
+                protocol::TopologyKind::Face => TopologyEntity::Face(reference.identifier),
+                protocol::TopologyKind::Edge => TopologyEntity::Edge(reference.identifier),
+                protocol::TopologyKind::Vertex => TopologyEntity::Vertex(reference.identifier),
+            };
+            let Some(part) = self
+                .find(&reference.key)
+                .and_then(|node| node.parts.get(reference.part))
+            else {
+                continue;
+            };
+            let Some(mesh) = part.mesh.topology_mesh(entity) else {
+                continue;
+            };
+            self.selector_preview.push((
+                reference.key.clone(),
+                reference.part,
+                Part {
+                    mesh: Arc::new(mesh),
+                    transform: part.transform,
+                    color: None,
+                    alpha: None,
+                    face_attributes: Vec::new(),
+                    material: None,
+                    render_mesh: None,
+                },
+            ));
+        }
+    }
+
+    pub fn clear_selector_preview(&mut self) {
+        self.selector_preview.clear();
+    }
+
+    pub fn selector_preview_count(&self) -> usize {
+        self.selector_preview.len()
+    }
+
     pub fn current_topology(&self) -> Option<&TopologySelection> {
         self.topology_selections.last()
     }
@@ -1608,7 +1655,8 @@ impl Scene {
 
     /// The highlights with where they are shown: on their part, exploded.
     pub fn placed_topology_highlights(&self) -> Vec<(&Part, Mat4)> {
-        self.topology_selections
+        let selected = self
+            .topology_selections
             .iter()
             .zip(&self.topology_highlights)
             .map(|(selection, highlight)| {
@@ -1617,8 +1665,15 @@ impl Scene {
                     .and_then(|node| node.parts.get(selection.part))
                     .map_or(highlight.transform, |part| self.part_transform(part));
                 (highlight, transform)
-            })
-            .collect()
+            });
+        let previewed = self.selector_preview.iter().map(|(key, index, highlight)| {
+            let transform = self
+                .find(key)
+                .and_then(|node| node.parts.get(*index))
+                .map_or(highlight.transform, |part| self.part_transform(part));
+            (highlight, transform)
+        });
+        selected.chain(previewed).collect()
     }
 
     pub fn current(&self) -> Option<&SceneNode> {

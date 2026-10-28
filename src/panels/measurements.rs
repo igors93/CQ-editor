@@ -47,6 +47,24 @@ pub struct SelectorState {
     pub then: Option<SelectorUse>,
 }
 
+/// A read-only selector preview tied to the caret of the last successful run.
+#[derive(Default)]
+pub struct SelectorPreviewState {
+    pub cursor: Option<(RequestId, usize, usize)>,
+    pub due_at: Option<f64>,
+    pub request_id: Option<RequestId>,
+    pub active: bool,
+    pub count: usize,
+    pub shown: usize,
+    pub message: Option<String>,
+}
+
+impl SelectorPreviewState {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl SelectorState {
     pub fn clear(&mut self) {
         *self = Self::default();
@@ -103,6 +121,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             state.viewer.selection_mode.label()
         ));
         ui.add_space(6.0);
+
+        if state.selector_preview.active {
+            ui.separator();
+            let preview = &state.selector_preview;
+            ui.strong(format!("Selector preview: {} matching entities", preview.count));
+            if preview.shown < preview.count {
+                ui.weak(format!("Showing {} highlights", preview.shown));
+            }
+            if let Some(message) = &preview.message {
+                ui.colored_label(ui.visuals().warn_fg_color, message);
+            }
+            ui.separator();
+        }
 
         if !state.scene.topology_selections.is_empty() {
             selector_ui(ui, &mut state.selector, &mut actions);

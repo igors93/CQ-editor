@@ -70,6 +70,8 @@ impl AppState {
         self.scene.clear_topology_selection();
         self.measurements.clear();
         self.selector.clear();
+        self.selector_preview.clear();
+        self.scene.clear_selector_preview();
         self.scene.overlay = Overlay::default();
     }
 
@@ -398,7 +400,26 @@ impl AppState {
                     }
                 }
             }
+            Message::SelectorPreview {
+                id,
+                active,
+                count,
+                matches,
+                message,
+            } => {
+                if matches!(self.execution.answer(id), Some(Pending::SelectorPreview))
+                    && self.selector_preview.request_id == Some(id)
+                {
+                    self.selector_preview.request_id = None;
+                    self.selector_preview.active = active;
+                    self.selector_preview.count = count;
+                    self.selector_preview.message = message;
+                    self.scene.set_selector_preview(&matches);
+                    self.selector_preview.shown = self.scene.selector_preview_count();
+                }
+            }
             Message::SceneAdd { id, objects } => {
+                self.selector_preview.clear();
                 let was_empty = self.scene.is_empty();
                 let Some(nodes) = self.decode_scene_nodes(id, objects) else {
                     return;
@@ -592,6 +613,14 @@ impl AppState {
                 self.selector.error = Some(message);
             }
             Some((_, Pending::Selector)) => {}
+            Some((id, Pending::SelectorPreview))
+                if self.selector_preview.request_id == Some(id) =>
+            {
+                self.selector_preview.request_id = None;
+                self.selector_preview.message = Some(message);
+                self.selector_preview.active = true;
+            }
+            Some((_, Pending::SelectorPreview)) => {}
             Some((_, Pending::MeasurementCode)) => {
                 self.set_status(
                     StatusKind::Warning,

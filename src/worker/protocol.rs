@@ -12,7 +12,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The worker's protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 pub type RequestId = u64;
 
@@ -100,6 +100,14 @@ pub enum Request {
     Selector {
         id: RequestId,
         selections: Vec<TopologyReference>,
+    },
+    /// Read-only preview of a literal selector at the editor caret.
+    SelectorPreview {
+        id: RequestId,
+        run_id: RequestId,
+        line: usize,
+        column: usize,
+        preferred_key: Option<String>,
     },
     Console {
         id: RequestId,
@@ -373,6 +381,13 @@ pub enum Message {
         problem: Option<String>,
     },
     Selector(SelectorReply),
+    SelectorPreview {
+        id: RequestId,
+        active: bool,
+        count: usize,
+        matches: Vec<TopologyReference>,
+        message: Option<String>,
+    },
     SceneAdd {
         #[serde(default)]
         id: Option<RequestId>,

@@ -62,6 +62,7 @@ pub(crate) fn test_state(text: &str) -> AppState {
         inspector: InspectorState::default(),
         measurements: MeasurementState::default(),
         selector: SelectorState::default(),
+        selector_preview: SelectorPreviewState::default(),
         parameters: ParametersState::default(),
         parameter_render_at: None,
         document_generation: 0,
@@ -167,6 +168,33 @@ fn awaiting_selector(state: &mut AppState, id: crate::worker::protocol::RequestI
     state.execution.track(id, Pending::Selector);
     state.selector.loading = true;
     state.selector.request_id = Some(id);
+}
+
+#[test]
+fn stale_selector_preview_replies_do_not_replace_the_current_caret() {
+    let mut state = test_state("part.faces(\">Z\")");
+    state.execution.track(7, Pending::SelectorPreview);
+    state.selector_preview.request_id = Some(7);
+    state.handle_message(crate::worker::protocol::Message::SelectorPreview {
+        id: 6,
+        active: true,
+        count: 4,
+        matches: Vec::new(),
+        message: None,
+    });
+    assert!(!state.selector_preview.active);
+    state.handle_message(crate::worker::protocol::Message::SelectorPreview {
+        id: 7,
+        active: true,
+        count: 1,
+        matches: Vec::new(),
+        message: Some("No displayed match".into()),
+    });
+    assert_eq!(state.selector_preview.count, 1);
+    assert_eq!(
+        state.selector_preview.message.as_deref(),
+        Some("No displayed match")
+    );
 }
 
 #[test]

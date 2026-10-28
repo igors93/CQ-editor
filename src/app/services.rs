@@ -28,6 +28,69 @@ pub(super) struct ExportJob {
 }
 
 impl AppState {
+    /// Schedule a preview only for the unchanged script that produced the scene.
+    pub(super) fn update_selector_preview_cursor(&mut self) {
+        let run = self.run_script.as_ref().and_then(|(id, script)| {
+            (script.document == self.document_generation && script.text == self.document.text)
+                .then_some(*id)
+        });
+        if !self.worker.is_ready()
+            || self.scene.is_empty()
+            || self.execution.phase() != super::execution::Phase::Idle
+        {
+            self.selector_preview.clear();
+            self.scene.clear_selector_preview();
+            return;
+        }
+        let Some(run_id) = run else {
+            self.selector_preview.clear();
+            self.scene.clear_selector_preview();
+            return;
+        };
+        let (line, column) = self.editor.cursor_position(&self.document.text);
+        let cursor = (run_id, line, column);
+        if self.selector_preview.cursor == Some(cursor) {
+            return;
+        }
+        self.selector_preview.clear();
+        self.scene.clear_selector_preview();
+        self.selector_preview.cursor = Some(cursor);
+        self.selector_preview.due_at = Some(self.now() + 0.15);
+        self.ctx
+            .request_repaint_after(std::time::Duration::from_millis(160));
+    }
+
+    /// Debounce caret motion so a rapid series of arrows sends one worker request.
+    pub(super) fn poll_selector_preview(&mut self, ctx: &egui::Context) {
+        let Some(due) = self.selector_preview.due_at else {
+            return;
+        };
+        if self.now() < due {
+            ctx.request_repaint_after(std::time::Duration::from_millis(20));
+            return;
+        }
+        if self.execution.phase() != super::execution::Phase::Idle || !self.worker.is_ready() {
+            self.selector_preview.due_at = Some(self.now() + 0.15);
+            ctx.request_repaint_after(std::time::Duration::from_millis(160));
+            return;
+        }
+        self.selector_preview.due_at = None;
+        let Some((run_id, line, column)) = self.selector_preview.cursor else {
+            return;
+        };
+        let id = self.worker.next_id();
+        let preferred_key = self.scene.current().map(|node| node.key.clone());
+        if self.worker.send(&Request::SelectorPreview {
+            id,
+            run_id,
+            line,
+            column,
+            preferred_key,
+        }) {
+            self.execution.track(id, Pending::SelectorPreview);
+            self.selector_preview.request_id = Some(id);
+        }
+    }
     // -- editor services ----------------------------------------------------------
 
     pub(super) fn request_completion(&mut self, request: CompletionRequest) {

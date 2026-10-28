@@ -187,6 +187,8 @@ impl AppState {
             return;
         }
         self.execution.started(id, debug);
+        self.selector_preview.clear();
+        self.scene.clear_selector_preview();
         self.cad_checks.clear();
         self.cad_checks_document = Some(target);
         self.scene.clear_preview();

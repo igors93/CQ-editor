@@ -294,6 +294,35 @@ fn topology_selection_builds_and_clears_an_exact_highlight() {
 }
 
 #[test]
+fn selector_preview_highlights_without_changing_selection() {
+    let mut mesh = Mesh::new(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        vec![[0.0, 0.0, 1.0]; 3],
+        vec![0, 1, 2],
+        Vec::new(),
+        Vec::new(),
+    );
+    mesh.topology.triangle_faces = vec![4];
+    let mut part = node("n", "part", vec![]);
+    part.parts[0].mesh = Arc::new(mesh);
+    let mut scene = Scene::default();
+    scene.append(vec![part], None);
+    scene.select_only("n");
+    scene.set_selector_preview(&[protocol::TopologyReference {
+        key: "n".into(),
+        part: 0,
+        kind: protocol::TopologyKind::Face,
+        identifier: 4,
+    }]);
+    assert_eq!(scene.selector_preview_count(), 1);
+    assert_eq!(scene.placed_topology_highlights().len(), 1);
+    assert_eq!(scene.selected_roots(), ["n"]);
+    assert!(scene.topology_selections.is_empty());
+    scene.clear();
+    assert_eq!(scene.selector_preview_count(), 0);
+}
+
+#[test]
 fn ctrl_click_gathers_up_to_the_topology_selection_limit() {
     // One triangle per face id, so each id has a highlight.
     let faces = MAX_TOPOLOGY_SELECTIONS as u32 + 1;

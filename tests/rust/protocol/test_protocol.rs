@@ -123,6 +123,30 @@ fn measurement_request_and_exact_response_share_topology_references() {
 }
 
 #[test]
+fn selector_preview_transfers_exact_topology_ids() {
+    let request = serde_json::to_value(Request::SelectorPreview {
+        id: 9,
+        run_id: 4,
+        line: 7,
+        column: 18,
+        preferred_key: Some("n1".into()),
+    })
+    .unwrap();
+    assert_eq!(request["cmd"], "selector_preview");
+    assert_eq!(request["run_id"], 4);
+    let message: Message = serde_json::from_value(serde_json::json!({
+        "type": "selector_preview", "id": 9, "active": true, "count": 1,
+        "matches": [{"key":"n1","part":0,"kind":"face","identifier":6}],
+        "message": null
+    }))
+    .unwrap();
+    let Message::SelectorPreview { matches, .. } = message else {
+        panic!("expected selector preview");
+    };
+    assert_eq!(matches[0].identifier, 6);
+}
+
+#[test]
 fn parses_errors_and_output() {
     let message: Message =
         serde_json::from_str(r#"{"type":"output","id":null,"stream":"stderr","text":"x"}"#)

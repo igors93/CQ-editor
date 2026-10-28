@@ -14,7 +14,9 @@ mod variables;
 pub use console::{ConsoleState, EntryKind};
 pub use inspector::InspectorState;
 pub use log::LogView;
-pub use measurements::{MeasurementState, SelectorState, SelectorUse, format_measurement};
+pub use measurements::{
+    MeasurementState, SelectorPreviewState, SelectorState, SelectorUse, format_measurement,
+};
 pub use parameters::ParametersState;
 
 use egui_dock::{DockState, NodeIndex, NodePath, TabViewer};

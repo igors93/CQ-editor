@@ -28,6 +28,7 @@ from . import (
     measurement_code,
     network,
     selection,
+    selector_preview,
 )
 from .console import ConsoleSession
 from .debugger import Action, Debugger
@@ -148,6 +149,9 @@ class Server:
         #: Stack frames of inspected workplanes, by scene key.
         self.inspections: dict[str, list[cq.Workplane]] = {}
         self.interference_allowances: list[tuple[str, str, str]] = []
+        self.preview_run_id: int | None = None
+        self.preview_source = ""
+        self.preview_names: dict[str, cq.Shape | cq.Workplane] = {}
         self._debugger: Debugger | None = None
         self._handlers = {
             "run": self.run,
@@ -159,6 +163,7 @@ class Server:
             "interference_geometry": self.interference_geometry,
             "measure": self.measure,
             "selector": self.selector,
+            "selector_preview": self.selector_preview,
             "measurement_code": self.measurement_code,
             "console": self.run_console,
             "console_reset": self.reset_console,
@@ -230,6 +235,8 @@ class Server:
     # -- running scripts ---------------------------------------------------
 
     def run(self, request: Message) -> Message:
+        self.preview_run_id = None
+        self.preview_names.clear()
         self.registry.release(request.get("release", []))
         builder = self._scene_builder(request)
         builder.on_part = lambda name, part: self.channel.send(
@@ -291,6 +298,14 @@ class Server:
                 self.channel.forget_cancel(request_id)
         if objects is not None and not cancelled:
             self.interference_allowances = execution.interference_allowances.copy()
+            if ok and not debug:
+                self.preview_run_id = request.get("id")
+                self.preview_source = execution.source
+                self.preview_names = {
+                    name: obj
+                    for name, obj in execution.namespace.items()
+                    if isinstance(obj, (cq.Shape, cq.Workplane))
+                }
         return {
             "type": "run_finished",
             "ok": ok,
@@ -540,6 +555,27 @@ class Server:
         except measurement.MeasurementError as error:
             raise RequestError(str(error)) from None
         return {"type": "selector", **result}
+
+    def selector_preview(self, request: Message) -> Message:
+        if request.get("run_id") != self.preview_run_id or self.preview_run_id is None:
+            return {
+                "type": "selector_preview",
+                "active": False,
+                "count": 0,
+                "matches": [],
+                "message": None,
+            }
+        return {
+            "type": "selector_preview",
+            **selector_preview.preview(
+                self.registry,
+                self.preview_names,
+                self.preview_source,
+                int(request.get("line", 0)),
+                int(request.get("column", 0)),
+                request.get("preferred_key"),
+            ),
+        }
 
     # -- files and network -------------------------------------------------
 

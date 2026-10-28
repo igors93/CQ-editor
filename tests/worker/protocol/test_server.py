@@ -32,6 +32,21 @@ def test_ready_and_run(conversation):
     assert output == {"type": "output", "id": 1, "stream": "stdout", "text": "hello\n"}
 
 
+def test_selector_preview_uses_only_the_completed_run(conversation):
+    script = 'part = cq.Workplane().box(1, 2, 3)\nselected = part.faces(">Z")\nshow_object(part)'
+    talk = conversation(
+        {"cmd": "run", "id": 1, "script": script},
+        {"cmd": "selector_preview", "id": 2, "run_id": 1, "line": 2, "column": 18},
+        {"cmd": "run", "id": 3, "script": "raise RuntimeError('broken')"},
+        {"cmd": "selector_preview", "id": 4, "run_id": 1, "line": 2, "column": 18},
+    )
+    talk.serve()
+    first, stale = talk.of_type("selector_preview")
+    assert first["id"] == 2 and first["active"] and first["count"] == 1
+    assert first["matches"][0]["kind"] == "face"
+    assert stale["id"] == 4 and not stale["active"]
+
+
 def test_failed_run_keeps_previous_scene(conversation):
     talk = conversation({"cmd": "run", "id": 7, "script": "1 / 0"})
     talk.serve()
