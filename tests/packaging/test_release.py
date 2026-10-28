@@ -52,6 +52,25 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertIn("lockfile", construct)
         self.assertIn("licenses", construct)
 
+    def test_installer_leaves_out_only_files_for_compiling_against_vtk(self):
+        construct = CONSTRUCT.read_text(encoding="utf-8")
+        block = re.search(r"(?m)^exclude:\n((?:  - \S+\n)+)", construct)
+        self.assertIsNotNone(block)
+        excluded = {line.strip()[2:] for line in block.group(1).splitlines()}
+        # Headers, CMake files and import libraries, and Boost's DLLs that
+        # nothing installed links. A runtime library must never be listed.
+        self.assertEqual(
+            excluded,
+            {
+                "libboost-devel",
+                "libboost-headers",
+                "libboost",
+                "eigen",
+                "tbb-devel",
+                "liblzma-devel",
+            },
+        )
+
     def test_native_shortcuts_launch_the_bundled_executable(self):
         construct = CONSTRUCT.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")

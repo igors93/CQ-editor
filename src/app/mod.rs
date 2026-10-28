@@ -71,7 +71,9 @@ const SETTINGS_KEY: &str = "settings";
 /// Meshing shows its progress bar only once it has taken this long.
 const MESHING_BAR_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
 const LAYOUT_KEY: &str = "dock_layout";
-const LOGO_ICO: &[u8] = include_bytes!("../../assets/icons/cadquery_logo_dark.ico");
+/// The CadQuery logo for the window icon and the About dialog: a static, so
+/// the binary holds the bytes once.
+pub static LOGO_ICO: &[u8] = include_bytes!("../../assets/icons/cadquery_logo_dark.ico");
 /// The documentation of this editor, not the wiki of the PyQt one.
 pub const DOCUMENTATION_URL: &str =
     concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/master/docs/README.md");

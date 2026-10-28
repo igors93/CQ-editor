@@ -169,8 +169,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<StartupOptions, Stri
 }
 
 fn window_icon() -> egui::IconData {
-    let bytes = include_bytes!("../assets/icons/cadquery_logo_dark.ico");
-    match image::load_from_memory_with_format(bytes, image::ImageFormat::Ico) {
+    match image::load_from_memory_with_format(app::LOGO_ICO, image::ImageFormat::Ico) {
         Ok(image) => {
             let image = image
                 .resize(128, 128, image::imageops::FilterType::Lanczos3)

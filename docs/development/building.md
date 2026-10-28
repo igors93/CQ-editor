@@ -20,7 +20,7 @@ cargo run -- examples/01_hello_box.py
 | --- | --- | --- |
 | Worker sources | Loaded from `worker/` in the source tree. Python edits apply on the next worker restart (Run > Restart Python) | Embedded in the executable and extracted to the data folder on first use |
 | Console window on Windows | Yes (logs are visible) | No (`windows_subsystem = "windows"`). `--help` and command-line errors are written to the console of the shell that started it, or shown in a message box |
-| Optimization | Dependencies are optimized (`opt-level = 2`), the crate itself is not, and only line tables are kept for debugging | Thin LTO, stripped |
+| Optimization | Dependencies are optimized (`opt-level = 2`), the crate itself is not, and only line tables are kept for debugging | Fat LTO with one codegen unit, stripped |
 | `.venv` discovery | Also looks in the source tree | Next to the executable and in the working directory |
 
 `CQ_EDITOR_WORKER_DIR=/path/to/dir` makes any build load the `cq_worker`
@@ -106,6 +106,14 @@ publishing). It builds the native Rust executable and then uses constructor
 menuinst. The Rust executable is copied into the same private prefix and
 `src/worker/launch.rs` discovers that bundled Python before global or active
 environments. Explicit user choices still win.
+
+That runtime is most of an installer: Qt 6 (which VTK links), VTK, OCCT,
+LLVM (for Numba) and Python, against about 20 MB for the editor. Its
+`exclude` list leaves out the Boost, Eigen and TBB development files that
+the `vtk` metapackage brings for compiling against VTK, about 17,000 files
+and 230 MB once installed, which nothing loads at run time. Constructor
+fails if a listed package is no longer in the solved environment, so check
+the list when a pin changes.
 
 The Windows job signs the native executable and the finished installer with
 Authenticode and an RFC 3161 timestamp. The macOS jobs sign the native editor

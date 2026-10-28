@@ -70,6 +70,10 @@ opt-level = 2
 debug = false
 
 [profile.release]
-lto = "thin"
-codegen-units = 4
+# Whole-program optimization: with one codegen unit and fat LTO the optimizer
+# sees wgpu, naga, egui and the editor at once, inlines across crates and drops
+# code no path reaches. The binary is smaller and no slower (opt-level stays
+# 3); only release builds take longer.
+lto = "fat"
+codegen-units = 1
 strip = true

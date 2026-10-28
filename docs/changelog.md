@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* Changed: the installers leave out the Boost, Eigen and TBB headers, CMake
+  files and import libraries that the VTK package brings for compiling
+  against it, which nothing uses at run time: each installer is about 19 MB
+  smaller, and an installation about 230 MB and 17,000 files smaller
+* Changed: the editor is built with whole-program optimization (fat LTO,
+  one codegen unit), and its icon stores the 64 to 192 px images as PNG
+  (the same pixels) and is embedded once: the Windows executable is 3.6 MB
+  (17%) smaller
+
 ## 0.9.0 (2026-10-27)
 
 * New: a Presentation display mode (View menu, toolbar ✦, command palette)

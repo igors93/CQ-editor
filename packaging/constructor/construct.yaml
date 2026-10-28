@@ -37,6 +37,21 @@ specs:
   - pip
   - nomkl
 
+# OCP and OCCT require the `vtk` metapackage, which also brings what compiling
+# C++ against VTK needs: Boost, Eigen and TBB headers, CMake files and import
+# libraries. Nothing installed links Boost's DLLs and the rest is not code that
+# runs, yet Boost's headers alone are about 16,000 files and 195 MB. The
+# runtime libraries (tbb, liblzma, libexpat) stay. Constructor stops when a
+# name is missing from the solved environment, so a changed solution fails the
+# build instead of shipping something else.
+exclude:
+  - libboost-devel
+  - libboost-headers
+  - libboost
+  - eigen
+  - tbb-devel
+  - liblzma-devel
+
 default_prefix: ${HOME}/.local/share/CQ-editor  # [linux]
 default_prefix: '%LOCALAPPDATA%\Programs\CQ-editor'  # [win]
 default_prefix_domain_user: '%LOCALAPPDATA%\Programs\CQ-editor'  # [win]
