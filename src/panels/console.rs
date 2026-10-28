@@ -50,10 +50,110 @@ pub struct ConsoleState {
     pub busy: bool,
     history: Vec<String>,
     history_index: Option<usize>,
+    /// In-progress input saved before browsing or searching history.
+    draft_input: Option<String>,
+    /// Whether the interactive history search bar (`Ctrl+R`) is open.
+    pub search_open: bool,
+    pub search_query: String,
+    pub search_match_index: usize,
+    focus_search: bool,
     focus_input: bool,
 }
 
 impl ConsoleState {
+    pub fn history(&self) -> &[String] {
+        &self.history
+    }
+
+    /// Indices into `self.history` (most recent first) matching `query`
+    /// case-insensitively.
+    pub fn history_matches(&self, query: &str) -> Vec<usize> {
+        let needle = query.trim().to_lowercase();
+        (0..self.history.len())
+            .rev()
+            .filter(|&i| {
+                needle.is_empty() || self.history[i].to_lowercase().contains(&needle)
+            })
+            .collect()
+    }
+
+    /// Opens the reverse history search bar (`Ctrl+R`), saving the current
+    /// input so `Esc` can restore it.
+    pub fn open_history_search(&mut self) {
+        if !self.search_open {
+            self.draft_input = Some(self.input.clone());
+        }
+        self.search_open = true;
+        self.focus_search = true;
+        self.search_match_index = 0;
+        if !self.search_query.trim().is_empty() {
+            self.apply_search_match();
+        }
+    }
+
+    /// Updates the history search query and loads the newest matching command.
+    pub fn set_history_search_query(&mut self, query: &str) {
+        if !self.search_open {
+            self.draft_input = Some(self.input.clone());
+            self.search_open = true;
+        }
+        self.search_query = query.to_owned();
+        self.search_match_index = 0;
+        if self.search_query.trim().is_empty() {
+            if let Some(draft) = &self.draft_input {
+                self.input = draft.clone();
+            }
+            self.history_index = None;
+        } else {
+            self.apply_search_match();
+        }
+    }
+
+    /// Cycles to the next older (`true`) or newer (`false`) matching command.
+    pub fn step_history_search(&mut self, next_older: bool) {
+        let matches = self.history_matches(&self.search_query);
+        if matches.is_empty() {
+            return;
+        }
+        if next_older {
+            self.search_match_index = (self.search_match_index + 1) % matches.len();
+        } else {
+            self.search_match_index =
+                (self.search_match_index + matches.len() - 1) % matches.len();
+        }
+        let hist_idx = matches[self.search_match_index];
+        self.history_index = Some(hist_idx);
+        self.input = self.history[hist_idx].clone();
+    }
+
+    /// Accepts the currently matched history command into the input field
+    /// without executing it.
+    pub fn accept_history_search(&mut self) {
+        self.search_open = false;
+        self.focus_search = false;
+        self.draft_input = None;
+        self.focus_input = true;
+    }
+
+    /// Cancels history search and restores the input that was present before
+    /// the search started.
+    pub fn cancel_history_search(&mut self) {
+        self.search_open = false;
+        self.focus_search = false;
+        if let Some(draft) = self.draft_input.take() {
+            self.input = draft;
+        }
+        self.history_index = None;
+        self.focus_input = true;
+    }
+
+    fn apply_search_match(&mut self) {
+        let matches = self.history_matches(&self.search_query);
+        if let Some(&hist_idx) = matches.get(self.search_match_index) {
+            self.history_index = Some(hist_idx);
+            self.input = self.history[hist_idx].clone();
+        }
+    }
     /// Applies completion results for the input: a unique match or the
     /// common prefix is inserted, otherwise the candidates are listed.
     pub fn complete(&mut self, inserts: &[(String, String)], signatures: &[String]) {
@@ -162,7 +262,42 @@ impl ConsoleState {
             self.history.push(source.to_owned());
         }
         self.history_index = None;
+        self.draft_input = None;
+        self.search_open = false;
         self.busy = true;
+    }
+
+    /// Moves one step through the command history (`older = true` for `Up`,
+    /// `false` for `Down`), preserving any in-progress draft input.
+    pub fn step_history(&mut self, older: bool) -> bool {
+        if self.history.is_empty() || (self.input.contains('\n') && self.history_index.is_none()) {
+            return false;
+        }
+        if older {
+            if self.history_index.is_none() {
+                self.draft_input = Some(self.input.clone());
+            }
+            let index = self
+                .history_index
+                .map_or(self.history.len() - 1, |i| i.saturating_sub(1));
+            self.history_index = Some(index);
+            self.input = self.history[index].clone();
+            true
+        } else {
+            match self.history_index {
+                Some(i) if i + 1 < self.history.len() => {
+                    self.history_index = Some(i + 1);
+                    self.input = self.history[i + 1].clone();
+                    true
+                }
+                Some(_) => {
+                    self.history_index = None;
+                    self.input = self.draft_input.take().unwrap_or_default();
+                    true
+                }
+                None => false,
+            }
+        }
     }
 }
 
@@ -190,6 +325,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
     egui::Panel::bottom("console_input")
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(6, 4)))
         .show(ui, |ui| {
+            if console.search_open {
+                history_search_bar(ui, console);
+                ui.add_space(4.0);
+            }
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(if console.more { "..." } else { ">>>" })
@@ -209,10 +348,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                         .desired_rows(1)
                         // Room for the buttons, Stop included while busy.
                         .desired_width(
-                            ui.available_width() - if console.busy { 92.0 } else { 62.0 },
+                            ui.available_width() - if console.busy { 120.0 } else { 90.0 },
                         )
                         .hint_text(if worker_ready {
-                            "Python — Enter to run"
+                            "Python — Enter to run · Ctrl+R to search history"
                         } else {
                             "Waiting for Python…"
                         }),
@@ -229,6 +368,20 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                         .clicked()
                 {
                     actions.push(Action::Stop);
+                }
+                if ui
+                    .add_enabled(
+                        !console.history.is_empty(),
+                        egui::Button::new(icon::MAGNIFYING_GLASS).selected(console.search_open),
+                    )
+                    .on_hover_text("Search command history (Ctrl+R)")
+                    .clicked()
+                {
+                    if console.search_open {
+                        console.cancel_history_search();
+                    } else {
+                        console.open_history_search();
+                    }
                 }
                 if ui
                     .button(icon::BROOM)
@@ -313,7 +466,89 @@ fn output(ui: &mut egui::Ui, console: &mut ConsoleState, colors: &Colors) {
         });
 }
 
+fn history_search_bar(ui: &mut egui::Ui, console: &mut ConsoleState) {
+    ui.horizontal(|ui| {
+        ui.label(icon::MAGNIFYING_GLASS);
+        let search_id = ui.id().with("console_history_search");
+        let focused = ui.memory(|m| m.has_focus(search_id));
+        if focused {
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                console.cancel_history_search();
+                return;
+            }
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+                console.accept_history_search();
+                return;
+            }
+            if ui.input_mut(|i| {
+                i.consume_key(Modifiers::COMMAND, Key::R)
+                    || i.consume_key(Modifiers::NONE, Key::ArrowUp)
+            }) {
+                console.step_history_search(true);
+            } else if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
+                console.step_history_search(false);
+            }
+        }
+        let mut query = console.search_query.clone();
+        let response = ui.add(
+            egui::TextEdit::singleline(&mut query)
+                .id(search_id)
+                .desired_width((ui.available_width() - 150.0).max(80.0))
+                .hint_text("Search history… (Enter to use, Esc to cancel)"),
+        );
+        if std::mem::take(&mut console.focus_search) {
+            response.request_focus();
+        }
+        if response.changed() {
+            console.set_history_search_query(&query);
+        }
+        let matches = console.history_matches(&console.search_query);
+        if matches.is_empty() {
+            ui.weak("No match");
+        } else {
+            let current = console.search_match_index.min(matches.len() - 1) + 1;
+            ui.weak(format!("{current}/{}", matches.len()));
+        }
+        if ui
+            .add_enabled(!matches.is_empty(), egui::Button::new(icon::CARET_UP))
+            .on_hover_text("Older match (Ctrl+R / Up)")
+            .clicked()
+        {
+            console.step_history_search(true);
+        }
+        if ui
+            .add_enabled(!matches.is_empty(), egui::Button::new(icon::CARET_DOWN))
+            .on_hover_text("Newer match (Down)")
+            .clicked()
+        {
+            console.step_history_search(false);
+        }
+        if ui
+            .button(icon::CHECK)
+            .on_hover_text("Use command in input (Enter)")
+            .clicked()
+        {
+            console.accept_history_search();
+        }
+        if ui
+            .button(icon::X)
+            .on_hover_text("Cancel search and restore previous input (Esc)")
+            .clicked()
+        {
+            console.cancel_history_search();
+        }
+    });
+}
+
 fn handle_keys(ui: &egui::Ui, console: &mut ConsoleState, actions: &mut Vec<Action>) {
+    if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::R)) {
+        if console.search_open {
+            console.step_history_search(true);
+        } else {
+            console.open_history_search();
+        }
+        return;
+    }
     let submit = ui.input_mut(|i| {
         // Shift+Enter falls through to the text edit and inserts a newline.
         !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Enter)
@@ -328,27 +563,10 @@ fn handle_keys(ui: &egui::Ui, console: &mut ConsoleState, actions: &mut Vec<Acti
         actions.push(Action::ConsoleComplete);
         return;
     }
-    // History navigation only makes sense for single-line input.
-    if console.input.contains('\n') || console.history.is_empty() {
-        return;
-    }
     if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
-        let index = console
-            .history_index
-            .map_or(console.history.len() - 1, |i| i.saturating_sub(1));
-        console.history_index = Some(index);
-        console.input = console.history[index].clone();
+        console.step_history(true);
     } else if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
-        match console.history_index {
-            Some(i) if i + 1 < console.history.len() => {
-                console.history_index = Some(i + 1);
-                console.input = console.history[i + 1].clone();
-            }
-            _ => {
-                console.history_index = None;
-                console.input.clear();
-            }
-        }
+        console.step_history(false);
     }
 }
 

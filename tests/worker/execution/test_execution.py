@@ -113,3 +113,27 @@ def test_long_values_are_truncated():
     (row,) = describe_variables({"long": "x" * 5000}, hidden=set())
     assert len(row["value"]) == MAX_VALUE_LENGTH
     assert row["value"].endswith("…")
+
+
+def test_duplicate_show_object_names_emit_a_warning_once_per_name(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="script"):
+        execution = run("""
+            for i in range(5):
+                part = cq.Workplane("XY").box(10, 10, 10)
+                show_object(part, name="part")
+                inferred = cq.Workplane("XY").sphere(2)
+                show_object(inferred)
+            """)
+
+    assert execution.error is None
+    assert list(execution.shown) == ["part", "inferred"]
+    warnings = [r.getMessage() for r in caplog.records if r.name == "script"]
+    assert len(warnings) == 2
+    assert '"part"' in warnings[0]
+    assert '"inferred"' in warnings[1]
+    assert "replaced" in warnings[0]
+    assert "distinct names" in warnings[0]
+
+

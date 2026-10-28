@@ -203,6 +203,39 @@ fn edit_menu(ui: &mut egui::Ui, state: &AppState, actions: &mut Vec<Action>) {
     item(
         ui,
         actions,
+        icon::COPY_SIMPLE,
+        "Duplicate Line",
+        Action::DuplicateLine,
+    );
+    item(
+        ui,
+        actions,
+        icon::ARROW_UP,
+        "Move Line Up",
+        Action::MoveLineUp,
+    );
+    item(
+        ui,
+        actions,
+        icon::ARROW_DOWN,
+        "Move Line Down",
+        Action::MoveLineDown,
+    );
+    ui.menu_button(format!("{}  Insert Snippet", icon::CODE), |ui| {
+        for (index, snippet) in crate::editor::snippets::SNIPPETS.iter().enumerate() {
+            if ui
+                .button(snippet.title)
+                .on_hover_text(snippet.description)
+                .clicked()
+            {
+                actions.push(Action::InsertSnippet(index));
+                ui.close();
+            }
+        }
+    });
+    item(
+        ui,
+        actions,
         icon::LIGHTNING,
         "Auto-Complete",
         Action::Autocomplete,
@@ -441,6 +474,20 @@ fn view_menu(
             Action::Display(mode),
         );
     }
+    ui.menu_button(
+        format!("{}  Selection Mode", icon::CURSOR_CLICK),
+        |ui| {
+            for mode in crate::viewer::SelectionMode::ALL {
+                check_item(
+                    ui,
+                    actions,
+                    state.viewer.selection_mode == mode,
+                    mode.label(),
+                    Action::SelectionMode(mode),
+                );
+            }
+        },
+    );
     check_item(
         ui,
         actions,

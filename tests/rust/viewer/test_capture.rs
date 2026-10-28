@@ -201,3 +201,26 @@ fn a_screenshot_does_not_interrupt_a_turntable_export() {
     assert!(viewer.request_image(dir.join("shot.png"), CaptureOptions::default()));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn resolution_presets_and_clipboard_preparation_preserve_dimensions_and_aspect_ratio() {
+    assert_eq!(ResolutionPreset::Hd.size(), [1280, 720]);
+    assert_eq!(ResolutionPreset::FullHd.size(), [1920, 1080]);
+    assert_eq!(ResolutionPreset::Qhd.size(), [2560, 1440]);
+    assert_eq!(ResolutionPreset::Uhd4k.size(), [3840, 2160]);
+    assert_eq!(ResolutionPreset::Square.size(), [1080, 1080]);
+    assert_eq!(
+        ResolutionPreset::from_size([1920, 1080]),
+        Some(ResolutionPreset::FullHd)
+    );
+    assert_eq!(aspect_ratio_label([1920, 1080]), "16:9");
+    assert_eq!(aspect_ratio_label([1080, 1080]), "1:1");
+
+    let image = prepare_clipboard_image([2, 1], vec![188, 188, 188, 128, 10, 20, 30, 255], true);
+    assert_eq!(image.size, [2, 1]);
+    assert!(image.pixels[0].to_srgba_unmultiplied()[0] >= 253);
+    assert_eq!(image.pixels[1], egui::Color32::from_rgba_unmultiplied(10, 20, 30, 255));
+
+    let mut viewer = crate::viewer::Viewer::default();
+    assert!(viewer.request_clipboard_image(CaptureOptions::default()));
+}

@@ -39,6 +39,8 @@ pub struct Settings {
     pub breakpoints: Vec<FileBreakpoints>,
     /// Named views of recently edited files, most recent first.
     pub views: Vec<FileViews>,
+    /// Favorite commands pinned to the top of the Command Palette.
+    pub favorite_commands: Vec<String>,
 }
 
 /// What is remembered of a project folder.
@@ -204,6 +206,21 @@ impl Settings {
             angular_tolerance: self.viewer.angular_tolerance,
             merge_assemblies: self.objects.merge_assemblies,
             units: self.viewer.units.export_code().to_owned(),
+        }
+    }
+
+    pub fn is_favorite_command(&self, id: &str) -> bool {
+        self.favorite_commands.iter().any(|fav| fav == id)
+    }
+
+    /// Toggles a command in `favorite_commands`; returns `true` when it is now a favorite.
+    pub fn toggle_favorite_command(&mut self, id: &str) -> bool {
+        if let Some(pos) = self.favorite_commands.iter().position(|fav| fav == id) {
+            self.favorite_commands.remove(pos);
+            false
+        } else {
+            self.favorite_commands.push(id.to_owned());
+            true
         }
     }
 }
@@ -406,6 +423,56 @@ pub struct Viewer {
     pub units: Units,
     /// How the stereo projection shows its two images.
     pub stereo_mode: StereoMode,
+    /// Configurable keyboard shortcuts for switching 3D selection modes.
+    pub selection_shortcuts: SelectionShortcuts,
+}
+
+/// Configurable keyboard shortcuts for switching between 3D selection modes
+/// when no text field has keyboard focus (or anytime if combined with Ctrl/Alt).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SelectionShortcuts {
+    pub auto: String,
+    pub object: String,
+    pub face: String,
+    pub edge: String,
+    pub vertex: String,
+}
+
+impl Default for SelectionShortcuts {
+    fn default() -> Self {
+        Self {
+            auto: "1".to_owned(),
+            object: "2".to_owned(),
+            face: "3".to_owned(),
+            edge: "4".to_owned(),
+            vertex: "5".to_owned(),
+        }
+    }
+}
+
+impl SelectionShortcuts {
+    pub fn get(&self, mode: crate::viewer::SelectionMode) -> &str {
+        use crate::viewer::SelectionMode;
+        match mode {
+            SelectionMode::Auto => &self.auto,
+            SelectionMode::Object => &self.object,
+            SelectionMode::Face => &self.face,
+            SelectionMode::Edge => &self.edge,
+            SelectionMode::Vertex => &self.vertex,
+        }
+    }
+
+    pub fn get_mut(&mut self, mode: crate::viewer::SelectionMode) -> &mut String {
+        use crate::viewer::SelectionMode;
+        match mode {
+            SelectionMode::Auto => &mut self.auto,
+            SelectionMode::Object => &mut self.object,
+            SelectionMode::Face => &mut self.face,
+            SelectionMode::Edge => &mut self.edge,
+            SelectionMode::Vertex => &mut self.vertex,
+        }
+    }
 }
 
 /// What a model unit is: CadQuery has no units, so the editor supplies this
@@ -511,6 +578,7 @@ impl Default for Viewer {
             scale_bar: true,
             units: Units::Millimeters,
             stereo_mode: StereoMode::Anaglyph,
+            selection_shortcuts: SelectionShortcuts::default(),
         }
     }
 }

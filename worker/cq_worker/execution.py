@@ -95,24 +95,46 @@ def rand_color(alpha: float = 1.0, cfloat: bool = False):
 class ShownObjects(dict[str, ShownObject]):
     """Objects passed to ``show_object``, in call order, keyed by name."""
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._warned_duplicates: set[str] = set()
+
+    def clear(self) -> None:
+        super().clear()
+        self._warned_duplicates.clear()
+
     def show(self, obj: Any, name: str | None = None, options=None, **kwargs) -> None:
         merged = {**(options or {}), **kwargs}
         frame = currentframe()
         assert frame is not None and frame.f_back is not None
         caller = frame.f_back.f_back
-        if not name:
-            name = _variable_name(obj, caller) or self._unique_name(obj)
-        self[str(name)] = ShownObject(obj, merged, _script_line(caller))
+        self._store(obj, name, merged, caller)
 
     def debug(self, obj: Any, name: str | None = None) -> None:
         frame = currentframe()
         assert frame is not None and frame.f_back is not None
         caller = frame.f_back.f_back
+        self._store(obj, name, {"color": "red", "alpha": 0.2}, caller)
+
+    def _store(
+        self,
+        obj: Any,
+        name: str | None,
+        options: dict[str, Any],
+        caller: types.FrameType | None,
+    ) -> None:
         if not name:
             name = _variable_name(obj, caller) or self._unique_name(obj)
-        self[str(name)] = ShownObject(
-            obj, {"color": "red", "alpha": 0.2}, _script_line(caller)
-        )
+        key = str(name)
+        if key in self and key not in self._warned_duplicates:
+            self._warned_duplicates.add(key)
+            script_log.warning(
+                'The name "%s" was used more than once in show_object(); '
+                "an earlier object with this name was replaced. "
+                "Use distinct names to display objects separately.",
+                key,
+            )
+        self[key] = ShownObject(obj, options, _script_line(caller))
 
     def _unique_name(self, obj: Any) -> str:
         base = type(obj).__name__

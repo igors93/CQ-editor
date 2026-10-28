@@ -129,3 +129,32 @@ fn images_are_uploaded_once_and_kept_between_frames() {
     assert_eq!(frame(), 1);
     assert_eq!(frame(), 0, "the texture is kept");
 }
+
+#[test]
+fn history_search_finds_commands_cycles_matches_and_restores_draft_on_cancel() {
+    let mut console = ConsoleState::default();
+    console.record_input("a = cq.Workplane('XY').box(10, 10, 10)");
+    console.record_input("show_object(a, name='box_a')");
+    console.record_input("b = cq.Workplane('XY').cylinder(20, 5)");
+    console.record_input("show_object(b, name='cyl_b')");
+    assert_eq!(console.history().len(), 4);
+
+    console.input = "draft_expr".to_owned();
+    console.open_history_search();
+    console.set_history_search_query("show_object");
+    assert_eq!(console.history_matches("show_object"), vec![3, 1]);
+    assert_eq!(console.input, "show_object(b, name='cyl_b')");
+
+    console.step_history_search(true);
+    assert_eq!(console.input, "show_object(a, name='box_a')");
+
+    console.cancel_history_search();
+    assert!(!console.search_open);
+    assert_eq!(console.input, "draft_expr");
+
+    console.open_history_search();
+    console.set_history_search_query("cylinder");
+    console.accept_history_search();
+    assert!(!console.search_open);
+    assert_eq!(console.input, "b = cq.Workplane('XY').cylinder(20, 5)");
+}

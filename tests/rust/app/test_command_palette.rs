@@ -63,3 +63,19 @@ fn only_commands_usable_now_are_offered() {
     assert!(!has(&Action::CloseFolder), "no folder");
     assert!(!has(&Action::CommandPalette), "already open");
 }
+
+#[test]
+fn favorite_commands_appear_first_and_persist_in_settings() {
+    let mut settings = crate::settings::Settings::default();
+    let id = "Tools: Check Geometry";
+    assert!(!settings.is_favorite_command(id));
+    assert!(settings.toggle_favorite_command(id));
+    assert!(settings.is_favorite_command(id));
+
+    let ordered = matches_with_favorites(menu_commands(), "", &settings.favorite_commands);
+    assert_eq!(ordered[0].id(), id);
+    assert_eq!(ordered[0].action, Action::CheckGeometry);
+
+    assert!(!settings.toggle_favorite_command(id));
+    assert!(!settings.is_favorite_command(id));
+}

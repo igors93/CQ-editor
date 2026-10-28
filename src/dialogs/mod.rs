@@ -302,7 +302,9 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     if state.dialogs.palette.is_some() {
         let commands = crate::ui::command_palette::commands(state);
         let palette = state.dialogs.palette.as_mut().expect("open");
-        if let Some(chosen) = crate::ui::command_palette::window(ctx, palette, commands) {
+        if let Some(chosen) =
+            crate::ui::command_palette::window(ctx, palette, commands, &mut state.settings)
+        {
             state.dialogs.palette = None;
             actions.extend(chosen);
         }

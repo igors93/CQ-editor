@@ -195,6 +195,29 @@ impl AppState {
         }
     }
 
+    /// Copies the current measurement values to the clipboard as structured
+    /// text, JSON or CSV.
+    pub(super) fn copy_measurement(&mut self, format: crate::commands::MeasurementFormat) {
+        let Some(result) = &self.measurements.result else {
+            self.set_status(
+                StatusKind::Warning,
+                "Select objects, or pick faces, edges or vertices, to measure",
+            );
+            return;
+        };
+        let formatted = crate::panels::format_measurement(
+            result,
+            &self.scene,
+            self.settings.viewer.units,
+            format,
+        );
+        self.ctx.copy_text(formatted);
+        self.set_status(
+            StatusKind::Success,
+            format!("Copied the measurement as {}", format.label()),
+        );
+    }
+
     /// Asks for code repeating the current measurement; it goes to the
     /// clipboard when it arrives.
     pub(super) fn request_measurement_code(&mut self) {
@@ -547,6 +570,15 @@ impl AppState {
             self.viewer
                 .request_image(path, self.dialogs.capture.options);
         }
+    }
+
+    pub(super) fn copy_image(&mut self) {
+        if self.viewer.turntable_progress().is_some() {
+            self.set_status(StatusKind::Info, "Wait for the turntable export to finish");
+            return;
+        }
+        self.viewer
+            .request_clipboard_image(self.dialogs.capture.options);
     }
 
     pub(super) fn export_turntable(&mut self) {

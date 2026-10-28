@@ -67,3 +67,35 @@ fn the_property_sheet_shows_short_numbers_without_rounding_noise() {
     assert_eq!(compact(std::f64::consts::PI), "3.1416");
     assert_eq!(compact(-12.25), "-12.25");
 }
+
+#[test]
+fn object_name_filter_matches_nodes_and_subassemblies_without_changing_visibility() {
+    fn sample_node(key: &str, name: &str, children: Vec<SceneNode>) -> SceneNode {
+        SceneNode {
+            key: key.to_owned(),
+            name: name.to_owned(),
+            kind: "shape".to_owned(),
+            inspectable: false,
+            parts: Vec::new(),
+            children,
+            visible: true,
+            color: None,
+            alpha: None,
+            edge_color: None,
+            finish: None,
+            overrides: Default::default(),
+            line: None,
+            script: None,
+        }
+    }
+
+    let bolt = sample_node("n-bolt", "M6_Bolt", Vec::new());
+    let nut = sample_node("n-nut", "Hex_Nut", Vec::new());
+    let subassembly = sample_node("n-fasteners", "Fasteners", vec![bolt, nut]);
+    let housing = sample_node("n-housing", "Main_Housing", Vec::new());
+
+    assert!(node_matches_filter(&subassembly, "bolt"));
+    assert!(node_matches_filter(&subassembly, "FASTEN"));
+    assert!(!node_matches_filter(&housing, "bolt"));
+    assert!(subassembly.visible && housing.visible);
+}

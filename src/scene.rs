@@ -1085,6 +1085,8 @@ pub struct Scene {
     /// Name paths of the isolated nodes: while it is not empty, only they
     /// and their descendants are shown. Unlike keys, paths survive a run.
     isolated: Vec<String>,
+    /// Text filter for the Objects panel tree (does not alter 3D visibility).
+    pub filter: String,
 }
 
 /// Process-wide, so two scenes never share a revision and an index built
@@ -1120,6 +1122,7 @@ impl Default for Scene {
             explode: 0.0,
             explode_center: Vec3::ZERO,
             isolated: Vec::new(),
+            filter: String::new(),
         }
     }
 }

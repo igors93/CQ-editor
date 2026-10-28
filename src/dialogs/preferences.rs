@@ -417,6 +417,23 @@ fn viewer(ui: &mut egui::Ui, settings: &mut Settings) {
             );
         },
     );
+    row(
+        ui,
+        "Selection mode shortcuts",
+        "Keys that switch between Auto, Object, Face, Edge and Vertex selection modes \
+         when no text field has keyboard focus (Alt+1..Alt+5 also work anywhere)",
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for mode in crate::viewer::SelectionMode::ALL {
+                    ui.label(format!("{}:", mode.label()));
+                    ui.add(
+                        egui::TextEdit::singleline(viewer.selection_shortcuts.get_mut(mode))
+                            .desired_width(48.0),
+                    );
+                }
+            });
+        },
+    );
 }
 
 fn rendering(ui: &mut egui::Ui, settings: &mut Settings) {

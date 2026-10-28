@@ -50,6 +50,8 @@ pub struct Project {
     root: PathBuf,
     /// The script F5 runs while a file of the project is shown.
     pub main: Option<PathBuf>,
+    /// Current file search query in the Project panel.
+    pub filter: String,
     /// Folders whose contents are shown; the root's always are.
     expanded: BTreeSet<PathBuf>,
     listings: HashMap<PathBuf, Listing>,
@@ -68,6 +70,7 @@ impl Project {
         Ok(Self {
             root,
             main: None,
+            filter: String::new(),
             expanded: BTreeSet::new(),
             listings: HashMap::new(),
         })
@@ -182,6 +185,58 @@ impl Project {
         let root = self.root.clone();
         self.push_rows(&root, 0, &mut rows);
         rows
+    }
+
+    /// Searches all files in the project (including inside collapsed folders)
+    /// whose file name or relative path matches `query` (case-insensitive),
+    /// without altering the expanded folder state.
+    pub fn search_rows(&mut self, query: &str) -> Vec<Row> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return self.rows();
+        }
+        let needle = trimmed.to_lowercase();
+        let mut rows = Vec::new();
+        let root = self.root.clone();
+        let mut visited_dirs = 0usize;
+        self.push_search_rows(&root, 0, &needle, &mut visited_dirs, &mut rows);
+        rows
+    }
+
+    fn push_search_rows(
+        &mut self,
+        folder: &Path,
+        depth: usize,
+        needle: &str,
+        visited_dirs: &mut usize,
+        rows: &mut Vec<Row>,
+    ) {
+        const MAX_SEARCH_DEPTH: usize = 16;
+        const MAX_SEARCH_DIRS: usize = 512;
+        if depth > MAX_SEARCH_DEPTH || *visited_dirs >= MAX_SEARCH_DIRS {
+            return;
+        }
+        *visited_dirs += 1;
+        for entry in self.entries(folder) {
+            if entry.is_dir {
+                let path = entry.path.clone();
+                self.push_search_rows(&path, depth + 1, needle, visited_dirs, rows);
+            } else {
+                let rel = self
+                    .relative(&entry.path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if entry.name.to_lowercase().contains(needle)
+                    || rel.to_lowercase().contains(needle)
+                {
+                    rows.push(Row {
+                        entry,
+                        depth: 0,
+                        expanded: false,
+                    });
+                }
+            }
+        }
     }
 
     fn push_rows(&mut self, folder: &Path, depth: usize, rows: &mut Vec<Row>) {

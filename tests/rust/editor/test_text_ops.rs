@@ -276,3 +276,74 @@ fn a_repeated_line_is_found_nearest_to_where_it_was() {
     assert_eq!(locate_line(ran, 3, edited), Some(Located::Moved(4)));
     assert_eq!(locate_line(ran, 1, edited), Some(Located::Unchanged(1)));
 }
+
+#[test]
+fn duplicating_lines_copies_the_line_or_block_and_keeps_the_selection_on_the_copy() {
+    let edited = duplicate_lines("a = 1\nb = 2\n", &Selection::caret(2));
+    assert_eq!(edited.text, "a = 1\na = 1\nb = 2\n");
+    assert_eq!(edited.selection, Selection::caret(8));
+
+    let block = "first\nsecond\nthird";
+    let edited = duplicate_lines(block, &sel(1, 9));
+    assert_eq!(edited.text, "first\nsecond\nfirst\nsecond\nthird");
+    assert_eq!(&edited.text[edited.selection.range()], "irst\nsec");
+}
+
+#[test]
+fn moving_lines_up_and_down_swaps_neighbours_and_preserves_selection() {
+    let text = "line 1\nline 2\nline 3";
+    let up = move_lines_up(text, &Selection::caret(9));
+    assert_eq!(up.text, "line 2\nline 1\nline 3");
+    assert_eq!(up.selection, Selection::caret(2));
+
+    let down = move_lines_down(&up.text, &up.selection);
+    assert_eq!(down.text, text);
+    assert_eq!(down.selection, Selection::caret(9));
+
+    // At the boundaries nothing changes.
+    assert_eq!(move_lines_up(text, &Selection::caret(0)).text, text);
+    assert_eq!(move_lines_down(text, &Selection::caret(16)).text, text);
+
+    // Moving a multi-line block down.
+    let block_down = move_lines_down("a\nb\nc\nd", &sel(0, 3));
+    assert_eq!(block_down.text, "c\na\nb\nd");
+    assert_eq!(&block_down.text[block_down.selection.range()], "a\nb");
+}
+
+#[test]
+fn line_map_tracks_rotated_lines_when_moving_up_or_down() {
+    let before = "alpha\nbeta\ngamma\ndelta\n";
+    let moved_up = "alpha\ngamma\nbeta\ndelta\n";
+    let map = LineMap::new(before, moved_up);
+    assert_eq!(map.map(1), Some(1));
+    assert_eq!(map.map(2), Some(3));
+    assert_eq!(map.map(3), Some(2));
+    assert_eq!(map.map(4), Some(4));
+}
+
+#[test]
+fn inserting_snippets_adds_import_once_and_indents_inner_blocks() {
+    let empty = insert_snippet(
+        "",
+        &Selection::caret(0),
+        "box = cq.Workplane(\"XY\").box(10, 10, 10)",
+        true,
+    );
+    assert_eq!(
+        empty.text,
+        "import cadquery as cq\n\nbox = cq.Workplane(\"XY\").box(10, 10, 10)"
+    );
+
+    let with_import = "import cadquery as cq\n\ndef build():\n    ";
+    let indented = insert_snippet(
+        with_import,
+        &Selection::caret(with_import.len()),
+        "wp = (\n    cq.Workplane(\"XY\")\n    .box(10, 10, 10)\n)",
+        true,
+    );
+    assert_eq!(
+        indented.text,
+        "import cadquery as cq\n\ndef build():\n    wp = (\n        cq.Workplane(\"XY\")\n        .box(10, 10, 10)\n    )"
+    );
+    assert_eq!(indented.text.matches("import cadquery").count(), 1);
+}

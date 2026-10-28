@@ -84,10 +84,41 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                     "While a file of this folder is shown, F5 renders the main script. \
                      Right-click a script to choose it.",
                 );
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let has_filter = !project.filter.is_empty();
+                let width = (ui.available_width() - if has_filter { 22.0 } else { 0.0 }).max(40.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut project.filter)
+                        .hint_text(format!("{} Filter files…", icon::MAGNIFYING_GLASS))
+                        .desired_width(width),
+                );
+                if has_filter
+                    && ui
+                        .add(egui::Button::new(icon::X).frame(false))
+                        .on_hover_text("Clear file search")
+                        .clicked()
+                {
+                    project.filter.clear();
+                }
+            });
         });
     ui.separator();
 
-    let rows = project.rows();
+    let searching = !project.filter.trim().is_empty();
+    let rows = if searching {
+        project.search_rows(&project.filter.clone())
+    } else {
+        project.rows()
+    };
+    if searching && rows.is_empty() {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                ui.weak("No matching files");
+            });
+    }
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
     let mut toggled = None;
     egui::ScrollArea::vertical()
@@ -97,7 +128,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             for row in &rows[range] {
                 let file = open.get(&row.entry.path).copied();
                 let is_main = main.as_deref() == Some(row.entry.path.as_path());
-                let response = row_ui(ui, row, row_height, file, is_main);
+                let display_name = if searching {
+                    project
+                        .relative(&row.entry.path)
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                } else {
+                    row.entry.name.clone()
+                };
+                let response = row_ui(ui, row, &display_name, row_height, file, is_main);
                 if response.clicked() {
                     if row.entry.is_dir {
                         toggled = Some(row.entry.path.clone());
@@ -144,6 +183,7 @@ fn no_folder(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
 fn row_ui(
     ui: &mut egui::Ui,
     row: &Row,
+    display_name: &str,
     height: f32,
     file: Option<OpenFile>,
     is_main: bool,
@@ -200,7 +240,7 @@ fn row_ui(
     painter.text(
         egui::pos2(left, rect.center().y),
         Align2::LEFT_CENTER,
-        format!("{caret} {glyph}  {}{modified}", entry.name),
+        format!("{caret} {glyph}  {display_name}{modified}"),
         font,
         color,
     );

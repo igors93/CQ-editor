@@ -8,9 +8,30 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::panels::Tab;
 use crate::scene::{NodeKey, TopologySelection};
+use crate::settings::SelectionShortcuts;
 use crate::viewer::camera::StandardView;
 use crate::viewer::{DisplayMode, SelectionMode};
 use crate::worker::protocol::{DebugAction, ExportFormat};
+
+/// Structured formats for copying exact measurements to the clipboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeasurementFormat {
+    Text,
+    Json,
+    Csv,
+}
+
+impl MeasurementFormat {
+    pub const ALL: [Self; 3] = [Self::Text, Self::Json, Self::Csv];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Text => "Text",
+            Self::Json => "JSON",
+            Self::Csv => "CSV",
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -59,6 +80,10 @@ pub enum Action {
     Undo,
     Redo,
     ToggleComment,
+    DuplicateLine,
+    MoveLineUp,
+    MoveLineDown,
+    InsertSnippet(usize),
     Autocomplete,
     Find,
     FindNext,
@@ -72,6 +97,8 @@ pub enum Action {
     InsertSelector,
     /// Python repeating the current measurement, to the clipboard.
     CopyMeasurementCode,
+    /// Copies the current measurement as structured data (Text, JSON, CSV).
+    CopyMeasurement(MeasurementFormat),
     Preferences,
     // Run
     Render,
@@ -139,6 +166,8 @@ pub enum Action {
     Screenshot,
     /// Asks where to save a screenshot with the chosen options.
     SaveImage,
+    /// Renders a screenshot with the chosen options directly to the clipboard.
+    CopyImage,
     /// Asks where to save a turntable animation and starts it.
     ExportTurntable,
     CancelTurntable,
@@ -188,6 +217,8 @@ pub enum Action {
         line: usize,
         value: f64,
     },
+    /// Restores all modified parameters in the active script to their reference values.
+    ResetParameters,
     RemoveSelected,
     ClearObjects,
     InspectEntry {
@@ -219,6 +250,10 @@ const fn shift(key: Key) -> KeyboardShortcut {
 
 const fn alt(key: Key) -> KeyboardShortcut {
     KeyboardShortcut::new(Modifiers::ALT, key)
+}
+
+const fn shift_alt(key: Key) -> KeyboardShortcut {
+    KeyboardShortcut::new(Modifiers::SHIFT.plus(Modifiers::ALT), key)
 }
 
 const fn ctrl_shift(key: Key) -> KeyboardShortcut {
@@ -257,6 +292,10 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::NextTab, ctrl(Key::PageDown)),
         (Action::Quit, ctrl(Key::Q)),
         (Action::ToggleComment, ctrl(Key::Slash)),
+        (Action::DuplicateLine, ctrl_shift(Key::D)),
+        (Action::DuplicateLine, shift_alt(Key::ArrowDown)),
+        (Action::MoveLineUp, alt(Key::ArrowUp)),
+        (Action::MoveLineDown, alt(Key::ArrowDown)),
         (Action::Autocomplete, ctrl(Key::Space)),
         (Action::Autocomplete, alt(Key::Slash)),
         (Action::Find, ctrl(Key::F)),
@@ -289,6 +328,11 @@ pub fn shortcuts() -> Vec<(Action, KeyboardShortcut)> {
         (Action::Display(DisplayMode::Shaded), shift(Key::F10)),
         (Action::Display(DisplayMode::XRay), shift(Key::F11)),
         (Action::Display(DisplayMode::HiddenLine), shift(Key::F12)),
+        (Action::SelectionMode(SelectionMode::Auto), alt(Key::Num1)),
+        (Action::SelectionMode(SelectionMode::Object), alt(Key::Num2)),
+        (Action::SelectionMode(SelectionMode::Face), alt(Key::Num3)),
+        (Action::SelectionMode(SelectionMode::Edge), alt(Key::Num4)),
+        (Action::SelectionMode(SelectionMode::Vertex), alt(Key::Num5)),
     ];
     let specificity = |s: &KeyboardShortcut| {
         let m = s.modifiers;
@@ -305,6 +349,117 @@ pub fn collect_shortcuts(ctx: &egui::Context, actions: &mut Vec<Action>) {
         for (action, shortcut) in shortcuts() {
             if input.consume_shortcut(&shortcut) {
                 actions.push(action);
+            }
+        }
+    });
+}
+
+/// Parses a user-configurable shortcut string such as `"1"`, `"F"`, `"Alt+1"`,
+/// or `"Ctrl+Shift+F"`.
+pub fn parse_shortcut(spec: &str) -> Option<KeyboardShortcut> {
+    let parts: Vec<&str> = spec
+        .split('+')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    let (&key_part, mod_parts) = parts.split_last()?;
+    let mut modifiers = Modifiers::NONE;
+    for part in mod_parts {
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" | "cmd" | "command" => modifiers = modifiers.plus(Modifiers::COMMAND),
+            "shift" => modifiers = modifiers.plus(Modifiers::SHIFT),
+            "alt" | "opt" | "option" => modifiers = modifiers.plus(Modifiers::ALT),
+            _ => return None,
+        }
+    }
+    let key = parse_key(key_part)?;
+    Some(KeyboardShortcut::new(modifiers, key))
+}
+
+fn parse_key(token: &str) -> Option<Key> {
+    match token.to_ascii_uppercase().as_str() {
+        "0" => Some(Key::Num0),
+        "1" => Some(Key::Num1),
+        "2" => Some(Key::Num2),
+        "3" => Some(Key::Num3),
+        "4" => Some(Key::Num4),
+        "5" => Some(Key::Num5),
+        "6" => Some(Key::Num6),
+        "7" => Some(Key::Num7),
+        "8" => Some(Key::Num8),
+        "9" => Some(Key::Num9),
+        "A" => Some(Key::A),
+        "B" => Some(Key::B),
+        "C" => Some(Key::C),
+        "D" => Some(Key::D),
+        "E" => Some(Key::E),
+        "F" => Some(Key::F),
+        "G" => Some(Key::G),
+        "H" => Some(Key::H),
+        "I" => Some(Key::I),
+        "J" => Some(Key::J),
+        "K" => Some(Key::K),
+        "L" => Some(Key::L),
+        "M" => Some(Key::M),
+        "N" => Some(Key::N),
+        "O" => Some(Key::O),
+        "P" => Some(Key::P),
+        "Q" => Some(Key::Q),
+        "R" => Some(Key::R),
+        "S" => Some(Key::S),
+        "T" => Some(Key::T),
+        "U" => Some(Key::U),
+        "V" => Some(Key::V),
+        "W" => Some(Key::W),
+        "X" => Some(Key::X),
+        "Y" => Some(Key::Y),
+        "Z" => Some(Key::Z),
+        "F1" => Some(Key::F1),
+        "F2" => Some(Key::F2),
+        "F3" => Some(Key::F3),
+        "F4" => Some(Key::F4),
+        "F5" => Some(Key::F5),
+        "F6" => Some(Key::F6),
+        "F7" => Some(Key::F7),
+        "F8" => Some(Key::F8),
+        "F9" => Some(Key::F9),
+        "F10" => Some(Key::F10),
+        "F11" => Some(Key::F11),
+        "F12" => Some(Key::F12),
+        _ => None,
+    }
+}
+
+/// Checks configurable 3D selection mode shortcuts. Plain keys (without Ctrl/Alt)
+/// are only consumed when no text editor or input field has keyboard focus.
+pub fn collect_selection_shortcuts(
+    ctx: &egui::Context,
+    config: &SelectionShortcuts,
+    actions: &mut Vec<Action>,
+) {
+    let text_focused = ctx.egui_wants_keyboard_input();
+    let mut bindings: Vec<(SelectionMode, KeyboardShortcut)> = SelectionMode::ALL
+        .into_iter()
+        .filter_map(|mode| {
+            let shortcut = parse_shortcut(config.get(mode))?;
+            let has_modifier =
+                shortcut.modifiers.command || shortcut.modifiers.ctrl || shortcut.modifiers.alt;
+            if text_focused && !has_modifier {
+                return None;
+            }
+            Some((mode, shortcut))
+        })
+        .collect();
+    let specificity = |s: &KeyboardShortcut| {
+        let m = s.modifiers;
+        u8::from(m.command || m.ctrl) + u8::from(m.shift) + u8::from(m.alt)
+    };
+    bindings.sort_by_key(|(_, s)| std::cmp::Reverse(specificity(s)));
+
+    ctx.input_mut(|input| {
+        for (mode, shortcut) in bindings {
+            if input.consume_shortcut(&shortcut) {
+                actions.push(Action::SelectionMode(mode));
             }
         }
     });

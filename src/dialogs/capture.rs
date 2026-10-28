@@ -5,7 +5,7 @@ use egui_phosphor::regular as icon;
 use crate::commands::Action;
 use crate::viewer::capture::{
     AnimationFormat, CaptureOptions, MAX_FRAMES_PER_SECOND, MAX_IMAGE_SIDE, MAX_TURNTABLE_FRAMES,
-    TurntableOptions,
+    ResolutionPreset, TurntableOptions, aspect_ratio_label,
 };
 
 pub struct CaptureDialog {
@@ -48,13 +48,22 @@ pub fn window(
                 .show(ui, |ui| {
                     image_rows(ui, dialog, view);
                     ui.label("");
-                    if ui
-                        .button(format!("{} Save Image…", icon::CAMERA))
-                        .on_hover_text("Save the view as a PNG image")
-                        .clicked()
-                    {
-                        actions.push(Action::SaveImage);
-                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(format!("{} Save Image…", icon::CAMERA))
+                            .on_hover_text("Save the view as a PNG image")
+                            .clicked()
+                        {
+                            actions.push(Action::SaveImage);
+                        }
+                        if ui
+                            .button(format!("{} Copy to Clipboard", icon::COPY))
+                            .on_hover_text("Copy the rendered image directly to the clipboard")
+                            .clicked()
+                        {
+                            actions.push(Action::CopyImage);
+                        }
+                    });
                     ui.end_row();
                 });
             ui.separator();
@@ -114,10 +123,24 @@ fn image_rows(ui: &mut egui::Ui, dialog: &mut CaptureDialog, view: [u32; 2]) {
                 }
             }
             if ui
-                .selectable_label(options.size.is_some(), "Custom")
+                .selectable_label(options.size.is_some(), "Custom / Preset")
                 .clicked()
             {
                 options.size = Some(dialog.custom);
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.weak("Presets:");
+            for preset in ResolutionPreset::ALL {
+                let selected = options.size == Some(preset.size());
+                if ui
+                    .selectable_label(selected, preset.short_label())
+                    .on_hover_text(preset.label())
+                    .clicked()
+                {
+                    options.size = Some(preset.size());
+                    dialog.custom = preset.size();
+                }
             }
         });
         if let Some(size) = &mut options.size {
@@ -133,7 +156,8 @@ fn image_rows(ui: &mut egui::Ui, dialog: &mut CaptureDialog, view: [u32; 2]) {
             dialog.custom = *size;
         }
         let [width, height] = options.image_size(view);
-        ui.weak(format!("{width} × {height} pixels"));
+        let ratio = aspect_ratio_label([width, height]);
+        ui.weak(format!("{width} × {height} pixels ({ratio})"));
     });
     ui.end_row();
 

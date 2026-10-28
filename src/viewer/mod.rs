@@ -414,7 +414,23 @@ impl Viewer {
         if self.turntable_progress().is_some() {
             return false;
         }
-        self.capture = Some(Capture::Image { path, options });
+        self.capture = Some(Capture::Image {
+            path: Some(path),
+            options,
+        });
+        true
+    }
+
+    /// Copies the next frame to the system clipboard as an image of the given
+    /// size and kind, unless a turntable is being exported (`false`).
+    pub fn request_clipboard_image(&mut self, options: CaptureOptions) -> bool {
+        if self.turntable_progress().is_some() {
+            return false;
+        }
+        self.capture = Some(Capture::Image {
+            path: None,
+            options,
+        });
         true
     }
 
@@ -613,13 +629,26 @@ impl Viewer {
                             pixel_scale: options.pixel_scale(size),
                             ..capture_input(capture_frame, options.transparent)
                         };
-                        let saved = render_pixels(&image)
-                            .ok_or_else(|| "the GPU did not return the image".to_owned())
-                            .and_then(|(size, pixels)| {
+                        let captured = match (render_pixels(&image), path) {
+                            (Some((size, pixels)), Some(path)) => {
                                 capture::save_png(&path, size, pixels, options.transparent)
-                            })
-                            .map(|()| format!("Screenshot saved to {}", path.display()));
-                        events.push(ViewerEvent::Captured(saved));
+                                    .map(|()| format!("Screenshot saved to {}", path.display()))
+                            }
+                            (Some((size, pixels)), None) => {
+                                let color_image = capture::prepare_clipboard_image(
+                                    size,
+                                    pixels,
+                                    options.transparent,
+                                );
+                                ui.ctx().copy_image(color_image);
+                                Ok(format!(
+                                    "Screenshot copied to clipboard ({} × {} px)",
+                                    size[0], size[1]
+                                ))
+                            }
+                            (None, _) => Err("the GPU did not return the image".to_owned()),
+                        };
+                        events.push(ViewerEvent::Captured(captured));
                     }
                     Some(Capture::Turntable(mut export)) => {
                         let mut camera = self.camera.clone();
@@ -1781,7 +1810,7 @@ mod tests;
 /// A capture to make with the next frame of the view.
 enum Capture {
     Image {
-        path: PathBuf,
+        path: Option<PathBuf>,
         options: CaptureOptions,
     },
     /// Written one frame per frame of the view.

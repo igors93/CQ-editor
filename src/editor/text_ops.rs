@@ -88,6 +88,15 @@ pub fn line_column(text: &str, byte: usize) -> (usize, usize) {
 /// the editor commands and reloads produce. Lines before the block keep
 /// their number, lines after it shift, and lines inside it map by position
 /// within the block; a block deleted entirely takes its lines with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlockMove {
+    None,
+    /// The first line of the replaced block moved to its end (the other lines moved up by 1).
+    FirstToLast,
+    /// The last line of the replaced block moved to its start (the other lines moved down by 1).
+    LastToFirst,
+}
+
 pub struct LineMap {
     /// Unchanged leading lines.
     prefix: usize,
@@ -95,6 +104,8 @@ pub struct LineMap {
     old_count: usize,
     /// Length of the block that replaced it, in lines.
     new_count: usize,
+    /// Whether the replaced block is a one-line rotation (Move Line Up / Down).
+    moved: BlockMove,
 }
 
 impl LineMap {
@@ -114,10 +125,30 @@ impl LineMap {
             .take(room)
             .take_while(|(a, b)| a == b)
             .count();
+        let old_count = old_lines.len() - prefix - suffix;
+        let new_count = new_lines.len() - prefix - suffix;
+        let old_block = &old_lines[prefix..prefix + old_count];
+        let new_block = &new_lines[prefix..prefix + new_count];
+        let moved = if old_count == new_count && old_count >= 2 {
+            if old_block[1..] == new_block[..old_count - 1]
+                && old_block[0] == new_block[old_count - 1]
+            {
+                BlockMove::FirstToLast
+            } else if old_block[..old_count - 1] == new_block[1..]
+                && old_block[old_count - 1] == new_block[0]
+            {
+                BlockMove::LastToFirst
+            } else {
+                BlockMove::None
+            }
+        } else {
+            BlockMove::None
+        };
         Self {
             prefix,
-            old_count: old_lines.len() - prefix - suffix,
-            new_count: new_lines.len() - prefix - suffix,
+            old_count,
+            new_count,
+            moved,
         }
     }
 
@@ -134,6 +165,25 @@ impl LineMap {
         if self.new_count == 0 {
             return None;
         }
+        match self.moved {
+            BlockMove::FirstToLast => {
+                let new_offset = if offset == 0 {
+                    self.old_count - 1
+                } else {
+                    offset - 1
+                };
+                return Some(self.prefix + new_offset + 1);
+            }
+            BlockMove::LastToFirst => {
+                let new_offset = if offset + 1 == self.old_count {
+                    0
+                } else {
+                    offset + 1
+                };
+                return Some(self.prefix + new_offset + 1);
+            }
+            BlockMove::None => {}
+        }
         // Merged lines end up on the last line of the new block.
         Some(self.prefix + offset.min(self.new_count - 1) + 1)
     }
@@ -141,7 +191,7 @@ impl LineMap {
 
 /// Lines touched by a selection. A selection ending at the very start of a
 /// line does not include that line.
-fn selected_lines(text: &str, selection: &Selection) -> Range<usize> {
+pub fn selected_lines(text: &str, selection: &Selection) -> Range<usize> {
     let range = selection.range();
     let first = line_of(text, range.start);
     let mut last = line_of(text, range.end);
@@ -313,6 +363,149 @@ pub fn replace_ranges(
         .map(|range| (range.clone(), replacement.to_owned()))
         .collect();
     apply(text, selection, &edits)
+}
+
+/// Duplicates the current line or the selected block of lines immediately
+/// below, moving the caret or selection onto the duplicated copy.
+pub fn duplicate_lines(text: &str, selection: &Selection) -> Edited {
+    let lines = selected_lines(text, selection);
+    let block_start = line_start(text, lines.start);
+    let block_end = line_range(text, lines.end - 1).end;
+    let block = &text[block_start..block_end];
+    let shift = block.len() + 1;
+
+    let mut out = String::with_capacity(text.len() + shift);
+    out.push_str(&text[..block_end]);
+    out.push('\n');
+    out.push_str(block);
+    out.push_str(&text[block_end..]);
+
+    Edited {
+        selection: Selection {
+            anchor: (selection.anchor + shift).min(out.len()),
+            cursor: (selection.cursor + shift).min(out.len()),
+        },
+        text: out,
+    }
+}
+
+/// Moves the current line or selected block of lines one line up, preserving
+/// the selection within the moved block.
+pub fn move_lines_up(text: &str, selection: &Selection) -> Edited {
+    let lines = selected_lines(text, selection);
+    if lines.start == 0 {
+        return Edited {
+            text: text.to_owned(),
+            selection: selection.clone(),
+        };
+    }
+    let above_range = line_range(text, lines.start - 1);
+    let block_start = line_start(text, lines.start);
+    let block_end = line_range(text, lines.end - 1).end;
+    let delta = above_range.len() + 1;
+
+    let mut out = String::with_capacity(text.len());
+    out.push_str(&text[..above_range.start]);
+    out.push_str(&text[block_start..block_end]);
+    out.push('\n');
+    out.push_str(&text[above_range]);
+    out.push_str(&text[block_end..]);
+
+    Edited {
+        selection: Selection {
+            anchor: selection.anchor.saturating_sub(delta),
+            cursor: selection.cursor.saturating_sub(delta),
+        },
+        text: out,
+    }
+}
+
+/// Moves the current line or selected block of lines one line down, preserving
+/// the selection within the moved block.
+pub fn move_lines_down(text: &str, selection: &Selection) -> Edited {
+    let lines = selected_lines(text, selection);
+    let total_lines = text.matches('\n').count() + 1;
+    if lines.end >= total_lines {
+        return Edited {
+            text: text.to_owned(),
+            selection: selection.clone(),
+        };
+    }
+    let block_start = line_start(text, lines.start);
+    let block_end = line_range(text, lines.end - 1).end;
+    let below_range = line_range(text, lines.end);
+    let delta = below_range.len() + 1;
+
+    let mut out = String::with_capacity(text.len());
+    out.push_str(&text[..block_start]);
+    out.push_str(&text[below_range.clone()]);
+    out.push('\n');
+    out.push_str(&text[block_start..block_end]);
+    out.push_str(&text[below_range.end..]);
+
+    Edited {
+        selection: Selection {
+            anchor: (selection.anchor + delta).min(out.len()),
+            cursor: (selection.cursor + delta).min(out.len()),
+        },
+        text: out,
+    }
+}
+
+/// Inserts a code snippet at `selection`, adapting indentation to the target
+/// line and adding `import cadquery as cq` when needed in a fresh script.
+pub fn insert_snippet(
+    text: &str,
+    selection: &Selection,
+    code: &str,
+    needs_import: bool,
+) -> Edited {
+    let range = selection.range();
+    let line = line_of(text, range.start);
+    let line_span = line_range(text, line);
+    let indent = leading_whitespace(&text[line_span.clone()]);
+    let prepend_import = needs_import && !text.contains("import cadquery") && indent.is_empty();
+
+    let body = if prepend_import {
+        format!("import cadquery as cq\n\n{}", code.trim_end_matches('\n'))
+    } else {
+        code.trim_end_matches('\n').to_owned()
+    };
+
+    let indent_lines = |first_indented: bool| -> String {
+        body.split('\n')
+            .enumerate()
+            .map(|(index, row)| {
+                if row.is_empty() || (index == 0 && !first_indented) {
+                    row.to_owned()
+                } else {
+                    format!("{indent}{row}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let (replace_range, inserted) =
+        if range.is_empty() && !text[line_span.start..range.start].trim().is_empty() {
+            (
+                line_span.end..line_span.end,
+                format!("\n{}", indent_lines(true)),
+            )
+        } else {
+            (range, indent_lines(false))
+        };
+
+    let cursor = replace_range.start + inserted.len();
+    let mut out = String::with_capacity(text.len() + inserted.len());
+    out.push_str(&text[..replace_range.start]);
+    out.push_str(&inserted);
+    out.push_str(&text[replace_range.end..]);
+
+    Edited {
+        text: out,
+        selection: Selection::caret(cursor),
+    }
 }
 
 /// Characters of a Python name.

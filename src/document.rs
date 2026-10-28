@@ -158,6 +158,7 @@ impl LineEnding {
 #[derive(Clone, Debug)]
 pub struct Document {
     pub text: String,
+    saved_text: String,
     path: Option<PathBuf>,
     line_ending: LineEnding,
     utf8_bom: bool,
@@ -175,9 +176,11 @@ pub struct Document {
 impl Document {
     pub fn untitled(text: &str) -> Self {
         let text = normalize(text);
+        let saved_text = text.clone();
         Self {
             saved_hash: hash(&text),
             saved_fingerprint: None,
+            saved_text,
             text,
             path: None,
             line_ending: LineEnding::NATIVE,
@@ -203,9 +206,11 @@ impl Document {
     /// encoding was.
     pub fn open_with(path: &Path, encoding: Encoding) -> io::Result<Self> {
         let (text, line_ending, utf8_bom, fingerprint) = read(path, encoding)?;
+        let saved_text = text.clone();
         Ok(Self {
             saved_hash: hash(&text),
             saved_fingerprint: Some(fingerprint),
+            saved_text,
             text,
             path: Some(path.to_path_buf()),
             line_ending,
@@ -239,9 +244,13 @@ impl Document {
             .as_ref()
             .map_or_else(|| hash(&text) ^ u64::MAX, |disk| disk.saved_hash);
         let saved_fingerprint = disk.as_ref().and_then(|disk| disk.saved_fingerprint);
+        let saved_text = disk
+            .as_ref()
+            .map_or_else(|| text.clone(), |disk| disk.text.clone());
         Self {
             saved_hash,
             saved_fingerprint,
+            saved_text,
             text,
             path,
             line_ending,
@@ -252,6 +261,11 @@ impl Document {
             missing_on_disk: false,
             example: None,
         }
+    }
+
+    /// The baseline text when the document was last opened, created or saved.
+    pub fn saved_text(&self) -> &str {
+        &self.saved_text
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -384,6 +398,7 @@ impl Document {
     pub fn adopt_disk_baseline(&mut self, version: &DiskVersion) {
         self.saved_hash = hash(&version.text);
         self.saved_fingerprint = Some(version.fingerprint);
+        self.saved_text = version.text.clone();
     }
 
     /// Whether a disk snapshot still has the contents last loaded or saved.
@@ -417,6 +432,7 @@ impl Document {
         let changed = version.text != self.text;
         self.saved_hash = hash(&version.text);
         self.saved_fingerprint = Some(version.fingerprint);
+        self.saved_text = version.text.clone();
         self.text = version.text;
         self.line_ending = version.line_ending;
         self.utf8_bom = version.utf8_bom;
@@ -470,6 +486,7 @@ impl Document {
         let bytes = self.encoded_bytes();
         atomic_write(path, &bytes)?;
         self.saved_hash = hash(&self.text);
+        self.saved_text = self.text.clone();
         self.saved_fingerprint = Some(DiskFingerprint::of(
             &bytes,
             std::fs::metadata(path)

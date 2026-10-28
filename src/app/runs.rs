@@ -51,6 +51,46 @@ impl AppState {
         self.parameter_render_at = Some(now + PARAMETER_RENDER_DELAY);
     }
 
+    /// Restores all modified parameters in the run target script to their
+    /// reference values in a single undo step and schedules a render.
+    pub(super) fn reset_parameters(&mut self) {
+        if self.is_debugging() {
+            self.set_status(
+                StatusKind::Warning,
+                "Parameters can be changed once debugging ends",
+            );
+            return;
+        }
+        let now = self.now();
+        let target = self.run_target();
+        let Some((text, saved_text)) = self
+            .document_of(target)
+            .map(|document| (document.text.clone(), document.saved_text().to_owned()))
+        else {
+            return;
+        };
+        let current = parameters::parameters(&text);
+        self.parameters.update_references(&saved_text, &current);
+        let mut replacements = Vec::new();
+        for parameter in &current {
+            if self.parameters.is_modified(parameter)
+                && let Some(reference) = self.parameters.reference_value(&parameter.name)
+            {
+                let literal = parameter.literal_for(reference);
+                if text.get(parameter.literal.clone()) != Some(literal.as_str()) {
+                    replacements.push((parameter.literal.clone(), literal));
+                }
+            }
+        }
+        if replacements.is_empty() {
+            return;
+        }
+        if let Some((document, editor)) = self.open_mut(target) {
+            editor.replace_literals(document, &replacements, now);
+            self.parameter_render_at = Some(now + PARAMETER_RENDER_DELAY);
+        }
+    }
+
     /// Renders once the parameters stopped changing for a moment.
     pub(super) fn poll_parameter_render(&mut self, ctx: &egui::Context) {
         let Some(at) = self.parameter_render_at else {

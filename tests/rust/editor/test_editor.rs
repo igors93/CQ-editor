@@ -418,3 +418,47 @@ fn the_gutter_shows_profiled_times_and_skips_the_fastest_lines() {
         "below a millisecond: blank"
     );
 }
+
+#[test]
+fn moving_and_duplicating_lines_are_undoable_and_preserve_markers() {
+    let initial = "a = 1\nb = 2\nc = 3\n";
+    let mut document = Document::untitled(initial);
+    let mut editor = CodeEditor::default();
+    editor.breakpoints.insert(2);
+    editor.error_line = Some(2);
+    editor.debug_line = Some(3);
+    editor.set_line_profile([(2, timing(1.2))].into_iter().collect(), initial, initial);
+
+    editor.go_to_line(&document.text, 2);
+    editor.selection = Selection::caret(text_ops::line_start(&document.text, 1));
+    editor.move_lines(&mut document, false);
+    assert_eq!(document.text, "a = 1\nc = 3\nb = 2\n");
+    assert!(editor.breakpoints.contains(&3));
+    assert_eq!(editor.error_line, Some(3));
+    assert_eq!(editor.debug_line, Some(2));
+    assert!(editor.line_profile.contains_key(&3));
+
+    editor.undo(&mut document);
+    assert_eq!(document.text, initial);
+    assert!(editor.breakpoints.contains(&2));
+    assert_eq!(editor.error_line, Some(2));
+    assert_eq!(editor.debug_line, Some(3));
+    assert!(editor.line_profile.contains_key(&2));
+
+    editor.duplicate_line(&mut document);
+    assert_eq!(document.text, "a = 1\nb = 2\nb = 2\nc = 3\n");
+    editor.undo(&mut document);
+    assert_eq!(document.text, initial);
+}
+
+#[test]
+fn inserting_a_snippet_from_the_library_is_undoable() {
+    let mut document = Document::untitled("");
+    let mut editor = CodeEditor::default();
+    let box_snippet = &crate::editor::snippets::SNIPPETS[1];
+    editor.insert_snippet(&mut document, box_snippet);
+    assert!(document.text.contains("import cadquery as cq"));
+    assert!(document.text.contains(".box(40, 30, 10)"));
+    editor.undo(&mut document);
+    assert_eq!(document.text, "");
+}

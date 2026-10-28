@@ -126,3 +126,20 @@ fn tabs_have_the_usual_shortcuts_and_none_is_bound_twice() {
     bindings.dedup();
     assert_eq!(bindings.len(), count, "a key combination is bound twice");
 }
+
+#[test]
+fn selection_modes_have_default_and_configurable_shortcuts() {
+    for (mode, digit) in [
+        (SelectionMode::Auto, Key::Num1),
+        (SelectionMode::Object, Key::Num2),
+        (SelectionMode::Face, Key::Num3),
+        (SelectionMode::Edge, Key::Num4),
+        (SelectionMode::Vertex, Key::Num5),
+    ] {
+        assert_eq!(shortcut(&Action::SelectionMode(mode)), Some(alt(digit)));
+    }
+    assert_eq!(parse_shortcut("3"), Some(key(Key::Num3)));
+    assert_eq!(parse_shortcut("Alt+4"), Some(alt(Key::Num4)));
+    assert_eq!(parse_shortcut("Ctrl+Shift+F"), Some(ctrl_shift(Key::F)));
+    assert_eq!(parse_shortcut(""), None);
+}

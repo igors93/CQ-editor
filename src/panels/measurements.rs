@@ -1,8 +1,10 @@
 use egui_phosphor::regular as icon;
+use serde_json::json;
 
 use crate::app::AppState;
-use crate::commands::Action;
-use crate::scene::TopologySelection;
+use crate::commands::{Action, MeasurementFormat};
+use crate::scene::{Scene, TopologySelection};
+use crate::settings::Units;
 use crate::worker::protocol::{
     BoundingBox, EntityMeasurement, Measurement, ObjectMeasurement, PairMeasurement, RequestId,
     SelectorCandidate, SelectorReply, TopologyKind,
@@ -65,9 +67,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.spinner();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let has_result = state.measurements.result.is_some();
                 if ui
                     .add_enabled(
-                        state.measurements.result.is_some(),
+                        has_result,
                         egui::Button::new(format!("{} Copy as code", icon::CLIPBOARD_TEXT)),
                     )
                     .on_hover_text(
@@ -78,6 +81,21 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                 {
                     actions.push(Action::CopyMeasurementCode);
                 }
+                ui.add_enabled_ui(has_result, |ui| {
+                    ui.menu_button(format!("{} Copy data", icon::COPY), |ui| {
+                        for format in MeasurementFormat::ALL {
+                            if ui
+                                .button(format!("Copy as {}", format.label()))
+                                .clicked()
+                            {
+                                actions.push(Action::CopyMeasurement(format));
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Copy measurement values as structured Text, JSON or CSV");
+                });
             });
         });
         ui.small(format!(
@@ -384,6 +402,478 @@ pub fn format_number(value: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+/// Formats `result` as structured text, JSON, or CSV with units.
+pub fn format_measurement(
+    result: &Measurement,
+    scene: &Scene,
+    units: Units,
+    format: MeasurementFormat,
+) -> String {
+    match format {
+        MeasurementFormat::Text => format_measurement_text(result, scene, units),
+        MeasurementFormat::Json => format_measurement_json(result, scene, units),
+        MeasurementFormat::Csv => format_measurement_csv(result, scene, units),
+    }
+}
+
+fn unit_strings(units: Units) -> (&'static str, String, String) {
+    let linear = units.suffix();
+    if linear.is_empty() {
+        ("", String::new(), String::new())
+    } else {
+        (linear, format!("{linear}²"), format!("{linear}³"))
+    }
+}
+
+fn with_unit(value: &str, unit: &str) -> String {
+    if unit.is_empty() {
+        value.to_owned()
+    } else {
+        format!("{value} {unit}")
+    }
+}
+
+fn entity_label_for(entity: &EntityMeasurement, scene: &Scene) -> (String, String) {
+    let object_name = scene
+        .find(&entity.key)
+        .map_or(entity.key.as_str(), |node| node.name.as_str())
+        .to_owned();
+    let attribute = scene.find(&entity.key).and_then(|node| {
+        (entity.kind == TopologyKind::Face)
+            .then(|| node.parts.get(entity.part))
+            .flatten()
+            .and_then(|part| {
+                part.face_attributes
+                    .iter()
+                    .find(|face| face.id == entity.identifier)
+            })
+    });
+    let label = attribute.and_then(|face| face.name.as_deref()).map_or_else(
+        || format!("{} {}", kind_label(entity.kind), entity.identifier),
+        str::to_owned,
+    );
+    (object_name, label)
+}
+
+fn format_measurement_text(result: &Measurement, scene: &Scene, units: Units) -> String {
+    let (u_lin, u_area, u_vol) = unit_strings(units);
+    let mut lines = Vec::new();
+
+    if let Some(pair) = &result.pair {
+        let delta = [
+            pair.second_point[0] - pair.first_point[0],
+            pair.second_point[1] - pair.first_point[1],
+            pair.second_point[2] - pair.first_point[2],
+        ];
+        lines.push(format!(
+            "Distance: {}",
+            with_unit(&format_number(pair.distance), u_lin)
+        ));
+        lines.push(format!(
+            "Delta: {}",
+            with_unit(&format_point(delta), u_lin)
+        ));
+        lines.push(format!(
+            "Closest point 1: {}",
+            with_unit(&format_point(pair.first_point), u_lin)
+        ));
+        lines.push(format!(
+            "Closest point 2: {}",
+            with_unit(&format_point(pair.second_point), u_lin)
+        ));
+        if let Some(angle) = pair.angle_degrees {
+            lines.push(format!("Angle: {}°", format_number(angle)));
+        }
+    }
+
+    for entity in &result.entities {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let (object_name, label) = entity_label_for(entity, scene);
+        lines.push(format!(
+            "{label} · {object_name} ({})",
+            title_case(&entity.geometry_type)
+        ));
+        lines.push(format!(
+            "Center: {}",
+            with_unit(&format_point(entity.center), u_lin)
+        ));
+        if let Some(position) = entity.position {
+            lines.push(format!(
+                "Position: {}",
+                with_unit(&format_point(position), u_lin)
+            ));
+        }
+        if let Some(length) = entity.length {
+            lines.push(format!(
+                "Length: {}",
+                with_unit(&format_number(length), u_lin)
+            ));
+        }
+        if let Some(area) = entity.area {
+            lines.push(format!(
+                "Area: {}",
+                with_unit(&format_number(area), &u_area)
+            ));
+        }
+        if let Some(radius) = entity.radius {
+            lines.push(format!(
+                "Radius: {}",
+                with_unit(&format_number(radius), u_lin)
+            ));
+        }
+        if let Some(diameter) = entity.diameter {
+            lines.push(format!(
+                "Diameter: {}",
+                with_unit(&format_number(diameter), u_lin)
+            ));
+        }
+        if let Some(bounds) = &entity.bounding_box {
+            let [x, y, z] = bounds.size;
+            lines.push(format!(
+                "Bounding box: {}",
+                with_unit(
+                    &format!(
+                        "{} × {} × {}",
+                        format_number(x),
+                        format_number(y),
+                        format_number(z)
+                    ),
+                    u_lin
+                )
+            ));
+        }
+    }
+
+    for object in &result.objects {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let name = scene
+            .find(&object.key)
+            .map_or(object.key.as_str(), |node| node.name.as_str());
+        lines.push(format!("{name} ({})", title_case(&object.shape_type)));
+        if let Some(volume) = object.volume {
+            lines.push(format!(
+                "Volume: {}",
+                with_unit(&format_number(volume), &u_vol)
+            ));
+        }
+        if let Some(mass) = object.mass_g {
+            lines.push(format!("Mass: {} g", format_number(mass)));
+        }
+        if let Some(area) = object.area {
+            lines.push(format!(
+                "Area: {}",
+                with_unit(&format_number(area), &u_area)
+            ));
+        }
+        if let Some(length) = object.length {
+            lines.push(format!(
+                "Length: {}",
+                with_unit(&format_number(length), u_lin)
+            ));
+        }
+        lines.push(format!(
+            "Center of mass: {}",
+            with_unit(&format_point(object.center), u_lin)
+        ));
+        if let Some(bounds) = &object.bounding_box {
+            let [x, y, z] = bounds.size;
+            lines.push(format!(
+                "Bounding box: {}",
+                with_unit(
+                    &format!(
+                        "{} × {} × {}",
+                        format_number(x),
+                        format_number(y),
+                        format_number(z)
+                    ),
+                    u_lin
+                )
+            ));
+            lines.push(format!(
+                "Min: {}",
+                with_unit(&format_point(bounds.min), u_lin)
+            ));
+            lines.push(format!(
+                "Max: {}",
+                with_unit(&format_point(bounds.max), u_lin)
+            ));
+        }
+    }
+
+    if result.entities.len() + result.objects.len() > 1
+        && let Some(bounds) = &result.bounding_box
+    {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let [x, y, z] = bounds.size;
+        lines.push("Selection bounds".to_owned());
+        lines.push(format!(
+            "Bounding box: {}",
+            with_unit(
+                &format!(
+                    "{} × {} × {}",
+                    format_number(x),
+                    format_number(y),
+                    format_number(z)
+                ),
+                u_lin
+            )
+        ));
+        lines.push(format!(
+            "Min: {}",
+            with_unit(&format_point(bounds.min), u_lin)
+        ));
+        lines.push(format!(
+            "Max: {}",
+            with_unit(&format_point(bounds.max), u_lin)
+        ));
+    }
+
+    lines.join("\n")
+}
+
+fn format_measurement_json(result: &Measurement, scene: &Scene, units: Units) -> String {
+    let (u_lin, u_area, u_vol) = unit_strings(units);
+    let entities: Vec<_> = result
+        .entities
+        .iter()
+        .map(|entity| {
+            let (object_name, label) = entity_label_for(entity, scene);
+            json!({
+                "object": object_name,
+                "label": label,
+                "kind": kind_label(entity.kind).to_ascii_lowercase(),
+                "id": entity.identifier,
+                "part": entity.part + 1,
+                "geometry_type": entity.geometry_type,
+                "center": entity.center,
+                "position": entity.position,
+                "length": entity.length,
+                "area": entity.area,
+                "radius": entity.radius,
+                "diameter": entity.diameter,
+                "bounding_box": entity.bounding_box.as_ref().map(|b| json!({
+                    "size": b.size,
+                    "min": b.min,
+                    "max": b.max,
+                })),
+            })
+        })
+        .collect();
+
+    let objects: Vec<_> = result
+        .objects
+        .iter()
+        .map(|object| {
+            let name = scene
+                .find(&object.key)
+                .map_or(object.key.as_str(), |node| node.name.as_str());
+            json!({
+                "name": name,
+                "shape_type": object.shape_type,
+                "volume": object.volume,
+                "mass_g": object.mass_g,
+                "materials": object.materials,
+                "area": object.area,
+                "length": object.length,
+                "center": object.center,
+                "topology": {
+                    "solids": object.solids,
+                    "faces": object.faces,
+                    "edges": object.edges,
+                    "vertices": object.vertices,
+                },
+                "bounding_box": object.bounding_box.as_ref().map(|b| json!({
+                    "size": b.size,
+                    "min": b.min,
+                    "max": b.max,
+                })),
+            })
+        })
+        .collect();
+
+    let pair = result.pair.as_ref().map(|pair| {
+        let delta = [
+            pair.second_point[0] - pair.first_point[0],
+            pair.second_point[1] - pair.first_point[1],
+            pair.second_point[2] - pair.first_point[2],
+        ];
+        json!({
+            "distance": pair.distance,
+            "delta": delta,
+            "first_point": pair.first_point,
+            "second_point": pair.second_point,
+            "angle_degrees": pair.angle_degrees,
+            "angle_kind": pair.angle_kind,
+        })
+    });
+
+    let payload = json!({
+        "unit": u_lin,
+        "area_unit": u_area,
+        "volume_unit": u_vol,
+        "pair": pair,
+        "entities": entities,
+        "objects": objects,
+        "bounding_box": result.bounding_box.as_ref().map(|b| json!({
+            "size": b.size,
+            "min": b.min,
+            "max": b.max,
+        })),
+    });
+
+    serde_json::to_string_pretty(&payload).unwrap_or_default()
+}
+
+fn csv_cell(text: &str) -> String {
+    if text.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", text.replace('"', "\"\""))
+    } else {
+        text.to_owned()
+    }
+}
+
+fn push_csv_row(rows: &mut Vec<String>, target: &str, property: &str, value: &str, unit: &str) {
+    rows.push(format!(
+        "{},{},{},{}",
+        csv_cell(target),
+        csv_cell(property),
+        csv_cell(value),
+        csv_cell(unit)
+    ));
+}
+
+fn format_measurement_csv(result: &Measurement, scene: &Scene, units: Units) -> String {
+    let (u_lin, u_area, u_vol) = unit_strings(units);
+    let mut rows = vec!["target,property,value,unit".to_owned()];
+
+    if let Some(pair) = &result.pair {
+        let delta = [
+            pair.second_point[0] - pair.first_point[0],
+            pair.second_point[1] - pair.first_point[1],
+            pair.second_point[2] - pair.first_point[2],
+        ];
+        push_csv_row(
+            &mut rows,
+            "pair",
+            "distance",
+            &format_number(pair.distance),
+            u_lin,
+        );
+        push_csv_row(&mut rows, "pair", "dx", &format_number(delta[0]), u_lin);
+        push_csv_row(&mut rows, "pair", "dy", &format_number(delta[1]), u_lin);
+        push_csv_row(&mut rows, "pair", "dz", &format_number(delta[2]), u_lin);
+        if let Some(angle) = pair.angle_degrees {
+            push_csv_row(&mut rows, "pair", "angle", &format_number(angle), "deg");
+        }
+    }
+
+    for entity in &result.entities {
+        let (object_name, label) = entity_label_for(entity, scene);
+        let target = format!("{object_name}:{label}");
+        push_csv_row(&mut rows, &target, "geometry", &entity.geometry_type, "");
+        push_csv_row(
+            &mut rows,
+            &target,
+            "center",
+            &format_point(entity.center),
+            u_lin,
+        );
+        if let Some(position) = entity.position {
+            push_csv_row(
+                &mut rows,
+                &target,
+                "position",
+                &format_point(position),
+                u_lin,
+            );
+        }
+        if let Some(length) = entity.length {
+            push_csv_row(&mut rows, &target, "length", &format_number(length), u_lin);
+        }
+        if let Some(area) = entity.area {
+            push_csv_row(&mut rows, &target, "area", &format_number(area), &u_area);
+        }
+        if let Some(radius) = entity.radius {
+            push_csv_row(&mut rows, &target, "radius", &format_number(radius), u_lin);
+        }
+        if let Some(diameter) = entity.diameter {
+            push_csv_row(
+                &mut rows,
+                &target,
+                "diameter",
+                &format_number(diameter),
+                u_lin,
+            );
+        }
+        if let Some(bounds) = &entity.bounding_box {
+            push_csv_row(
+                &mut rows,
+                &target,
+                "bbox_size",
+                &format_point(bounds.size),
+                u_lin,
+            );
+        }
+    }
+
+    for object in &result.objects {
+        let name = scene
+            .find(&object.key)
+            .map_or(object.key.as_str(), |node| node.name.as_str());
+        push_csv_row(&mut rows, name, "shape_type", &object.shape_type, "");
+        if let Some(volume) = object.volume {
+            push_csv_row(&mut rows, name, "volume", &format_number(volume), &u_vol);
+        }
+        if let Some(mass) = object.mass_g {
+            push_csv_row(&mut rows, name, "mass", &format_number(mass), "g");
+        }
+        if let Some(area) = object.area {
+            push_csv_row(&mut rows, name, "area", &format_number(area), &u_area);
+        }
+        if let Some(length) = object.length {
+            push_csv_row(&mut rows, name, "length", &format_number(length), u_lin);
+        }
+        push_csv_row(
+            &mut rows,
+            name,
+            "center_of_mass",
+            &format_point(object.center),
+            u_lin,
+        );
+        if let Some(bounds) = &object.bounding_box {
+            push_csv_row(
+                &mut rows,
+                name,
+                "bbox_size",
+                &format_point(bounds.size),
+                u_lin,
+            );
+            push_csv_row(
+                &mut rows,
+                name,
+                "bbox_min",
+                &format_point(bounds.min),
+                u_lin,
+            );
+            push_csv_row(
+                &mut rows,
+                name,
+                "bbox_max",
+                &format_point(bounds.max),
+                u_lin,
+            );
+        }
+    }
+
+    rows.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{format_number, measurement_of};
@@ -434,5 +924,64 @@ mod tests {
         assert_eq!(format_number(5.0), "5");
         assert_eq!(format_number(1.2345678912), "1.234567891");
         assert_eq!(format_number(0.000_001), "1.00000000e-6");
+    }
+
+    #[test]
+    fn measurements_format_as_structured_text_json_and_csv() {
+        use super::{MeasurementFormat, format_measurement};
+        use crate::scene::Scene;
+        use crate::settings::Units;
+        use crate::worker::protocol::PairMeasurement;
+
+        let result = Measurement {
+            id: 1,
+            identity: TopologyIdentity {
+                scope: "render".into(),
+                persistent: false,
+            },
+            entities: vec![EntityMeasurement {
+                key: "s1-n1".into(),
+                part: 0,
+                kind: TopologyKind::Face,
+                identifier: 2,
+                geometry_type: "plane".into(),
+                center: [0.0, 0.0, 5.0],
+                position: None,
+                length: None,
+                area: Some(120.5),
+                radius: None,
+                diameter: None,
+                bounding_box: None,
+            }],
+            pair: Some(PairMeasurement {
+                distance: 25.4,
+                first_point: [0.0, 0.0, 0.0],
+                second_point: [0.0, 0.0, 25.4],
+                angle_degrees: Some(90.0),
+                angle_kind: Some("face_face".into()),
+            }),
+            objects: Vec::new(),
+            bounding_box: None,
+        };
+        let scene = Scene::default();
+
+        let text = format_measurement(&result, &scene, Units::Millimeters, MeasurementFormat::Text);
+        assert!(text.contains("Distance: 25.4 mm"));
+        assert!(text.contains("Delta: (0, 0, 25.4) mm"));
+        assert!(text.contains("Angle: 90°"));
+        assert!(text.contains("Area: 120.5 mm²"));
+
+        let json_str =
+            format_measurement(&result, &scene, Units::Millimeters, MeasurementFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["unit"], "mm");
+        assert_eq!(parsed["area_unit"], "mm²");
+        assert_eq!(parsed["pair"]["distance"], 25.4);
+        assert_eq!(parsed["entities"][0]["area"], 120.5);
+
+        let csv = format_measurement(&result, &scene, Units::Millimeters, MeasurementFormat::Csv);
+        assert!(csv.starts_with("target,property,value,unit\n"));
+        assert!(csv.contains("pair,distance,25.4,mm"));
+        assert!(csv.contains("s1-n1:Face 2,area,120.5,mm²"));
     }
 }

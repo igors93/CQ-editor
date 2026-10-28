@@ -35,3 +35,20 @@ fn automatic_ranges_suit_the_sign_and_size() {
     assert_eq!(automatic_range(0.0, true), -5.0..=5.0);
     assert_eq!(automatic_range(7.0, true), 0.0..=14.0);
 }
+
+#[test]
+fn modified_parameters_are_tracked_against_the_saved_baseline() {
+    let mut state = ParametersState::default();
+    let baseline = "width = 40\nheight = 20\n";
+    let edited = "width = 55\nheight = 20\ndepth = 10\n";
+    let current = crate::parameters::parameters(edited);
+
+    state.update_references(baseline, &current);
+    assert_eq!(state.reference_value("width"), Some(40.0));
+    assert_eq!(state.reference_value("height"), Some(20.0));
+    assert_eq!(state.reference_value("depth"), Some(10.0));
+    assert!(state.is_modified(&current[0]));
+    assert!(!state.is_modified(&current[1]));
+    assert!(!state.is_modified(&current[2]));
+    assert!(state.any_modified(&current));
+}

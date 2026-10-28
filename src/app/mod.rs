@@ -265,6 +265,11 @@ impl AppState {
         // tab switches or file opens behind it.
         if !self.dialogs.modal_open() {
             commands::collect_shortcuts(ctx, &mut self.actions);
+            commands::collect_selection_shortcuts(
+                ctx,
+                &self.settings.viewer.selection_shortcuts,
+                &mut self.actions,
+            );
         }
     }
 
@@ -470,6 +475,14 @@ impl AppState {
             Action::Undo => self.editor.undo(&mut self.document),
             Action::Redo => self.editor.redo(&mut self.document),
             Action::ToggleComment => self.editor.toggle_comment(&mut self.document),
+            Action::DuplicateLine => self.editor.duplicate_line(&mut self.document),
+            Action::MoveLineUp => self.editor.move_lines(&mut self.document, true),
+            Action::MoveLineDown => self.editor.move_lines(&mut self.document, false),
+            Action::InsertSnippet(index) => {
+                if let Some(snippet) = crate::editor::snippets::SNIPPETS.get(index) {
+                    self.editor.insert_snippet(&mut self.document, snippet);
+                }
+            }
             Action::Autocomplete => self.editor.request_completion(),
             Action::Find => self.editor.open_search(&self.document),
             Action::Replace => self.editor.open_replace(&self.document),
@@ -477,6 +490,7 @@ impl AppState {
             Action::CopySelector => self.use_selector(SelectorUse::Copy),
             Action::InsertSelector => self.use_selector(SelectorUse::Insert),
             Action::CopyMeasurementCode => self.request_measurement_code(),
+            Action::CopyMeasurement(format) => self.copy_measurement(format),
             Action::FindNext | Action::FindPrevious => {
                 if self.editor.search_is_open() {
                     self.editor
@@ -595,6 +609,7 @@ impl AppState {
             Action::ToggleInspect => self.toggle_inspect(),
             Action::Screenshot => self.dialogs.capture.open = true,
             Action::SaveImage => self.save_image(),
+            Action::CopyImage => self.copy_image(),
             Action::ExportTurntable => self.export_turntable(),
             Action::CancelTurntable => {
                 if self.viewer.turntable_progress().is_some() {
@@ -650,6 +665,7 @@ impl AppState {
             } => self.select(key, topology, extend),
             Action::SetVisible { key, visible } => self.scene.set_visible(&key, visible),
             Action::SetParameter { name, line, value } => self.set_parameter(&name, line, value),
+            Action::ResetParameters => self.reset_parameters(),
             Action::GoToSource { key, step } => self.go_to_source(&key, step),
             Action::GoToSelectionSource => {
                 if let Some(key) = self.scene.current().map(|node| node.key.clone()) {

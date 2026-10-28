@@ -15,6 +15,77 @@ pub const MAX_IMAGE_SIDE: u32 = 8192;
 pub const MAX_TURNTABLE_FRAMES: u32 = 720;
 pub const MAX_FRAMES_PER_SECOND: u32 = 60;
 
+/// Standard resolution presets for screenshots and turntable exports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolutionPreset {
+    Hd,
+    FullHd,
+    Qhd,
+    Uhd4k,
+    Square,
+}
+
+impl ResolutionPreset {
+    pub const ALL: [Self; 5] = [
+        Self::Hd,
+        Self::FullHd,
+        Self::Qhd,
+        Self::Uhd4k,
+        Self::Square,
+    ];
+
+    pub const fn size(self) -> [u32; 2] {
+        match self {
+            Self::Hd => [1280, 720],
+            Self::FullHd => [1920, 1080],
+            Self::Qhd => [2560, 1440],
+            Self::Uhd4k => [3840, 2160],
+            Self::Square => [1080, 1080],
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Hd => "1280 × 720 — HD (16:9)",
+            Self::FullHd => "1920 × 1080 — Full HD (16:9)",
+            Self::Qhd => "2560 × 1440 — QHD (16:9)",
+            Self::Uhd4k => "3840 × 2160 — 4K (16:9)",
+            Self::Square => "1080 × 1080 — Square (1:1)",
+        }
+    }
+
+    pub const fn short_label(self) -> &'static str {
+        match self {
+            Self::Hd => "HD",
+            Self::FullHd => "Full HD",
+            Self::Qhd => "QHD",
+            Self::Uhd4k => "4K",
+            Self::Square => "1:1",
+        }
+    }
+
+    pub fn from_size(size: [u32; 2]) -> Option<Self> {
+        Self::ALL.into_iter().find(|preset| preset.size() == size)
+    }
+}
+
+/// Simplifies `[width, height]` to an aspect-ratio string such as `"16:9"` or `"1:1"`.
+pub fn aspect_ratio_label([width, height]: [u32; 2]) -> String {
+    let w = width.max(1);
+    let h = height.max(1);
+    let divisor = gcd(w, h);
+    format!("{}:{}", w / divisor, h / divisor)
+}
+
+const fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
 /// How large a capture is and whether it has the background.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CaptureOptions {
@@ -113,6 +184,19 @@ pub fn save_png(
         image::ExtendedColorType::Rgba8,
     )
     .map_err(|error| format!("Cannot write {}: {error}", path.display()))
+}
+
+/// Prepares a rendered RGBA buffer for the system clipboard, straightening
+/// premultiplied alpha when `transparent` is set.
+pub fn prepare_clipboard_image(
+    size: [u32; 2],
+    mut pixels: Vec<u8>,
+    transparent: bool,
+) -> egui::ColorImage {
+    if transparent {
+        unpremultiply(&mut pixels);
+    }
+    egui::ColorImage::from_rgba_unmultiplied([size[0] as usize, size[1] as usize], &pixels)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

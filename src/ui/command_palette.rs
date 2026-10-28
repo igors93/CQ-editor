@@ -43,9 +43,14 @@ impl Command {
         }
     }
 
-    /// What the query is matched against.
-    fn text(&self) -> String {
+    /// What the query is matched against, and the identifier stored for
+    /// favorite commands.
+    pub fn id(&self) -> String {
         format!("{}: {}", self.category, self.label)
+    }
+
+    fn text(&self) -> String {
+        self.id()
     }
 }
 
@@ -75,6 +80,9 @@ pub fn menu_commands() -> Vec<Command> {
         c("Edit", "Undo", Action::Undo),
         c("Edit", "Redo", Action::Redo),
         c("Edit", "Toggle Comment", Action::ToggleComment),
+        c("Edit", "Duplicate Line", Action::DuplicateLine),
+        c("Edit", "Move Line Up", Action::MoveLineUp),
+        c("Edit", "Move Line Down", Action::MoveLineDown),
         c("Edit", "Auto-Complete", Action::Autocomplete),
         c("Edit", "Search", Action::Find),
         c("Edit", "Find Next", Action::FindNext),
@@ -88,6 +96,22 @@ pub fn menu_commands() -> Vec<Command> {
             "Copy Measurement as Code",
             Action::CopyMeasurementCode,
         ),
+        c(
+            "Edit",
+            "Copy Measurement as Text",
+            Action::CopyMeasurement(commands::MeasurementFormat::Text),
+        ),
+        c(
+            "Edit",
+            "Copy Measurement as JSON",
+            Action::CopyMeasurement(commands::MeasurementFormat::Json),
+        ),
+        c(
+            "Edit",
+            "Copy Measurement as CSV",
+            Action::CopyMeasurement(commands::MeasurementFormat::Csv),
+        ),
+        c("Edit", "Reset Modified Parameters", Action::ResetParameters),
         c("Edit", "Go to Source", Action::GoToSelectionSource),
         c("Edit", "Preferences…", Action::Preferences),
         c("Run", "Render", Action::Render),
@@ -112,6 +136,7 @@ pub fn menu_commands() -> Vec<Command> {
         c("Run", "Install Packages…", Action::InstallPackages),
         c("Tools", "Inspect CQ Object", Action::ToggleInspect),
         c("Tools", "Screenshot…", Action::Screenshot),
+        c("Tools", "Copy Screenshot to Clipboard", Action::CopyImage),
         c("Tools", "Upload Model…", Action::Upload),
         c("View", "Fit", Action::Fit),
         c("View", "Zoom to Selection", Action::FitSelection),
@@ -183,6 +208,18 @@ pub fn menu_commands() -> Vec<Command> {
                 )
             }),
     );
+    list.extend(
+        crate::editor::snippets::SNIPPETS
+            .iter()
+            .enumerate()
+            .map(|(index, snippet)| {
+                Command::new(
+                    "Snippet",
+                    format!("Insert {}", snippet.title),
+                    Action::InsertSnippet(index),
+                )
+            }),
+    );
     list
 }
 
@@ -197,6 +234,7 @@ fn available(state: &AppState, action: &Action) -> bool {
         Action::SaveAll => state.any_modified(),
         Action::CloseFolder | Action::RefreshProject => state.project.is_some(),
         Action::CopySelector | Action::InsertSelector | Action::CopyMeasurementCode => picked,
+        Action::CopyMeasurement(_) => state.measurements.result.is_some(),
         Action::GoToSelectionSource => state.scene.current().is_some_and(|n| n.line.is_some()),
         Action::ClearProfile => !state.editor.line_profile.is_empty(),
         Action::Debug(_) => state.is_paused(),
@@ -304,11 +342,47 @@ pub fn score(query: &str, text: &str) -> Option<i32> {
 /// The commands matching `query`, best first; equally good ones keep their
 /// order.
 pub fn matches(commands: Vec<Command>, query: &str) -> Vec<Command> {
-    let mut scored: Vec<(i32, Command)> = commands
+    matches_with_favorites(commands, query, &[])
+}
+
+/// The commands matching `query`, prioritizing `favorites` at the top when
+/// the query is empty (and breaking score ties in favor of favorites).
+pub fn matches_with_favorites(
+    commands: Vec<Command>,
+    query: &str,
+    favorites: &[String],
+) -> Vec<Command> {
+    let is_fav = |cmd: &Command| favorites.iter().any(|fav| fav == &cmd.id());
+    if query.trim().is_empty() {
+        let mut favs: Vec<Command> = Vec::new();
+        let mut rest: Vec<Command> = Vec::new();
+        for cmd in commands {
+            if is_fav(&cmd) {
+                favs.push(cmd);
+            } else {
+                rest.push(cmd);
+            }
+        }
+        // Keep favorites in the order they were pinned.
+        favs.sort_by_key(|cmd| {
+            favorites
+                .iter()
+                .position(|fav| fav == &cmd.id())
+                .unwrap_or(usize::MAX)
+        });
+        favs.extend(rest);
+        return favs;
+    }
+
+    let mut scored: Vec<((i32, bool), Command)> = commands
         .into_iter()
-        .filter_map(|command| Some((score(query, &command.text())?, command)))
+        .filter_map(|command| {
+            let s = score(query, &command.text())?;
+            let fav = is_fav(&command);
+            Some(((s, fav), command))
+        })
         .collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.sort_by_key(|(key, _)| std::cmp::Reverse(*key));
     scored.into_iter().map(|(_, command)| command).collect()
 }
 
@@ -318,15 +392,17 @@ pub fn window(
     ctx: &egui::Context,
     palette: &mut Palette,
     commands: Vec<Command>,
+    settings: &mut crate::settings::Settings,
 ) -> Option<Option<Action>> {
-    let found = matches(commands, &palette.query);
+    let found = matches_with_favorites(commands, &palette.query, &settings.favorite_commands);
     palette.selected = palette.selected.min(found.len().saturating_sub(1));
     let mut chosen = None;
-    let (up, down, enter) = ctx.input_mut(|input| {
+    let (up, down, enter, toggle_fav) = ctx.input_mut(|input| {
         (
             input.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
             input.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
             input.consume_key(egui::Modifiers::NONE, Key::Enter),
+            input.consume_key(egui::Modifiers::COMMAND, Key::D),
         )
     });
     if up {
@@ -334,6 +410,9 @@ pub fn window(
     }
     if down {
         palette.selected = (palette.selected + 1).min(found.len().saturating_sub(1));
+    }
+    if toggle_fav && let Some(command) = found.get(palette.selected) {
+        settings.toggle_favorite_command(&command.id());
     }
     if enter && let Some(command) = found.get(palette.selected) {
         chosen = Some(command.action.clone());
@@ -348,7 +427,7 @@ pub fn window(
             ui.set_width(520.0);
             let field = ui.add(
                 egui::TextEdit::singleline(&mut palette.query)
-                    .hint_text("Type a command, a file or a panel")
+                    .hint_text("Type a command, a file, a snippet or a panel")
                     .desired_width(f32::INFINITY),
             );
             if !field.has_focus() {
@@ -361,13 +440,39 @@ pub fn window(
             if found.is_empty() {
                 ui.weak("No command matches");
             }
+            let empty_query = palette.query.trim().is_empty();
             // The page of results around the selected one.
             let first = palette.selected.saturating_sub(MAX_SHOWN - 1);
+            let mut prev_was_favorite = false;
             for (index, command) in found.iter().enumerate().skip(first).take(MAX_SHOWN) {
+                let id = command.id();
+                let is_favorite = settings.is_favorite_command(&id);
+                if empty_query && index > first && prev_was_favorite && !is_favorite {
+                    ui.separator();
+                }
+                prev_was_favorite = is_favorite;
                 let selected = index == palette.selected;
+                let mut star_clicked = false;
                 let row = ui
                     .horizontal(|ui| {
                         ui.set_min_width(ui.available_width());
+                        let star_text = if is_favorite {
+                            RichText::new("★").color(egui::Color32::from_rgb(235, 180, 40))
+                        } else {
+                            RichText::new("☆").weak()
+                        };
+                        let star_hint = if is_favorite {
+                            "Remove from Favorite Commands (Ctrl+D)"
+                        } else {
+                            "Add to Favorite Commands (Ctrl+D)"
+                        };
+                        if ui
+                            .add(egui::Button::new(star_text).frame(false))
+                            .on_hover_text(star_hint)
+                            .clicked()
+                        {
+                            star_clicked = true;
+                        }
                         let label = ui.selectable_label(selected, &command.label);
                         ui.weak(command.category);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -378,7 +483,9 @@ pub fn window(
                         label
                     })
                     .inner;
-                if row.clicked() {
+                if star_clicked {
+                    settings.toggle_favorite_command(&id);
+                } else if row.clicked() {
                     chosen = Some(command.action.clone());
                 }
                 if row.hovered() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
@@ -388,7 +495,7 @@ pub fn window(
             ui.add_space(4.0);
             ui.label(
                 RichText::new(format!(
-                    "{}  ↑↓ choose · Enter runs · Esc closes",
+                    "{}  ↑↓ choose · Enter runs · Ctrl+D ★ favorite · Esc closes",
                     icon::KEYBOARD
                 ))
                 .small()

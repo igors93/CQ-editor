@@ -1222,3 +1222,26 @@ fn the_whole_layout_is_saved_while_a_panel_is_maximized() {
     assert!(saved.find_tab(&Tab::Viewer).is_some());
     assert!(saved.find_tab(&Tab::Console).is_some());
 }
+
+#[test]
+fn modified_parameters_can_be_restored_to_their_initial_values_and_undone() {
+    let initial = "width = 40\nheight = 20.5\n";
+    let mut state = test_state(initial);
+    state.execute(Action::SetParameter {
+        name: "width".into(),
+        line: 1,
+        value: 65.0,
+    });
+    state.execute(Action::SetParameter {
+        name: "height".into(),
+        line: 2,
+        value: 30.0,
+    });
+    assert_eq!(state.document.text, "width = 65\nheight = 30.0\n");
+
+    state.execute(Action::ResetParameters);
+    assert_eq!(state.document.text, initial);
+
+    state.execute(Action::Undo);
+    assert_eq!(state.document.text, "width = 65\nheight = 30.0\n");
+}

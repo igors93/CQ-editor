@@ -220,3 +220,36 @@ fn scripts_and_text_files_open_in_the_editor() {
     assert!(is_script(Path::new("main.PY")));
     assert!(!is_script(Path::new("notes.txt")));
 }
+
+#[test]
+fn project_search_finds_files_inside_collapsed_folders_without_expanding_them() {
+    let root = temporary_folder("search");
+    std::fs::create_dir_all(root.join("assemblies/drive")).unwrap();
+    std::fs::write(root.join("main.py"), "").unwrap();
+    std::fs::write(root.join("gear.py"), "").unwrap();
+    std::fs::write(root.join("assemblies/drive/gearbox.py"), "").unwrap();
+
+    let mut project = Project::open(&root).unwrap();
+    assert!(project.expanded().is_empty());
+
+    let found = project.search_rows("gear");
+    let found_paths: Vec<String> = found
+        .iter()
+        .map(|row| {
+            project
+                .relative(&row.entry.path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    assert_eq!(found_paths, ["assemblies/drive/gearbox.py", "gear.py"]);
+    assert!(
+        project.expanded().is_empty(),
+        "searching does not mutate folder expansion state"
+    );
+
+    let by_folder = project.search_rows("drive/gear");
+    assert_eq!(by_folder.len(), 1);
+    assert_eq!(by_folder[0].entry.name, "gearbox.py");
+    let _ = std::fs::remove_dir_all(&root);
+}

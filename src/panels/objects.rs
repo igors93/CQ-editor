@@ -65,6 +65,26 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                     actions.push(Action::CheckGeometry);
                 }
             });
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let has_filter = !state.scene.filter.is_empty();
+                let width =
+                    (ui.available_width() - if has_filter { 22.0 } else { 0.0 }).max(40.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut state.scene.filter)
+                        .hint_text(format!("{} Filter objects by name…", icon::MAGNIFYING_GLASS))
+                        .desired_width(width),
+                );
+                if has_filter
+                    && ui
+                        .add(egui::Button::new(icon::X).frame(false))
+                        .on_hover_text("Clear object filter")
+                        .clicked()
+                {
+                    state.scene.filter.clear();
+                }
+            });
         });
     ui.separator();
 
@@ -116,15 +136,32 @@ fn tree(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             let default = state.default_color();
+            let filter = state.scene.filter.trim().to_owned();
             egui::CollapsingHeader::new(RichText::new("CQ models").strong())
                 .default_open(true)
                 .show(ui, |ui| {
                     if state.scene.is_empty() {
                         ui.weak(state.empty_view_hint());
-                    }
-                    let isolated = state.scene.isolation_members();
-                    for node in &state.scene.nodes {
-                        node_row(ui, state, node, default, isolated.as_ref(), actions);
+                    } else {
+                        let isolated = state.scene.isolation_members();
+                        let mut any_shown = false;
+                        for node in &state.scene.nodes {
+                            if node_matches_filter(node, &filter) {
+                                any_shown = true;
+                                node_row(
+                                    ui,
+                                    state,
+                                    node,
+                                    default,
+                                    isolated.as_ref(),
+                                    &filter,
+                                    actions,
+                                );
+                            }
+                        }
+                        if !any_shown {
+                            ui.weak("No matching objects");
+                        }
                     }
                 });
             egui::CollapsingHeader::new(RichText::new("Helpers").strong())
@@ -139,6 +176,21 @@ fn tree(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action>) {
                     }
                 });
         });
+}
+
+/// Returns `true` when `node` or any of its descendants matches `query`
+/// (case-insensitive substring match on the object/component name).
+pub fn node_matches_filter(node: &SceneNode, query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let needle = trimmed.to_lowercase();
+    node.name.to_lowercase().contains(&needle)
+        || node
+            .children
+            .iter()
+            .any(|child| node_matches_filter(child, trimmed))
 }
 
 fn export_menu(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
@@ -158,6 +210,7 @@ fn node_row(
     node: &SceneNode,
     default: Rgb,
     isolated: Option<&HashSet<&str>>,
+    filter: &str,
     actions: &mut Vec<Action>,
 ) {
     let isolated_out = isolated.is_some_and(|members| !members.contains(node.key.as_str()));
@@ -307,13 +360,23 @@ fn node_row(
             header(ui);
         });
     } else {
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-            .show_header(ui, header)
-            .body(|ui| {
-                for child in &node.children {
-                    node_row(ui, state, child, default, isolated, actions);
+        let has_matching_child = !filter.is_empty()
+            && node
+                .children
+                .iter()
+                .any(|child| node_matches_filter(child, filter));
+        let mut collapsing =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
+        if has_matching_child {
+            collapsing.set_open(true);
+        }
+        collapsing.show_header(ui, header).body(|ui| {
+            for child in &node.children {
+                if !has_matching_child || node_matches_filter(child, filter) {
+                    node_row(ui, state, child, default, isolated, filter, actions);
                 }
-            });
+            }
+        });
     }
 }
 

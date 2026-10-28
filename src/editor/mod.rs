@@ -8,6 +8,7 @@
 
 pub mod highlight;
 pub mod history;
+pub mod snippets;
 pub mod text_ops;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -299,6 +300,9 @@ impl CodeEditor {
 
     fn restore(&mut self, document: &mut Document, text: String, selection: Selection) {
         document.text = text;
+        if self.marked_text.is_some() {
+            self.sync_markers(&document.text);
+        }
         self.close_popups();
         self.selection = selection.clone();
         self.pending_scroll_line = Some(text_ops::line_of(&document.text, selection.cursor) + 1);
@@ -415,6 +419,75 @@ impl CodeEditor {
         self.apply(document, edited);
     }
 
+    pub fn duplicate_line(&mut self, document: &mut Document) {
+        let edited =
+            text_ops::duplicate_lines(&document.text, &self.clamped_selection(&document.text));
+        self.pending_scroll_line =
+            Some(text_ops::line_of(&edited.text, edited.selection.cursor) + 1);
+        self.apply(document, edited);
+    }
+
+    pub fn move_lines(&mut self, document: &mut Document, up: bool) {
+        self.sync_markers(&document.text);
+        let selection = self.clamped_selection(&document.text);
+        let lines = text_ops::selected_lines(&document.text, &selection);
+        let total_lines = document.text.matches('\n').count() + 1;
+        let edited = if up {
+            if lines.start == 0 {
+                return;
+            }
+            text_ops::move_lines_up(&document.text, &selection)
+        } else {
+            if lines.end >= total_lines {
+                return;
+            }
+            text_ops::move_lines_down(&document.text, &selection)
+        };
+        let first_1 = lines.start + 1;
+        let last_1 = lines.end;
+        let remap = |line: usize| -> usize {
+            if up {
+                if line == first_1 - 1 {
+                    last_1
+                } else if (first_1..=last_1).contains(&line) {
+                    line - 1
+                } else {
+                    line
+                }
+            } else if line == last_1 + 1 {
+                first_1
+            } else if (first_1..=last_1).contains(&line) {
+                line + 1
+            } else {
+                line
+            }
+        };
+        self.breakpoints = self.breakpoints.iter().map(|&l| remap(l)).collect();
+        self.error_line = self.error_line.map(&remap);
+        self.debug_line = self.debug_line.map(&remap);
+        self.line_profile = std::mem::take(&mut self.line_profile)
+            .into_iter()
+            .map(|(line, timing)| (remap(line), timing))
+            .collect();
+        self.marked_text = Some(edited.text.clone());
+        self.pending_scroll_line =
+            Some(text_ops::line_of(&edited.text, edited.selection.cursor) + 1);
+        self.apply(document, edited);
+    }
+
+    pub fn insert_snippet(&mut self, document: &mut Document, snippet: &snippets::Snippet) {
+        let selection = self.clamped_selection(&document.text);
+        let edited = text_ops::insert_snippet(
+            &document.text,
+            &selection,
+            snippet.code,
+            snippet.needs_import,
+        );
+        self.pending_scroll_line =
+            Some(text_ops::line_of(&edited.text, edited.selection.cursor) + 1);
+        self.apply(document, edited);
+    }
+
     /// Replaces `range` with `replacement` as a new value of the literal
     /// there: successive values, such as those of a drag in the Parameters
     /// panel, are one undo step. The caret stays on the text it was on and
@@ -450,6 +523,42 @@ impl CodeEditor {
             EditKind::Adjust(range.start),
             now,
         );
+        self.close_popups();
+        self.selection = after.clone();
+        self.pending_selection = Some(after);
+    }
+
+    /// Replaces multiple non-overlapping ranges (sorted by start byte) with
+    /// their replacements in a single undoable command step.
+    pub fn replace_literals(
+        &mut self,
+        document: &mut Document,
+        replacements: &[(Range<usize>, String)],
+        now: f64,
+    ) {
+        if replacements.is_empty() {
+            return;
+        }
+        self.record_outside_edits(document);
+        let before = self.clamped_selection(&document.text);
+        let mut after = before.clone();
+        for (range, replacement) in replacements.iter().rev() {
+            if document.text.get(range.clone()) == Some(replacement.as_str()) {
+                continue;
+            }
+            let shift = |at: usize| {
+                if at >= range.end {
+                    at - range.end + range.start + replacement.len()
+                } else {
+                    at.min(range.start + replacement.len())
+                }
+            };
+            after.anchor = shift(after.anchor);
+            after.cursor = shift(after.cursor);
+            document.text.replace_range(range.clone(), replacement);
+        }
+        self.history
+            .record(&document.text, &before, &after, EditKind::Command, now);
         self.close_popups();
         self.selection = after.clone();
         self.pending_selection = Some(after);
@@ -576,8 +685,14 @@ impl CodeEditor {
     fn apply(&mut self, document: &mut Document, edited: text_ops::Edited) {
         if edited.text != document.text {
             self.record_outside_edits(document);
+            if self.marked_text.is_some() {
+                self.sync_markers(&document.text);
+            }
             let before = self.clamped_selection(&document.text);
             document.text = edited.text;
+            if self.marked_text.is_some() {
+                self.sync_markers(&document.text);
+            }
             self.history.record(
                 &document.text,
                 &before,

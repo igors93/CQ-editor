@@ -384,12 +384,20 @@ fn group_ui(
             };
             let mut choices = |ui: &mut egui::Ui| {
                 for mode in SelectionMode::ALL {
+                    let action = Action::SelectionMode(mode);
+                    let custom = state.settings.viewer.selection_shortcuts.get(mode).trim();
+                    let label = if custom.is_empty() {
+                        hint(mode).to_owned()
+                    } else {
+                        format!("{} ({custom})", hint(mode))
+                    };
+                    let tooltip = tooltip_text(ui, &label, &action);
                     if ui
                         .selectable_label(state.viewer.selection_mode == mode, mode.label())
-                        .on_hover_text(hint(mode))
+                        .on_hover_text(tooltip)
                         .clicked()
                     {
-                        actions.push(Action::SelectionMode(mode));
+                        actions.push(action);
                     }
                 }
             };
