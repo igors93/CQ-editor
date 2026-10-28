@@ -366,7 +366,9 @@ pub fn parse_shortcut(spec: &str) -> Option<KeyboardShortcut> {
     let mut modifiers = Modifiers::NONE;
     for part in mod_parts {
         match part.to_ascii_lowercase().as_str() {
-            "ctrl" | "control" | "cmd" | "command" => modifiers = modifiers.plus(Modifiers::COMMAND),
+            "ctrl" | "control" | "cmd" | "command" => {
+                modifiers = modifiers.plus(Modifiers::COMMAND)
+            }
             "shift" => modifiers = modifiers.plus(Modifiers::SHIFT),
             "alt" | "opt" | "option" => modifiers = modifiers.plus(Modifiers::ALT),
             _ => return None,

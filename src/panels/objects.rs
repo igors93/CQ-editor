@@ -69,11 +69,13 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let has_filter = !state.scene.filter.is_empty();
-                let width =
-                    (ui.available_width() - if has_filter { 22.0 } else { 0.0 }).max(40.0);
+                let width = (ui.available_width() - if has_filter { 22.0 } else { 0.0 }).max(40.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut state.scene.filter)
-                        .hint_text(format!("{} Filter objects by name…", icon::MAGNIFYING_GLASS))
+                        .hint_text(format!(
+                            "{} Filter objects by name…",
+                            icon::MAGNIFYING_GLASS
+                        ))
                         .desired_width(width),
                 );
                 if has_filter

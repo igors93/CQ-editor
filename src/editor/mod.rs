@@ -463,8 +463,8 @@ impl CodeEditor {
             }
         };
         self.breakpoints = self.breakpoints.iter().map(|&l| remap(l)).collect();
-        self.error_line = self.error_line.map(&remap);
-        self.debug_line = self.debug_line.map(&remap);
+        self.error_line = self.error_line.map(remap);
+        self.debug_line = self.debug_line.map(remap);
         self.line_profile = std::mem::take(&mut self.line_profile)
             .into_iter()
             .map(|(line, timing)| (remap(line), timing))

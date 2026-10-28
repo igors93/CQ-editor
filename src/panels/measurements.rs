@@ -469,10 +469,7 @@ fn format_measurement_text(result: &Measurement, scene: &Scene, units: Units) ->
             "Distance: {}",
             with_unit(&format_number(pair.distance), u_lin)
         ));
-        lines.push(format!(
-            "Delta: {}",
-            with_unit(&format_point(delta), u_lin)
-        ));
+        lines.push(format!("Delta: {}", with_unit(&format_point(delta), u_lin)));
         lines.push(format!(
             "Closest point 1: {}",
             with_unit(&format_point(pair.first_point), u_lin)

@@ -226,8 +226,7 @@ impl Project {
                     .relative(&entry.path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                if entry.name.to_lowercase().contains(needle)
-                    || rel.to_lowercase().contains(needle)
+                if entry.name.to_lowercase().contains(needle) || rel.to_lowercase().contains(needle)
                 {
                     rows.push(Row {
                         entry,

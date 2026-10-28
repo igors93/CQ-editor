@@ -474,20 +474,17 @@ fn view_menu(
             Action::Display(mode),
         );
     }
-    ui.menu_button(
-        format!("{}  Selection Mode", icon::CURSOR_CLICK),
-        |ui| {
-            for mode in crate::viewer::SelectionMode::ALL {
-                check_item(
-                    ui,
-                    actions,
-                    state.viewer.selection_mode == mode,
-                    mode.label(),
-                    Action::SelectionMode(mode),
-                );
-            }
-        },
-    );
+    ui.menu_button(format!("{}  Selection Mode", icon::CURSOR_CLICK), |ui| {
+        for mode in crate::viewer::SelectionMode::ALL {
+            check_item(
+                ui,
+                actions,
+                state.viewer.selection_mode == mode,
+                mode.label(),
+                Action::SelectionMode(mode),
+            );
+        }
+    });
     check_item(
         ui,
         actions,

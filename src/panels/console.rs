@@ -61,6 +61,7 @@ pub struct ConsoleState {
 }
 
 impl ConsoleState {
+    #[cfg(test)]
     pub fn history(&self) -> &[String] {
         &self.history
     }
@@ -71,9 +72,7 @@ impl ConsoleState {
         let needle = query.trim().to_lowercase();
         (0..self.history.len())
             .rev()
-            .filter(|&i| {
-                needle.is_empty() || self.history[i].to_lowercase().contains(&needle)
-            })
+            .filter(|&i| needle.is_empty() || self.history[i].to_lowercase().contains(&needle))
             .collect()
     }
 
@@ -118,8 +117,7 @@ impl ConsoleState {
         if next_older {
             self.search_match_index = (self.search_match_index + 1) % matches.len();
         } else {
-            self.search_match_index =
-                (self.search_match_index + matches.len() - 1) % matches.len();
+            self.search_match_index = (self.search_match_index + matches.len() - 1) % matches.len();
         }
         let hist_idx = matches[self.search_match_index];
         self.history_index = Some(hist_idx);

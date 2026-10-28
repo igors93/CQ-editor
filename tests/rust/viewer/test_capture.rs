@@ -219,7 +219,10 @@ fn resolution_presets_and_clipboard_preparation_preserve_dimensions_and_aspect_r
     let image = prepare_clipboard_image([2, 1], vec![188, 188, 188, 128, 10, 20, 30, 255], true);
     assert_eq!(image.size, [2, 1]);
     assert!(image.pixels[0].to_srgba_unmultiplied()[0] >= 253);
-    assert_eq!(image.pixels[1], egui::Color32::from_rgba_unmultiplied(10, 20, 30, 255));
+    assert_eq!(
+        image.pixels[1],
+        egui::Color32::from_rgba_unmultiplied(10, 20, 30, 255)
+    );
 
     let mut viewer = crate::viewer::Viewer::default();
     assert!(viewer.request_clipboard_image(CaptureOptions::default()));

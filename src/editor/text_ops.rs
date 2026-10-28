@@ -454,12 +454,7 @@ pub fn move_lines_down(text: &str, selection: &Selection) -> Edited {
 
 /// Inserts a code snippet at `selection`, adapting indentation to the target
 /// line and adding `import cadquery as cq` when needed in a fresh script.
-pub fn insert_snippet(
-    text: &str,
-    selection: &Selection,
-    code: &str,
-    needs_import: bool,
-) -> Edited {
+pub fn insert_snippet(text: &str, selection: &Selection, code: &str, needs_import: bool) -> Edited {
     let range = selection.range();
     let line = line_of(text, range.start);
     let line_span = line_range(text, line);

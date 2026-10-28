@@ -151,10 +151,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .button(format!(
-                                    "{} Restore all",
-                                    icon::ARROW_COUNTER_CLOCKWISE
-                                ))
+                                .button(format!("{} Restore all", icon::ARROW_COUNTER_CLOCKWISE))
                                 .on_hover_text(
                                     "Restore all modified parameters to their initial values",
                                 )

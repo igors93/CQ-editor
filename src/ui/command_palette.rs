@@ -341,6 +341,7 @@ pub fn score(query: &str, text: &str) -> Option<i32> {
 
 /// The commands matching `query`, best first; equally good ones keep their
 /// order.
+#[cfg(test)]
 pub fn matches(commands: Vec<Command>, query: &str) -> Vec<Command> {
     matches_with_favorites(commands, query, &[])
 }

@@ -26,13 +26,7 @@ pub enum ResolutionPreset {
 }
 
 impl ResolutionPreset {
-    pub const ALL: [Self; 5] = [
-        Self::Hd,
-        Self::FullHd,
-        Self::Qhd,
-        Self::Uhd4k,
-        Self::Square,
-    ];
+    pub const ALL: [Self; 5] = [Self::Hd, Self::FullHd, Self::Qhd, Self::Uhd4k, Self::Square];
 
     pub const fn size(self) -> [u32; 2] {
         match self {
@@ -64,6 +58,7 @@ impl ResolutionPreset {
         }
     }
 
+    #[cfg(test)]
     pub fn from_size(size: [u32; 2]) -> Option<Self> {
         Self::ALL.into_iter().find(|preset| preset.size() == size)
     }
