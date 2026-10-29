@@ -292,6 +292,24 @@ impl Camera {
         self.rotation = (yaw * pitch * self.rotation).normalize();
     }
 
+    /// Turntable orbit around `pivot`, which keeps its place on screen.
+    pub fn orbit_turntable_about(&mut self, delta_px: Vec2, pivot: Vec3) {
+        self.turn_about(pivot, |camera| camera.orbit_turntable(delta_px));
+    }
+
+    /// Turns the camera with `turn`, then moves the target so that `pivot`
+    /// keeps the same screen position and depth (a panned view stays panned).
+    fn turn_about(&mut self, pivot: Vec3, turn: impl FnOnce(&mut Self)) {
+        let offset = pivot - self.target;
+        let (right, up, forward) = (
+            offset.dot(self.right()),
+            offset.dot(self.up()),
+            offset.dot(self.forward()),
+        );
+        turn(self);
+        self.target = pivot - self.right() * right - self.up() * up - self.forward() * forward;
+    }
+
     /// Virtual trackball between two pointer positions given in coordinates
     /// normalized by the viewport (y up, roughly -1..1).
     pub fn orbit_trackball(&mut self, from: Vec2, to: Vec2) {
@@ -304,6 +322,11 @@ impl Camera {
         // The model turns with the pointer, so the camera turns the other way.
         let model_turn = Quat::from_axis_angle(axis.normalize(), angle);
         self.rotation = (self.rotation * model_turn.inverse()).normalize();
+    }
+
+    /// Trackball orbit around `pivot`, which keeps its place on screen.
+    pub fn orbit_trackball_about(&mut self, from: Vec2, to: Vec2, pivot: Vec3) {
+        self.turn_about(pivot, |camera| camera.orbit_trackball(from, to));
     }
 
     /// Removes any roll so that world Z points up on screen (used when

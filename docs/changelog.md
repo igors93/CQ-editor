@@ -11,6 +11,11 @@
 * Changed: the X, Y and Z axes in the view are dashed where the model hides
   them, so a part built around the origin no longer makes them disappear,
   and a white dot marks the origin
+* Changed: an orbit started on the model turns around the point under the
+  pointer, which stays in place on screen, even in a panned view; started
+  on empty space it turns around the middle of the view as before
+* Changed: right drag orbits like left drag instead of zooming; the wheel,
+  pinch and Shift + left drag still zoom
 * Changed: the installers leave out the Boost, Eigen and TBB headers, CMake
   files and import libraries that the VTK package brings for compiling
   against it, which nothing uses at run time: each installer is about 19 MB

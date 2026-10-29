@@ -1,9 +1,11 @@
 //! The interactive 3D view.
 //!
-//! Mouse controls (as in the original editor):
-//! * left drag: orbit (turntable or trackball); left click: select
+//! Mouse controls (as in the original editor, except the right button):
+//! * left or right drag: orbit (turntable or trackball) around the model
+//!   point under the pointer, or the view centre over empty space
+//! * left click: select
 //! * middle drag or Ctrl + left drag: pan
-//! * right drag or Shift + left drag: zoom; mouse wheel: zoom at the pointer
+//! * Shift + left drag: zoom; mouse wheel: zoom at the pointer
 //! * Ctrl + click: add to / remove from the selection
 
 pub mod camera;
@@ -308,6 +310,7 @@ struct Drag {
     mode: DragMode,
     start: Pos2,
     last: Pos2,
+    pivot: Option<Vec3>,
 }
 
 impl Drag {
@@ -867,30 +870,28 @@ impl Viewer {
             } else {
                 requested_drag_mode(modifiers, primary, middle, secondary)
             };
-            self.drag = mode.map(|mode| Drag {
-                mode,
-                start,
-                last: start,
-            });
-            if self.drag.is_some() {
-                self.settle_animation();
+            self.drag = None;
+            if let Some(mode) = mode {
+                self.start_drag(input.scene, rect, mode, start);
             }
         }
         if response.dragged()
             && let Some(current) = response.interact_pointer_pos()
             && let Some(drag) = &mut self.drag
         {
-            let (mode, start, previous) = (drag.mode, drag.start, drag.last);
+            let (mode, start, previous, pivot) = (drag.mode, drag.start, drag.last, drag.pivot);
             let delta = drag.advance(current);
             match mode {
                 DragMode::Orbit => match self.orbit_method {
-                    OrbitMethod::Turntable => {
-                        self.camera.orbit_turntable(GVec2::new(delta.x, delta.y))
-                    }
+                    OrbitMethod::Turntable => self.camera.orbit_turntable_about(
+                        GVec2::new(delta.x, delta.y),
+                        pivot.unwrap_or(self.camera.target),
+                    ),
                     OrbitMethod::Trackball => {
-                        self.camera.orbit_trackball(
+                        self.camera.orbit_trackball_about(
                             trackball_coords(rect, previous),
                             trackball_coords(rect, current),
+                            pivot.unwrap_or(self.camera.target),
                         );
                     }
                 },
@@ -1176,6 +1177,53 @@ impl Viewer {
             });
             (node, topology)
         })
+    }
+
+    /// Starts a drag in `mode` from `start`. A camera transition still under
+    /// way ends first: an orbit then turns around what is under the pointer
+    /// in the view the drag moves, not in a frame of the transition.
+    fn start_drag(&mut self, scene: &Scene, rect: Rect, mode: DragMode, start: Pos2) {
+        self.settle_animation();
+        let pivot = (mode == DragMode::Orbit).then(|| self.orbit_pivot(scene, rect, start));
+        self.drag = Some(Drag {
+            mode,
+            start,
+            last: start,
+            pivot,
+        });
+    }
+
+    /// Choose the orbit point once per gesture. A hit stays under the cursor;
+    /// empty space keeps the current view centre, including after panning.
+    fn orbit_pivot(&mut self, scene: &Scene, rect: Rect, pos: Pos2) -> Vec3 {
+        if scene.preview_parts.is_empty() {
+            self.pick_index.update(scene);
+            let pointer = ndc(rect, pos);
+            let viewport = GVec2::new(rect.width(), rect.height());
+            let candidates = self
+                .pick_index
+                .query(
+                    &self.camera,
+                    self.aspect,
+                    pointer,
+                    viewport,
+                    SelectionMode::Object,
+                )
+                .into_iter()
+                .filter_map(|index| self.pick_index.candidate(scene, index));
+            if let Some(hit) = picking::pick_clipped(
+                &self.camera,
+                self.aspect,
+                pointer,
+                viewport,
+                SelectionMode::Object,
+                candidates,
+                self.section.clip_plane(),
+            ) {
+                return hit.position;
+            }
+        }
+        self.camera.target
     }
 
     /// What to draw; `simplify` draws parts that are small on screen with
@@ -1567,9 +1615,9 @@ fn requested_drag_mode(
 ) -> Option<DragMode> {
     if middle || (primary && (modifiers.ctrl || modifiers.command)) {
         Some(DragMode::Pan)
-    } else if secondary || (primary && modifiers.shift) {
+    } else if primary && modifiers.shift {
         Some(DragMode::Zoom)
-    } else if primary {
+    } else if primary || secondary {
         Some(DragMode::Orbit)
     } else {
         None

@@ -8,9 +8,9 @@ navigation cube and the View menu.
 
 | Action | Control |
 | --- | --- |
-| Orbit | Left drag |
+| Orbit | Left or right drag; a drag started on the model keeps that point fixed on screen |
 | Pan | Middle drag, or Ctrl + left drag |
-| Zoom | Mouse wheel or touchpad pinch (zooms toward the pointer), right drag, or Shift + left drag |
+| Zoom | Mouse wheel or touchpad pinch (zooms toward the pointer), or Shift + left drag |
 | Select | Left click on a face, edge or vertex |
 | Add to / remove from the selection | Ctrl + click |
 | Clear the selection | Click on empty space |
@@ -19,6 +19,10 @@ navigation cube and the View menu.
 While the view is being orbited or panned, the pointer becomes a closed hand
 to make it clear that the camera is being held and moved. A click without a
 drag still selects the object under the pointer.
+
+The orbit point is chosen when the drag starts. If the pointer is over a
+surface, that point stays in place while the view turns, including after a
+pan. A drag started on empty space turns around the current view centre.
 
 The floating zoom controls in the top-left corner offer precise adjustments
 without a mouse wheel. Use the magnifying-glass buttons for small steps or drag

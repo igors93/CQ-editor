@@ -71,7 +71,7 @@ it does not turn the open gap into a supported feature.
 | `viewer.standard-views` | Fit, isometric, top, bottom, front, back, left and right camera results remain. | Verified | `tests/rust/viewer/test_camera.rs::standard_views_look_where_expected` |
 | `viewer.display-modes` | Shaded and wireframe keep their commands and shortcuts; X-ray and hidden-line modes and per-object edge visibility were added. Each mode is rendered offscreen and its pixels are checked. | Enhanced | `tests/rust/viewer/test_renderer.rs::display_modes_render_faces_edges_and_fills_as_documented` |
 | `viewer.projection` | Orthographic and perspective cameras remain and produce consistent pick rays. | Verified | `tests/rust/viewer/test_camera.rs::projection_round_trips_through_rays` |
-| `viewer.mouse` | Left orbit/select, middle or Ctrl+left pan, right or Shift+left zoom, and wheel zoom retain their bindings. | Verified | `tests/rust/viewer/test_navigation.rs::legacy_mouse_gestures_keep_their_navigation_modes` |
+| `viewer.mouse` | Left orbit/select, middle or Ctrl+left pan, Shift+left zoom and wheel zoom retain their bindings; right drag now orbits instead of zooming, and an orbit begun on the model turns around the point under the pointer. | Changed | Decision: [Mouse navigation](#mouse-navigation); tested by `tests/rust/viewer/test_navigation.rs::mouse_gestures_choose_their_navigation_modes` |
 | `viewer.navigation-cube` | Face/edge/corner views and 45-degree roll remain, with native hover feedback and animation. | Enhanced | `tests/rust/viewer/test_overlays.rs::arrows_are_hit_on_both_sides` |
 | `viewer.selection` | Object selection remains and now resolves stable OCCT face, edge and vertex identities. | Enhanced | `tests/rust/viewer/test_picking.rs::prioritizes_vertices_then_edges_then_faces` |
 | `viewer.screenshot` | Tools > Screenshot still saves the view as PNG; larger sizes (drawn in tiles), a transparent background and turntable animations were added. Capture, tiling, transparency and PNG writing are tested; only the native save dialog is not. | Enhanced | `tests/rust/viewer/test_renderer.rs::captures_leave_out_a_transparent_background_and_scale_edges` |
@@ -104,10 +104,10 @@ platform command modifier where appropriate.
 
 | Gesture | Original result | Current result |
 | --- | --- | --- |
-| Left drag | Orbit using Turntable or Trackball | Preserved |
+| Left drag | Orbit using Turntable or Trackball | Preserved; a drag begun on the model now holds its picked point on screen |
 | Left click without a drag | Select | Preserved; exact topology is also returned |
 | Middle drag or Ctrl+left drag | Pan | Preserved |
-| Right drag or Shift+left drag | Zoom | Preserved |
+| Right drag or Shift+left drag | Zoom | Right drag now orbits around the point under the pointer; Shift+left still zooms |
 | Wheel | Zoom | Preserved; anchored at the pointer |
 | Navigation cube or roll arrow click | Reorient or roll by 45 degrees | Preserved |
 
@@ -162,6 +162,17 @@ on the target's plane, and a composition pass combines them.
 Side-by-side and over-under draw each eye at half the width or height
 without stretching it (for free viewing and for displays that take that
 layout), where OCCT could also stretch them for 3D televisions.
+
+### Mouse navigation
+
+The original editor zoomed with a right drag. Right drag now orbits like a
+left drag. Both turn around the model point under the pointer when the drag
+begins on the model, and that point stays in place on screen, also in a
+panned view; begun on empty space, they turn around the middle of the view
+as before. Zoom keeps the wheel, the touchpad pinch, Shift + left drag and
+the zoom controls, so only the right drag changed. The pointer point is
+picked after any camera transition has ended, in the view the drag turns
+(`tests/rust/viewer/test_navigation.rs::an_orbit_turns_around_the_model_point_under_the_pointer`).
 
 ### Rich console
 

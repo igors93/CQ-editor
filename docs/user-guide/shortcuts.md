@@ -96,9 +96,9 @@ console input and the search fields keep their own undo.
 
 | Action | Mouse |
 | --- | --- |
-| Orbit | Left drag |
+| Orbit | Left or right drag (around the point under the pointer) |
 | Pan | Middle drag, or Ctrl + left drag |
-| Zoom | Wheel or pinch (toward the pointer), right drag, or Shift + left drag |
+| Zoom | Wheel or pinch (toward the pointer), or Shift + left drag |
 | Select according to the toolbar mode (Auto, Object, Face, Edge or Vertex) | Click |
 | Add/remove a second measured entity, or add/remove an object in Object mode | Ctrl + click |
 | Clear the selection | Click on empty space |

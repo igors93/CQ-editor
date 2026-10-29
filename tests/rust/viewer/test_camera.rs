@@ -38,6 +38,35 @@ fn turntable_keeps_z_up() {
 }
 
 #[test]
+fn orbit_keeps_a_picked_point_fixed_in_both_projections() {
+    for projection in [Projection::Orthographic, Projection::Perspective] {
+        let mut camera = Camera {
+            projection,
+            target: Vec3::new(4.0, -3.0, 7.0),
+            ..Camera::default()
+        };
+        let pivot = camera.target + camera.right() * 5.0 + camera.up() * 2.0;
+        let before = project_with(camera.view_projection(1.4), pivot).unwrap();
+        let original_extent = camera.extent;
+        camera.orbit_turntable_about(Vec2::new(38.0, -21.0), pivot);
+        let after = project_with(camera.view_projection(1.4), pivot).unwrap();
+        assert!(
+            (before.truncate() - after.truncate()).length() < 1e-4,
+            "{projection:?}"
+        );
+        assert_eq!(camera.extent, original_extent);
+
+        let before = project_with(camera.view_projection(1.4), pivot).unwrap();
+        camera.orbit_trackball_about(Vec2::new(-0.2, 0.1), Vec2::new(0.2, -0.1), pivot);
+        let after = project_with(camera.view_projection(1.4), pivot).unwrap();
+        assert!(
+            (before.truncate() - after.truncate()).length() < 1e-4,
+            "{projection:?}"
+        );
+    }
+}
+
+#[test]
 fn zoom_keeps_the_anchor_fixed() {
     let mut camera = Camera::default();
     let anchor = Vec2::new(0.5, -0.25);

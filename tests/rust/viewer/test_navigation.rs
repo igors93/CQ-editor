@@ -6,6 +6,7 @@ fn drag_motion_is_incremental_instead_of_reapplying_the_whole_drag() {
         mode: DragMode::Pan,
         start: Pos2::new(10.0, 20.0),
         last: Pos2::new(10.0, 20.0),
+        pivot: None,
     };
 
     assert_eq!(drag.advance(Pos2::new(14.0, 23.0)), Vec2::new(4.0, 3.0));
@@ -20,8 +21,10 @@ fn drag_motion_is_incremental_instead_of_reapplying_the_whole_drag() {
     assert!((incremental.target - once.target).length() < 1e-5);
 }
 
+/// The original editor's gestures, except the right button: it orbits like
+/// the left one instead of zooming.
 #[test]
-fn legacy_mouse_gestures_keep_their_navigation_modes() {
+fn mouse_gestures_choose_their_navigation_modes() {
     use egui::{Modifiers, PointerButton};
 
     let mode = |modifiers, button| {
@@ -51,7 +54,7 @@ fn legacy_mouse_gestures_keep_their_navigation_modes() {
     ));
     assert!(matches!(
         mode(Modifiers::NONE, PointerButton::Secondary),
-        Some(DragMode::Zoom)
+        Some(DragMode::Orbit)
     ));
     assert!(matches!(
         mode(Modifiers::SHIFT, PointerButton::Primary),
@@ -199,7 +202,7 @@ fn pressing_the_view_uses_a_closed_hand_cursor_for_navigation() {
     assert_eq!(cursor, egui::CursorIcon::Grabbing);
     assert_eq!(
         requested_drag_mode(egui::Modifiers::NONE, false, false, true).map(DragMode::cursor),
-        Some(egui::CursorIcon::ResizeVertical)
+        Some(egui::CursorIcon::Grabbing)
     );
 }
 
@@ -382,6 +385,75 @@ fn fine_plate(side: u32) -> Mesh {
     let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
     let edges = vec![[0.0; 3], [1.0, 0.0, 0.0]];
     Mesh::new(positions, normals, indices, edges, Vec::new())
+}
+
+#[test]
+fn an_orbit_turns_around_the_model_point_under_the_pointer() {
+    use crate::scene::{Part, SceneNode};
+    use crate::viewer::camera::Pose;
+    // A 0.75-unit plate on z = 0, from the origin.
+    let node = SceneNode {
+        key: "plate".into(),
+        name: "plate".into(),
+        kind: "Workplane".into(),
+        inspectable: false,
+        parts: vec![Part {
+            mesh: Arc::new(fine_plate(4)),
+            transform: GMat4::IDENTITY,
+            color: None,
+            alpha: None,
+            face_attributes: Vec::new(),
+            material: None,
+            render_mesh: None,
+        }],
+        children: Vec::new(),
+        visible: true,
+        color: None,
+        alpha: None,
+        edge_color: None,
+        finish: None,
+        overrides: Default::default(),
+        line: None,
+        script: None,
+    };
+    let mut scene = Scene::default();
+    scene.append(vec![node], None);
+    let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+    let mut viewer = Viewer {
+        aspect: 800.0 / 600.0,
+        ..Viewer::default()
+    };
+    let top = |target| Pose {
+        target,
+        rotation: StandardView::Top.rotation(),
+        extent: 2.0,
+    };
+    let (far, plate) = (Vec3::new(100.0, 100.0, 0.0), Vec3::new(0.375, 0.375, 0.0));
+
+    // Pressed while the view still moves from far away to the plate: the
+    // move ends first, and the point is picked in the view the drag turns.
+    viewer.camera.set_pose(top(far));
+    viewer.animation = Some(Animation::new(top(far), top(plate), 0.0, ANIMATION_SECONDS));
+    // 30 points right of the middle: 0.2 units at 2 units per 300 points.
+    viewer.start_drag(
+        &scene,
+        rect,
+        DragMode::Orbit,
+        rect.center() + Vec2::new(30.0, 0.0),
+    );
+    assert!(viewer.animation.is_none());
+    assert_eq!(viewer.camera.target, plate);
+    let pivot = viewer.drag.as_ref().unwrap().pivot.unwrap();
+    assert!(
+        (pivot - Vec3::new(0.575, 0.375, 0.0)).length() < 1e-3,
+        "{pivot}"
+    );
+
+    // Over empty space it turns around the middle of the view; a pan has none.
+    viewer.start_drag(&scene, rect, DragMode::Orbit, rect.min + Vec2::splat(5.0));
+    assert_eq!(viewer.drag.as_ref().unwrap().pivot, Some(plate));
+    viewer.start_drag(&scene, rect, DragMode::Pan, rect.center());
+    assert_eq!(viewer.drag.as_ref().unwrap().pivot, None);
 }
 
 #[test]
