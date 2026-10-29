@@ -155,15 +155,6 @@ fn the_material_of_show_object_reaches_the_node() {
 }
 
 #[test]
-fn axis_helpers_scale_with_the_model() {
-    let mut scene = Scene::default();
-    assert_eq!(scene.axis_half_length(), DEFAULT_AXIS_HALF_LENGTH);
-    scene.append(vec![node("b", "box", vec![])], None);
-    let diagonal = Vec3::new(1.0, 2.0, 3.0).length();
-    assert!((scene.axis_half_length() - 2.0 * diagonal).abs() < 1e-5);
-}
-
-#[test]
 fn bounding_boxes_include_all_points_and_ignore_empty_boxes() {
     let box_a = Aabb::from_points([Vec3::new(-2.0, 1.0, 3.0), Vec3::new(4.0, 5.0, 7.0)]);
     assert_eq!(Aabb::EMPTY.union(box_a), box_a);

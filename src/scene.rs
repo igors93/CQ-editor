@@ -915,8 +915,6 @@ const SIMPLIFY_FROM_TRIANGLES: usize = 2_000;
 /// Cells along the longest side of a mesh when it is simplified.
 const SIMPLIFIED_CELLS: f32 = 40.0;
 
-/// Default half length of the axis helpers when nothing is shown.
-const DEFAULT_AXIS_HALF_LENGTH: f32 = 100.0;
 /// The widest exploded view: parts three times as far from the centre as
 /// when assembled.
 pub const MAX_EXPLODE: f32 = 2.0;
@@ -1357,19 +1355,6 @@ impl Scene {
         node.parts.iter().fold(Aabb::EMPTY, |b, part| {
             b.union(part.mesh.bounds.transformed(self.part_transform(part)))
         })
-    }
-
-    /// The axis helpers span twice the diagonal of the shown objects.
-    pub fn axis_half_length(&self) -> f32 {
-        let bounds = self
-            .nodes
-            .iter()
-            .fold(Aabb::EMPTY, |b, n| b.union(n.subtree_bounds()));
-        if bounds.is_empty() || bounds.diagonal() <= 0.0 {
-            DEFAULT_AXIS_HALF_LENGTH
-        } else {
-            2.0 * bounds.diagonal()
-        }
     }
 
     /// Shows or hides a node and its whole subtree.

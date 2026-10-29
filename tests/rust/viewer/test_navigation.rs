@@ -491,6 +491,7 @@ fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
     let mut viewer = Viewer::default();
     viewer.update_ground(
         true,
+        scene.visible_bounds(),
         Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)),
     );
     let mut rendering = Rendering::default();
@@ -508,9 +509,10 @@ fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
         viewer.draw_items(&input, false)
     };
 
-    // Shaded: the plain shading, every edge, the axes and the grid.
+    // Shaded: the plain shading, every edge, the axes with the origin dot
+    // (two points) and the grid.
     let shaded = items(&mut viewer, &rendering);
-    assert_eq!(shaded.len(), 2 + 3 + 2);
+    assert_eq!(shaded.len(), 2 + 3 + 2 + GRID_FADE.len() * 2);
     assert_eq!(shaded[0].style.surface, Finish::Default.surface());
     assert!(shaded[0].style.edges);
 
@@ -529,7 +531,7 @@ fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
     rendering.presentation.helpers = true;
     rendering.presentation.edges = EdgeStyle::Outline;
     let outlined = items(&mut viewer, &rendering);
-    assert_eq!(outlined.len(), 2 + 3 + 2);
+    assert_eq!(outlined.len(), 2 + 3 + 2 + GRID_FADE.len() * 2);
     assert!(outlined[0].style.edges && outlined[0].style.silhouettes);
 
     // Its own lights and background; Shaded keeps the others.
@@ -570,28 +572,59 @@ fn presentation_shows_the_model_alone_in_its_own_material_and_lights() {
 }
 
 #[test]
-fn the_ground_grid_follows_its_setting_and_the_zoom() {
+fn the_ground_grid_follows_its_setting_and_the_model() {
     let mut viewer = Viewer::default();
     let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
-    viewer.update_ground(false, rect);
+    let screw = Aabb::from_points([Vec3::new(-6.5, -6.5, -60.0), Vec3::new(6.5, 6.5, 8.0)]);
+    viewer.update_ground(false, screw, rect);
     assert!(viewer.ground.is_none());
 
-    viewer.update_ground(true, rect);
-    let (grid, minor, _) = viewer.ground.clone().unwrap();
-    viewer.update_ground(true, rect);
+    viewer.update_ground(true, screw, rect);
+    let (grid, rings) = viewer.ground.clone().unwrap();
+    assert_eq!(grid.center.z, -60.0, "a floor under the model");
+
+    viewer.update_ground(true, screw, rect);
     let kept = viewer.ground.as_ref().unwrap();
-    assert!(Arc::ptr_eq(&kept.1, &minor), "same lines, same meshes");
+    assert!(
+        Arc::ptr_eq(&kept.1[0].0, &rings[0].0),
+        "same lines, same meshes"
+    );
 
-    // Ten times closer, ten times finer.
-    viewer.camera.extent /= 10.0;
-    viewer.update_ground(true, rect);
-    let finer = viewer.ground.as_ref().unwrap().0;
-    assert!((finer.minor * 10.0 - grid.minor).abs() < grid.minor * 1e-4);
+    // Turning and zooming leave the floor where it is: at most it reaches
+    // farther, and zooming out fades the lines that crowd together.
+    for view in [StandardView::Front, StandardView::Right, StandardView::Top] {
+        viewer.camera.rotation = view.rotation();
+        viewer.update_ground(true, screw, rect);
+        let turned = viewer.ground.as_ref().unwrap().0;
+        assert_eq!((turned.minor, turned.center), (grid.minor, grid.center));
+        assert!(turned.radius >= grid.radius);
+    }
+    viewer.camera.rotation = StandardView::Iso.rotation();
+    viewer.camera.extent *= 20.0;
+    viewer.update_ground(true, screw, rect);
+    let far = viewer.ground.as_ref().unwrap().0;
+    assert_eq!((far.minor, far.center), (grid.minor, grid.center));
+    assert!(
+        far.radius > grid.radius,
+        "the floor reaches the edge of the view"
+    );
+    assert!(far.minor_opacity < grid.minor_opacity);
+    viewer.camera.extent /= 20.0;
+    viewer.update_ground(true, screw, rect);
+    assert_eq!(viewer.ground.as_ref().unwrap().0, grid);
 
-    // The clipping planes enclose it, and it is drawn as two sets of lines.
+    // Another model gets its own floor.
+    let plate = Aabb::from_points([Vec3::ZERO, Vec3::new(400.0, 300.0, 10.0)]);
+    viewer.update_ground(true, plate, rect);
+    let (moved, _) = viewer.ground.as_ref().unwrap();
+    assert_eq!(moved.center.z, 0.0);
+    assert!(moved.minor > grid.minor);
+    viewer.update_ground(true, screw, rect);
+
+    // The clipping planes enclose it, and its lines fade toward the edge.
     let scene = Scene::default();
-    viewer.update_scene_extent(&scene, Aabb::EMPTY);
-    for corner in finer.corners() {
+    viewer.update_scene_extent(&scene, screw);
+    for corner in grid.corners() {
         let distance = (corner - viewer.camera.scene_center).length();
         assert!(distance <= viewer.camera.scene_radius + 1e-3);
     }
@@ -606,24 +639,58 @@ fn the_ground_grid_follows_its_setting_and_the_zoom() {
         empty_hint: None,
         meshing: None,
     };
-    let (_, minor, major) = viewer.ground.clone().unwrap();
     let items = viewer.draw_items(&input, false);
     let z_axis = viewer.axis_meshes.as_ref().unwrap().1[2].id;
-    assert_eq!(
-        items
-            .iter()
-            .find(|item| item.mesh.id == z_axis)
-            .unwrap()
-            .layer,
-        Layer::Scene,
-        "the Z axis keeps normal scene depth and may cross the model"
+    let z_points = &viewer.axis_meshes.as_ref().unwrap().1[2].edges;
+    assert_eq!(z_points[0], Vec3::ZERO.to_array());
+    assert!((z_points[1][2] - viewer.camera.extent * 0.45).abs() < 1e-5);
+    let z_item = items.iter().find(|item| item.mesh.id == z_axis).unwrap();
+    assert_eq!(z_item.layer, Layer::Scene);
+    assert!(
+        z_item.style.hidden_edges,
+        "the Z axis is dashed where a model built around the origin hides it"
     );
+    let origin: Vec<_> = items
+        .iter()
+        .filter(|item| item.mesh.id == viewer.origin_mesh.id)
+        .collect();
+    assert_eq!(origin.len(), 2, "a light dot in a dark ring");
+    assert!(
+        origin
+            .iter()
+            .all(|item| { item.layer == Layer::Overlay && item.style.points && !item.style.edges })
+    );
+    assert!(origin[0].style.point_size > origin[1].style.point_size);
     let grid_items: Vec<_> = items
         .iter()
-        .filter(|item| item.mesh.id == minor.id || item.mesh.id == major.id)
+        .filter(|item| {
+            viewer
+                .ground
+                .as_ref()
+                .unwrap()
+                .1
+                .iter()
+                .any(|(minor, major)| item.mesh.id == minor.id || item.mesh.id == major.id)
+        })
         .collect();
-    assert_eq!(grid_items.len(), 2);
+    assert_eq!(grid_items.len(), GRID_FADE.len() * 2);
     assert!(grid_items.iter().all(|item| {
         item.layer == Layer::Reference && !item.style.clipped && !item.style.faces
     }));
+    let major_opacity: Vec<f32> = viewer
+        .ground
+        .as_ref()
+        .unwrap()
+        .1
+        .iter()
+        .map(|(_, major)| {
+            items
+                .iter()
+                .find(|item| item.mesh.id == major.id)
+                .unwrap()
+                .style
+                .edge_color[3]
+        })
+        .collect();
+    assert!(major_opacity.windows(2).all(|pair| pair[0] > pair[1]));
 }

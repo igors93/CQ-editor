@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* Changed: the ground grid is a floor on the XY plane at the model's
+  lowest point, so the model stands on it. It stays flat in every view
+  instead of turning into a wall in the Front and Right views, reaches the
+  edge of the view and fades into the distance, and its spacing follows the
+  size of the model (5 mm for a 60 mm screw) instead of the zoom; lines too
+  close together on screen fade out
+* Changed: the X, Y and Z axes in the view are dashed where the model hides
+  them, so a part built around the origin no longer makes them disappear,
+  and a white dot marks the origin
 * Changed: the installers leave out the Boost, Eigen and TBB headers, CMake
   files and import libraries that the VTK package brings for compiling
   against it, which nothing uses at run time: each installer is about 19 MB

@@ -1,5 +1,4 @@
 use super::*;
-use crate::scene::Aabb;
 use crate::settings::Projection;
 use crate::viewer::camera::{Pose, StandardView};
 
@@ -14,6 +13,32 @@ fn camera(projection: Projection, target: Vec3, extent: f32, view: StandardView)
         extent,
     });
     camera
+}
+
+/// The DIN 912 M8x60 screw: the origin is under its head.
+fn screw() -> Aabb {
+    Aabb::from_points([Vec3::new(-6.5, -6.5, -60.0), Vec3::new(6.5, 6.5, 8.0)])
+}
+
+/// The floor for a model in the Iso view, `extent` units from the middle of
+/// the view to its top.
+fn floor(bounds: Aabb, extent: f32) -> GroundGrid {
+    let camera = camera(
+        Projection::Orthographic,
+        Vec3::ZERO,
+        extent,
+        StandardView::Iso,
+    );
+    GroundGrid::under(bounds, &camera, VIEW)
+}
+
+const VIEW: Vec2 = Vec2::new(800.0, 600.0);
+
+fn points(meshes: &[(Mesh, Mesh)]) -> impl Iterator<Item = Vec3> + '_ {
+    meshes
+        .iter()
+        .flat_map(|(minor, major)| minor.edges.iter().chain(&major.edges))
+        .map(|point| Vec3::from_array(*point))
 }
 
 #[test]
@@ -47,71 +72,124 @@ fn units_per_point_follow_the_zoom_in_both_projections() {
 }
 
 #[test]
-fn the_grid_spacing_is_a_power_of_ten_readable_at_any_zoom() {
-    let view = Vec2::new(800.0, 600.0);
-    let mut previous: Option<f32> = None;
-    for extent in [0.05, 0.3, 2.0, 15.0, 120.0, 900.0] {
-        let camera = camera(
-            Projection::Orthographic,
-            Vec3::new(3.3, -7.1, 2.0),
-            extent,
-            StandardView::Iso,
-        );
-        let grid = GroundGrid::for_view(&camera, view);
-        let spacing = grid.minor / units_per_point(&camera, view.y);
-        assert!(
-            (MIN_GRID_SPACING..MIN_GRID_SPACING * 10.0 + 1e-3).contains(&spacing),
-            "{spacing} points between lines at extent {extent}"
-        );
-        let exponent = grid.minor.log10();
-        assert!((exponent - exponent.round()).abs() < 1e-4, "{}", grid.minor);
-        assert!((0.25..=1.0).contains(&grid.minor_opacity));
-        if let Some(previous) = previous {
-            assert!(grid.minor >= previous, "zooming out never densifies");
-        }
-        previous = Some(grid.minor);
+fn the_floor_lies_flat_under_the_model() {
+    let grid = floor(screw(), 60.0);
+    assert_eq!(grid.center.z, -60.0, "at the screw's tip, not at Z = 0");
+    let meshes = grid.faded_meshes();
+    assert!(points(&meshes).all(|point| point.z == -60.0));
 
-        // Centred on a major line near the target, covering the view.
-        let major = grid.minor * 10.0;
-        assert!(((grid.center / major).round() * major - grid.center).length() < 1e-3);
-        assert!((grid.center - camera.target.truncate()).abs().max_element() <= major);
-        let view_reach = view.length() / 2.0 * units_per_point(&camera, view.y);
-        assert!(grid.half_size() >= view_reach.min(grid.minor * 300.0));
-        assert!(grid.lines % 10 == 0 && grid.lines <= 300);
+    // It reaches well past the model on every side.
+    let footprint = Aabb::from_points(points(&meshes));
+    assert!(footprint.min.x < -60.0 && footprint.max.x > 60.0);
+    assert!(footprint.min.y < -60.0 && footprint.max.y > 60.0);
+
+    // A model above the origin stands on its own lowest point.
+    let raised = Aabb::from_points([Vec3::new(40.0, 10.0, 5.0), Vec3::new(60.0, 30.0, 25.0)]);
+    let grid = floor(raised, 60.0);
+    assert_eq!(grid.center.z, 5.0);
+    assert!((grid.center.truncate() - Vec2::new(50.0, 20.0)).length() <= grid.minor * 5.0);
+}
+
+#[test]
+fn the_spacing_follows_the_model_and_not_the_zoom() {
+    let grid = floor(screw(), 40.0);
+    assert_eq!(grid.minor, 5.0, "68 mm long: 5 mm cells");
+    let mut radius = 0.0;
+    for extent in [0.5, 15.0, 40.0, 300.0, 12000.0] {
+        let zoomed = floor(screw(), extent);
+        assert_eq!((zoomed.minor, zoomed.center), (grid.minor, grid.center));
+        assert!(zoomed.radius >= radius, "zooming out never shrinks it");
+        radius = zoomed.radius;
+    }
+
+    for (size, minor) in [(10.0, 0.5), (68.0, 5.0), (100.0, 5.0), (1000.0, 50.0)] {
+        let model = Aabb::from_points([Vec3::ZERO, Vec3::new(size * 0.5, size * 0.2, size)]);
+        let grid = floor(model, size);
+        assert_eq!(grid.minor, minor, "{size} units tall");
+        assert_eq!(round_length(grid.minor), grid.minor);
+        // Centred on a major line, so that every line has a round coordinate.
+        let major = grid.minor * 5.0;
+        let center = grid.center.truncate();
+        assert!(((center / major).round() * major - center).length() < 1e-3);
+        assert!(grid.radius <= grid.minor * 300.0);
     }
 }
 
 #[test]
-fn grid_lines_lie_on_the_ground_with_every_tenth_one_major() {
-    let camera = camera(
-        Projection::Orthographic,
-        Vec3::new(5.0, 5.0, 0.0),
-        10.0,
-        StandardView::Top,
-    );
-    let grid = GroundGrid::for_view(&camera, Vec2::new(400.0, 400.0));
-    let (minor, major) = grid.meshes();
-    let lines = grid.lines as usize;
-    // Lines both ways, from -lines to +lines.
-    assert_eq!(major.edges.len() / 2, (2 * lines / 10 + 1) * 2);
-    assert_eq!(
-        (minor.edges.len() + major.edges.len()) / 2,
-        (2 * lines + 1) * 2
-    );
+fn an_empty_scene_has_a_floor_through_the_origin() {
+    for bounds in [
+        Aabb::EMPTY,
+        Aabb::from_points([Vec3::new(3.0, 4.0, 5.0)]),
+        Aabb::from_points([Vec3::ZERO, Vec3::new(f32::INFINITY, 1.0, 1.0)]),
+    ] {
+        let grid = floor(bounds, 20.0);
+        assert_eq!(grid.center, Vec3::ZERO);
+        assert_eq!(grid.minor, 5.0);
+        assert!(grid.radius > 100.0);
+    }
+}
+
+#[test]
+fn the_floor_reaches_the_edge_of_the_view_in_whole_doublings() {
+    let own = floor(screw(), 1.0).radius;
+    for (extent, view) in [
+        (300.0, StandardView::Top),
+        (200.0, StandardView::Iso),
+        (40.0, StandardView::Front),
+    ] {
+        let camera = camera(Projection::Orthographic, Vec3::ZERO, extent, view);
+        let grid = GroundGrid::under(screw(), &camera, VIEW);
+        let half_view = VIEW.length() * 0.5 * units_per_point(&camera, VIEW.y);
+        assert!(grid.radius >= half_view, "{view:?} at {extent}");
+        let doublings = (grid.radius / own).log2();
+        assert!((doublings - doublings.round()).abs() < 1e-4);
+    }
+    // Never more lines than the cap, however far the view zooms out.
+    let farthest = floor(screw(), 1e6);
+    assert_eq!(farthest.radius, farthest.minor * 300.0);
+}
+
+#[test]
+fn crowded_lines_fade_out_as_the_view_zooms_out() {
+    // 600 points high: an extent of 15 is 0.05 units per point.
+    let close = floor(screw(), 15.0);
+    assert_eq!((close.minor_opacity, close.major_opacity), (1.0, 1.0));
+    let far = floor(screw(), 240.0);
+    assert!(far.minor_opacity < 0.5 && far.major_opacity == 1.0);
+    let very_far = floor(screw(), 1500.0);
+    assert_eq!(very_far.minor_opacity, 0.0);
+    assert!(very_far.major_opacity < far.major_opacity);
+    assert_eq!(line_opacity(1.0, 0.0), 1.0);
+}
+
+#[test]
+fn the_floor_fades_into_a_circle_with_every_fifth_line_major() {
+    let grid = floor(screw(), 60.0);
+    let meshes = grid.faded_meshes();
+    assert_eq!(meshes.len(), GRID_FADE.len());
     assert!(
-        minor
-            .edges
+        meshes
             .iter()
-            .chain(&major.edges)
-            .all(|point| point[2] == 0.0)
+            .all(|(minor, major)| !minor.edges.is_empty() && !major.edges.is_empty())
     );
+    for point in points(&meshes) {
+        assert!((point - grid.center).length() <= grid.radius + 1e-3);
+    }
+    // Each line runs along X or Y at a multiple of the spacing.
+    for (minor, major) in &meshes {
+        for (lines, step) in [(&minor.edges, grid.minor), (&major.edges, grid.minor * 5.0)] {
+            for pair in lines.chunks(2) {
+                let (a, b) = (Vec3::from_array(pair[0]), Vec3::from_array(pair[1]));
+                let across = if a.x == b.x { a.x } else { a.y };
+                assert!(a.x == b.x || a.y == b.y);
+                assert!(((across / step).round() * step - across).abs() < 1e-3);
+            }
+        }
+    }
     let [low, high] = grid.corners();
-    assert!(
-        Aabb::from_points(major.edges.iter().map(|p| Vec3::from_array(*p)))
-            .max
-            .abs_diff_eq(high, 1e-3)
-    );
-    assert!((high - low).x > 0.0 && (high - low).z == 0.0);
+    let footprint = Aabb::from_points(points(&meshes));
+    assert!(low.x <= footprint.min.x && high.y >= footprint.max.y);
+    assert_eq!((low.z, high.z), (-60.0, -60.0));
 }
 
 #[test]

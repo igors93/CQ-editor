@@ -31,7 +31,7 @@ use crate::settings::{self, NamedView, OrbitMethod};
 use camera::{Animation, Camera, StandardView};
 use capture::{CaptureOptions, TurntableExport, TurntableOptions};
 use culling::Detail;
-use ground::{GroundGrid, ScaleBar};
+use ground::{GRID_FADE, GroundGrid, ScaleBar};
 pub use overlays::CubeColors;
 use overlays::{NavAction, NavigationCube};
 use renderer::{DrawItem, FrameInput, Layer, SceneRenderer, Style};
@@ -344,11 +344,16 @@ pub struct Viewer {
     /// Small parts are drawn simplified (large-model mode).
     simplifying: bool,
     axis_meshes: Option<(f32, [Arc<Mesh>; 3])>,
+    /// The dot marking the world origin where the axes start.
+    origin_mesh: Arc<Mesh>,
     grid_mesh: Option<(GridKey, Arc<Mesh>)>,
-    /// The ground grid of this frame, with its minor and major lines.
-    ground: Option<(GroundGrid, Arc<Mesh>, Arc<Mesh>)>,
+    /// The ground grid with its lines, ring by ring from the middle out.
+    ground: Option<(GroundGrid, Vec<GroundRing>)>,
     pick_index: picking::SceneIndex,
 }
+
+/// The minor and the major lines of one fading ring of the ground grid.
+type GroundRing = (Arc<Mesh>, Arc<Mesh>);
 
 #[derive(Clone, Copy, PartialEq)]
 struct GridKey([f32; 10]);
@@ -375,6 +380,13 @@ impl Default for Viewer {
             view_px: [1, 1],
             simplifying: false,
             axis_meshes: None,
+            origin_mesh: Arc::new(Mesh::new(
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                vec![[0.0; 3]],
+            )),
             grid_mesh: None,
             ground: None,
             pick_index: picking::SceneIndex::default(),
@@ -521,7 +533,6 @@ impl Viewer {
         self.aspect = (rect.width() / rect.height().max(1.0)).max(1e-3);
 
         self.apply_settings(input.settings);
-        self.update_ground(input.settings.ground_grid, rect);
         let bounds = input.scene.visible_bounds();
         self.update_scene_extent(input.scene, bounds);
         let zoom_controls = zoom_controls_rect(rect);
@@ -558,6 +569,9 @@ impl Viewer {
                 ui.ctx().request_repaint();
             }
         }
+
+        self.update_ground(input.settings.ground_grid, bounds, rect);
+        self.update_scene_extent(input.scene, bounds);
 
         let painter = ui.painter_at(rect);
         match frame.wgpu_render_state() {
@@ -751,25 +765,27 @@ impl Viewer {
         }
     }
 
-    /// The ground grid for the camera as it is now, its lines rebuilt only
-    /// when they change.
-    fn update_ground(&mut self, shown: bool, rect: Rect) {
+    /// The ground grid under what is shown (`bounds`). Its lines are rebuilt
+    /// only when the model changes or the view needs a larger floor.
+    fn update_ground(&mut self, shown: bool, bounds: Aabb, rect: Rect) {
         if !shown {
             self.ground = None;
             return;
         }
-        let grid = GroundGrid::for_view(&self.camera, GVec2::new(rect.width(), rect.height()));
-        let same_lines = |old: &GroundGrid| {
-            GroundGrid {
-                minor_opacity: grid.minor_opacity,
-                ..*old
-            } == grid
-        };
+        let grid = GroundGrid::under(
+            bounds,
+            &self.camera,
+            GVec2::new(rect.width(), rect.height()),
+        );
         match &mut self.ground {
-            Some((old, _, _)) if same_lines(old) => *old = grid,
+            Some((old, _)) if old.same_lines(&grid) => *old = grid,
             _ => {
-                let (minor, major) = grid.meshes();
-                self.ground = Some((grid, Arc::new(minor), Arc::new(major)));
+                let bands = grid
+                    .faded_meshes()
+                    .into_iter()
+                    .map(|(minor, major)| (Arc::new(minor), Arc::new(major)))
+                    .collect();
+                self.ground = Some((grid, bands));
             }
         }
     }
@@ -788,14 +804,14 @@ impl Viewer {
         };
         if scene.axes.iter().any(|a| a.visible) {
             // The helpers run through the origin.
-            let half = scene.axis_half_length();
+            let half = self.camera.extent * 0.45;
             radius = radius.max(half + center.length());
             center *= 0.5;
         }
         if let Some(grid) = &scene.overlay.grid {
             radius = radius.max(grid.size * 1.5 + (grid.origin - center).length());
         }
-        if let Some((ground, _, _)) = &self.ground {
+        if let Some((ground, _)) = &self.ground {
             let reach = ground
                 .corners()
                 .iter()
@@ -1323,7 +1339,10 @@ impl Viewer {
             });
         }
 
-        let half_length = scene.axis_half_length();
+        // Short positive origin axes give a consistent X/Y/Z reference at
+        // every zoom. Where the model hides them they are dashed, so that a
+        // part built around the origin never makes them disappear.
+        let half_length = self.camera.extent * 0.45;
         if self
             .axis_meshes
             .as_ref()
@@ -1331,7 +1350,7 @@ impl Viewer {
         {
             let line = |dir: Vec3| {
                 Arc::new(Mesh::lines(vec![
-                    (-dir * half_length).to_array(),
+                    Vec3::ZERO.to_array(),
                     (dir * half_length).to_array(),
                 ]))
             };
@@ -1346,27 +1365,51 @@ impl Viewer {
         {
             for (axis, mesh) in scene.axes.iter().zip(meshes) {
                 if axis.visible {
-                    items.push(line_item(
+                    let mut item = line_item(
                         mesh.clone(),
                         rgb_to_linear(axis.color, 1.0),
                         1.5,
                         Layer::Scene,
-                    ));
+                    );
+                    item.style.hidden_edges = true;
+                    items.push(item);
+                }
+            }
+            if scene.axes.iter().any(|axis| axis.visible) {
+                // A light dot in a dark ring, visible on any background.
+                for (color, size) in [(colors.cube.outline, 9.0), (colors.overlay_text, 6.0)] {
+                    let mut item = line_item(
+                        self.origin_mesh.clone(),
+                        linear_color(color, 1.0),
+                        1.0,
+                        Layer::Overlay,
+                    );
+                    item.style.edges = false;
+                    item.style.points = true;
+                    item.style.point_size = size;
+                    items.push(item);
                 }
             }
         }
 
-        if let Some((ground, minor, major)) = &self.ground
+        if let Some((ground, bands)) = &self.ground
             && helpers
         {
             let color = |alpha| linear_color(colors.grid, alpha);
-            items.push(line_item(
-                minor.clone(),
-                color(0.35 * ground.minor_opacity),
-                1.0,
-                Layer::Reference,
-            ));
-            items.push(line_item(major.clone(), color(0.7), 1.0, Layer::Reference));
+            for ((minor, major), opacity) in bands.iter().zip(GRID_FADE) {
+                items.push(line_item(
+                    minor.clone(),
+                    color(0.35 * ground.minor_opacity * opacity),
+                    1.0,
+                    Layer::Reference,
+                ));
+                items.push(line_item(
+                    major.clone(),
+                    color(0.7 * ground.major_opacity * opacity),
+                    1.0,
+                    Layer::Reference,
+                ));
+            }
         }
 
         if let Some(grid) = &scene.overlay.grid {
@@ -1448,7 +1491,7 @@ impl Viewer {
             let units_per_point = ground::units_per_point(&self.camera, rect.height());
             let bar = ScaleBar::new(units_per_point, input.settings.units);
             let mut label = bar.label.clone();
-            if let Some((grid, _, _)) = &self.ground {
+            if let Some((grid, _)) = &self.ground {
                 label += &format!(
                     " · grid {}",
                     ground::format_length(grid.minor, input.settings.units)

@@ -51,6 +51,9 @@ The cube in the top-right corner always shows the current orientation.
 
 The axes indicator in the bottom-right corner shows the X (red), Y (green)
 and Z (blue) directions. Both can be hidden in *Preferences > 3D View*.
+In the view itself, short X, Y and Z guides start at the world origin, which
+is marked with a white dot. Where the model hides them they are drawn dashed,
+so a part built around the origin never makes them disappear.
 
 ## Standard views and framing
 
@@ -329,12 +332,16 @@ Hovering an object highlights it before you click.
 
 ## Ground grid and scale bar
 
-**View > Ground Grid** draws a grid on the XY plane (z = 0), the plane most
-CadQuery models start from. Its lines are a power of ten apart (0.1, 1, 10,
-100… units), at least 12 points apart on screen, with a stronger line every
-ten; zooming in or out switches to the next power of ten, and the finer
-lines fade in as they spread. The grid follows the point the camera looks
-at, so it always fills the view.
+**View > Ground Grid** (on by default) draws a floor under the model: a grid
+on the XY plane at the model's lowest point, so the model stands on it. It
+stays flat in every view, Front and Right included, and its lines do not
+move or change spacing while the view turns or zooms; they change only when
+the shown model does. Its spacing follows the size of the model in 1, 2 or
+5 steps (5 mm for a 60 mm screw), with a stronger line every five, and its
+lines are on round coordinates. The floor reaches the edge of the view,
+however far it is zoomed out or panned, and fades away into the distance;
+when the view is zoomed out, lines too close together on screen fade out
+rather than blur. With nothing shown, it lies on z = 0 around the origin.
 
 The **scale bar** at the bottom right of the view (**View > Scale Bar**, on
 by default) shows a round length (1, 2 or 5 × a power of ten) at the depth

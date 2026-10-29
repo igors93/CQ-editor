@@ -36,7 +36,7 @@ Defaults follow the original CQ-editor wherever the option existed there.
 | Default object color | (255, 215, 0) gold | For objects without a color |
 | Show edges | on | Each object can override it (Objects panel, **Edges**) |
 | Hidden edges | on | Faint dashed edges behind faces in the Hidden Line display mode |
-| Ground grid | off | A grid on the XY plane, also in View > Ground Grid |
+| Ground grid | on | A floor grid on the XY plane under the model, also in View > Ground Grid |
 | Scale bar | on | A round length at the bottom right of the view, also in View > Scale Bar |
 | Units | Millimeters | What one model unit means in the scale bar and export dialog: millimeters, centimeters, meters, inches or none |
 | Large models | Automatic | Draw parts that are small on screen with a simplified mesh: from 2 million triangles shown, always, or never (see [Large models](viewer.md#large-models)) |
